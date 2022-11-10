@@ -70,21 +70,6 @@ func (c *Command) RootCommandRun(ctx *Context, args []string) (err error) {
 			return
 		}
 
-		input := make(map[string]interface{})
-		for _, f := range ctx.dynamicFlags.flags {
-			// rebuild input
-			if f.Name != "body" {
-				if a, success := util.ParseToJsonArrayOrObject(strings.TrimSpace(f.value)); success {
-					input[f.Name] = a
-				} else {
-					input[f.Name] = f.value
-				}
-			} else {
-				// origin
-				input[f.Name] = f.value
-			}
-		}
-
 		method := "GET"
 		contentType := ""
 		serviceName := args[0]
@@ -96,6 +81,30 @@ func (c *Command) RootCommandRun(ctx *Context, args []string) (err error) {
 
 		if apiInfo != nil && apiInfo.ContentType != "" {
 			contentType = apiInfo.ContentType
+		}
+
+		input := make(map[string]interface{})
+		for _, f := range ctx.dynamicFlags.flags {
+			// rebuild input
+			if f.Name != "body" {
+				if a, success := util.ParseToJsonArrayOrObject(strings.TrimSpace(f.value)); success {
+					input[f.Name] = a
+				} else {
+					input[f.Name] = f.value
+				}
+			} else {
+				// origin
+				if apiInfo.ContentType == "application/json" {
+					err = json.Unmarshal([]byte(f.value), &input)
+					if err != nil {
+						return err
+					}
+					break
+				} else {
+					input[f.Name] = f.value
+				}
+
+			}
 		}
 
 		if svc, ok := GetServiceMapping(serviceName); ok {
