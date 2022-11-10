@@ -32,7 +32,7 @@ type SdkClientInfo struct {
 func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 	var (
 		ak, sk, sessionToken, region, endpoint string
-		diableSSl                              bool
+		disableSSl                             bool
 	)
 
 	// first try to get ak/sk/region from config file
@@ -44,7 +44,7 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 			region = currentProfile.Region
 			sessionToken = currentProfile.SessionToken
 			endpoint = currentProfile.Endpoint
-			diableSSl = currentProfile.DisableSSL
+			disableSSl = currentProfile.DisableSSL
 
 			if ak == "" {
 				return nil, fmt.Errorf("profile AccessKey not set")
@@ -57,6 +57,7 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 			}
 		}
 	}
+
 	// if cannot get from config file, try to get from export variable
 	if currentProfile == nil {
 		ak = os.Getenv("VOLCENGINE_ACCESS_KEY")
@@ -66,7 +67,7 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		sessionToken = os.Getenv("VOLCENGINE_SESSION_TOKEN")
 		ssl := os.Getenv("VOLCENGINE_DISABLE_SSL")
 		if ssl == "true" || ssl == "false" {
-			diableSSl, _ = strconv.ParseBool(ssl)
+			disableSSl, _ = strconv.ParseBool(ssl)
 		}
 
 		if ak == "" {
@@ -78,16 +79,20 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		if region == "" {
 			return nil, fmt.Errorf("VOLCENGINE_REGION not set")
 		}
+		if endpoint == "" {
+			return nil, fmt.Errorf("VOLCENGINE_ENDPOINT not set")
+		}
 	}
 
 	config := volcengine.NewConfig().
 		WithRegion(region).
 		WithCredentials(credentials.NewStaticCredentials(ak, sk, sessionToken)).
-		WithDisableSSL(diableSSl)
+		WithDisableSSL(disableSSl)
 
-	if endpoint != "" {
-		config.WithEndpoint(endpoint)
+	if endpoint == "" {
+		return nil, fmt.Errorf("endpoint is empty, please set")
 	}
+	config.WithEndpoint(endpoint)
 
 	sess, _ := session.NewSession(config)
 

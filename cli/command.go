@@ -5,6 +5,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/volcengine/volcengine-cli/util"
@@ -96,16 +97,7 @@ func (c *Command) RootCommandRun(ctx *Context, args []string) (err error) {
 				}
 			} else {
 				// origin
-				if apiInfo.ContentType == "application/json" {
-					err = json.Unmarshal([]byte(f.value), &input)
-					if err != nil {
-						return err
-					}
-					break
-				} else {
-					input[f.Name] = f.value
-				}
-
+				input[f.Name] = f.value
 			}
 		}
 
@@ -175,7 +167,7 @@ func (c *Command) HandleConfigureCommand(ctx *Context, args []string) (err error
 		case "get":
 			return getConfigProfile(ctx)
 		case "list":
-
+			return listConfigProfiles(ctx)
 		case "delete":
 			return deleteConfigProfile(ctx)
 		default:
@@ -197,9 +189,6 @@ func setConfigProfile(ctx *Context) error {
 	if profileFlag, exist = ctx.dynamicFlags.index["--profile"]; !exist {
 		return fmt.Errorf("please set profile name")
 	}
-	if _, exist = ctx.dynamicFlags.index["--region"]; !exist {
-		return fmt.Errorf("please set region")
-	}
 
 	// if config not exist, create an empty config
 	if cfg = ctx.config; cfg == nil {
@@ -212,9 +201,14 @@ func setConfigProfile(ctx *Context) error {
 	// otherwise create a new profile
 	if currentProfile, exist = cfg.Profiles[profileFlag.value]; !exist {
 		currentProfile = &Profile{
-			Name: profileFlag.value,
-			Mode: "AK",
+			Name:       profileFlag.value,
+			Mode:       "AK",
+			DisableSSL: false,
 		}
+	}
+
+	if _, exist = ctx.dynamicFlags.index["--region"]; currentProfile.Region == "" && !exist {
+		return fmt.Errorf("please set region")
 	}
 
 	for _, f := range ctx.dynamicFlags.flags {
@@ -225,12 +219,20 @@ func setConfigProfile(ctx *Context) error {
 			currentProfile.SecretKey = f.value
 		case "region":
 			currentProfile.Region = f.value
+		case "endpoint":
+			currentProfile.Endpoint = f.value
+		case "session-token":
+			currentProfile.SessionToken = f.value
+		case "disable-ssl":
+			if v, err := strconv.ParseBool(f.value); err != nil {
+				currentProfile.DisableSSL = v
+			} else {
+				return fmt.Errorf("disable-ssl should be bool value")
+			}
 		}
 	}
 
-	if !exist {
-		cfg.Profiles[currentProfile.Name] = currentProfile
-	}
+	cfg.Profiles[currentProfile.Name] = currentProfile
 	cfg.Current = currentProfile.Name
 	return WriteConfigToFile(cfg)
 }
@@ -243,9 +245,16 @@ func getConfigProfile(ctx *Context) error {
 		cfg            *Configure
 	)
 
+	// if config not exist, return
+	if cfg = ctx.config; cfg == nil {
+		fmt.Println(Profile{})
+		return nil
+	}
+
 	// check profile flag
 	if profileFlag, exist = ctx.dynamicFlags.index["--profile"]; !exist {
-		return fmt.Errorf("please provide profile name")
+		fmt.Printf("no profile specified, show current profile: [%v]\n", cfg.Current)
+		profileFlag = &Flag{value: cfg.Current}
 	}
 
 	// check invalid flag
@@ -255,17 +264,19 @@ func getConfigProfile(ctx *Context) error {
 		}
 	}
 
-	// if config not exist, return
-	if cfg = ctx.config; cfg == nil {
-		fmt.Println(Profile{})
-		return nil
-	}
-
 	// check if the target profile already exists, otherwise print an empty profile
 	if currentProfile, exist = cfg.Profiles[profileFlag.value]; !exist || currentProfile == nil {
 		currentProfile = &Profile{}
 	}
 	fmt.Println(*currentProfile)
+	return nil
+}
+
+func listConfigProfiles(ctx *Context) error {
+	fmt.Printf("*** current profile: %v ***\n", ctx.config.Current)
+	for _, profile := range ctx.config.Profiles {
+		fmt.Println(profile)
+	}
 	return nil
 }
 
@@ -293,6 +304,11 @@ func deleteConfigProfile(ctx *Context) error {
 
 	// delete profile and write change to config file
 	delete(cfg.Profiles, profileFlag.value)
+	if profileFlag.value == cfg.Current {
+		cfg.SetRandomCurrentProfile()
+		fmt.Printf("delete current profile, set new current profile to [%v]\n", cfg.Current)
+	}
+
 	return WriteConfigToFile(cfg)
 }
 
