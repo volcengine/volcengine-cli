@@ -1,0 +1,6 @@
+/vendor/bin/
+/vendor/pkg/
+/vendor/src/
+doc
+.idea
+volcengine-cli
