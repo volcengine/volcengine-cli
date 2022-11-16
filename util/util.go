@@ -4,6 +4,7 @@ package util
 
 import (
 	"encoding/json"
+	"os/user"
 	"strings"
 )
 
@@ -30,4 +31,26 @@ func ParseToJsonArrayOrObject(s string) (interface{}, bool) {
 		}
 	}
 	return nil, false
+}
+
+func GetConfigFileDir() (string, error) {
+	var (
+		err     error
+		homeDir string
+	)
+
+	if homeDir, err = getHomeDir(); err != nil {
+		return "", err
+	}
+
+	return homeDir + "/.volcengine/", nil
+}
+
+func getHomeDir() (string, error) {
+	user, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+
+	return user.HomeDir, nil
 }

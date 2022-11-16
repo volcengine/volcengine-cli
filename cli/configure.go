@@ -5,12 +5,12 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/volcengine/volcengine-cli/util"
 	"io/ioutil"
 	"os"
 )
 
-const CONFIG_FILE_DIR = "/usr/local/.volcengine/"
-const CONFIG_FILE = "config.json"
+const ConfigFile = "config.json"
 
 type Configure struct {
 	Current  string              `json:"current"`
@@ -30,21 +30,24 @@ type Profile struct {
 
 //LoadConfig from CONFIG_FILE_DIR
 func LoadConfig() *Configure {
-	_, err := os.Stat(CONFIG_FILE_DIR)
+	configFileDir, err := util.GetConfigFileDir()
 	if err != nil {
+		return nil
+	}
+
+	if _, err = os.Stat(configFileDir); err != nil {
 		if os.IsNotExist(err) {
-			os.MkdirAll(CONFIG_FILE_DIR, 0666)
+			os.MkdirAll(configFileDir, 0755)
 		}
 	}
 
-	_, err = os.Stat(CONFIG_FILE_DIR + CONFIG_FILE)
-	if err != nil {
+	if _, err = os.Stat(configFileDir + ConfigFile); err != nil {
 		if os.IsNotExist(err) {
-			return nil
+
 		}
 	}
 
-	file, err := os.Open(CONFIG_FILE_DIR + CONFIG_FILE)
+	file, err := os.OpenFile(configFileDir+ConfigFile, os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
 		fmt.Println(err)
 		return nil
@@ -67,7 +70,12 @@ func LoadConfig() *Configure {
 
 //WriteConfigToFile store config
 func WriteConfigToFile(config *Configure) error {
-	file, err := os.OpenFile(CONFIG_FILE_DIR+CONFIG_FILE, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0600)
+	configFileDir, err := util.GetConfigFileDir()
+	if err != nil {
+		return nil
+	}
+
+	file, err := os.OpenFile(configFileDir+ConfigFile, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0666)
 	if err != nil {
 		return err
 	}
@@ -76,6 +84,25 @@ func WriteConfigToFile(config *Configure) error {
 	enc := json.NewEncoder(file)
 	enc.Encode(config)
 	return nil
+}
+
+func (config *Configure) SetRandomCurrentProfile() {
+	if config == nil {
+		return
+	}
+
+	if config.Profiles == nil || len(config.Profiles) == 0 {
+		config.Current = ""
+		return
+	}
+
+	config.Current = ""
+	for key := range config.Profiles {
+		if config.Current == "" {
+			config.Current = key
+			break
+		}
+	}
 }
 
 func (p Profile) String() string {
