@@ -1,8 +1,10 @@
 package cli
 
+// Copyright 2022 Beijing Volcanoengine Technology Ltd.  All Rights Reserved.
+
 var serviceMapping map[string]string
 
-func InitServiceMapping() {
+func init() {
 	serviceMapping = map[string]string{
 		"rds_mysql_v2": "rds_mysql",
 	}
