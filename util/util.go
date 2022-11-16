@@ -1,5 +1,7 @@
 package util
 
+// Copyright 2022 Beijing Volcanoengine Technology Ltd.  All Rights Reserved.
+
 import (
 	"encoding/json"
 	"strings"

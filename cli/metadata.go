@@ -1,5 +1,7 @@
 package cli
 
+// Copyright 2022 Beijing Volcanoengine Technology Ltd.  All Rights Reserved.
+
 type VestackMeta struct {
 	ApiInfo  *ApiInfo
 	Request  *MetaInfo

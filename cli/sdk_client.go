@@ -9,7 +9,6 @@ import (
 	"github.com/volcengine/volcengine-go-sdk/volcengine"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/client"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/client/metadata"
-	"github.com/volcengine/volcengine-go-sdk/volcengine/corehandlers"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/credentials"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/request"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/session"
@@ -113,8 +112,7 @@ func (s *SdkClient) initClient(svc string, version string) *client.Client {
 		config.Handlers,
 	)
 
-	c.Handlers.Build.PushBackNamed(corehandlers.SDKVersionUserAgentHandler)
-	c.Handlers.Build.PushBackNamed(corehandlers.AddHostExecEnvUserAgentHandler)
+	c.Handlers.Build.PushBackNamed(clientVersionAndUserAgentHandler)
 	c.Handlers.Sign.PushBackNamed(volc.SignRequestHandler)
 	c.Handlers.Build.PushBackNamed(volcenginequery.BuildHandler)
 	c.Handlers.Unmarshal.PushBackNamed(volcenginequery.UnmarshalHandler)
