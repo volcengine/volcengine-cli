@@ -43,7 +43,6 @@ signs:
       - "--batch"
       - "--local-user"
       - "--output"
-      - "${signature}"
       - "--detach-sign"
       - "${artifact}"
 release:
