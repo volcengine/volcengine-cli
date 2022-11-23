@@ -5,11 +5,21 @@
 
 ### 安装 volcengine-cli 
 
-1. 在 Linux 上下载 volcengine-cli
+1. 使用build.sh编译客户端
+    ```shell
+    #如果是mac 
+    sh build.sh darwain
+    mv volcengine-cli-darwin volcengine-cli
+    #如果是windows
+    sh build.sh windows
+    mv volcengine-cli-windows volcengine-cli
+    #如果是linux
+    sh build.sh linux
+    mv volcengine-cli-linux volcengine-cli
+    ```
+2. 将编译好的客户端拷贝到你想要执行的目录
 
-- > todo：这里补个下载链接
-
-2. 将 volcengine-cli 配置进环境变量
+3. 将 volcengine-cli 配置进环境变量
 
     检查一下 $PATH 系统变量是否存在 /usr/local/bin，若没有则请您根据实际情况为 volcengine-cli 设置可用的环境变量
 
