@@ -37,7 +37,6 @@
    access-key 您的 AK
    secret-key 您的 SK
    region  地域，如 cn-beijing
-   endpoint 您的地域对应的 endpoint
    session-token 如果使用角色扮演，需要提供
    disable-ssl 是否禁用 ssl，默认为 false
    ```
@@ -47,7 +46,6 @@
    export VOLCENGINE_ACCESS_KEY=AK
    export VOLCENGINE_SECRET_KEY=SK
    export VOLCENGINE_REGION=cn-bejing
-   export VOLCENGINE_ENDPOINT=endpoint
    
    # 是否禁用SSL, 不设置的话默认为false
    export VOLCENGINE_SESSION_TOKEN=false
@@ -93,7 +91,6 @@ volcengine-cli configure set --profile [配置名] --region [地区] --access-ke
 - access-key
 - secret-key
 - region
-- endpoint
 - session-token
 - disable-ssl
 
