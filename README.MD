@@ -5,6 +5,12 @@
 
 ### 安装 volcengine-cli 
 
+#### 通过release获取客户端
+1. https://github.com/volcengine/volcengine-cli/releases 获取最新版本
+2. 下载对应操作系统的版本 解压使用
+
+#### 自行编译获取客户端
+
 1. 使用build.sh编译客户端
     ```shell
     #如果是mac 
@@ -17,9 +23,13 @@
     sh build.sh linux
     mv volcengine-cli-linux volcengine-cli
     ```
-2. 将编译好的客户端拷贝到你想要执行的目录
 
-3. 将 volcengine-cli 配置进环境变量
+
+    
+
+### 配置 volcengine-cli
+
+将 volcengine-cli 配置进环境变量
 
     检查一下 $PATH 系统变量是否存在 /usr/local/bin，若没有则请您根据实际情况为 volcengine-cli 设置可用的环境变量
 
@@ -28,10 +38,6 @@
     ```shell
     sudo cp volcengine-cli /usr/local/bin
     ```
-
-    
-
-### 配置 volcengine-cli
 
 #### 配置凭证
 
