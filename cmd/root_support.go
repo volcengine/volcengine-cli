@@ -1,4 +1,4 @@
-package cli
+package cmd
 
 // Copyright 2022 Beijing Volcanoengine Technology Ltd.  All Rights Reserved.
 
@@ -11,28 +11,26 @@ import (
 
 type RootSupport struct {
 	SupportSvc    []string
-	SupportAction map[string]map[string]*ApiInfo
+	SupportAction map[string]map[string]*VolcengineMeta
 	Versions      map[string]string
 }
 
 func NewRootSupport() *RootSupport {
 	var svc []string
-	action := make(map[string]map[string]*ApiInfo)
+	action := make(map[string]map[string]*VolcengineMeta)
 	version := make(map[string]string)
 	for _, name := range asset.AssetNames() {
 		spaces := strings.Split(name, "/")
 		if len(spaces) == 5 {
 			svc = append(svc, spaces[2])
 			b, _ := asset.Asset(name)
-			action[spaces[2]] = make(map[string]*ApiInfo)
-			meta := make(map[string]VestackMeta)
+			action[spaces[2]] = make(map[string]*VolcengineMeta)
+			meta := make(map[string]*VolcengineMeta)
 			err := json.Unmarshal(b, &meta)
 			if err != nil {
 				panic(err)
 			}
-			for k, v := range meta {
-				action[spaces[2]][k] = v.ApiInfo
-			}
+			action[spaces[2]] = meta
 			version[spaces[2]] = spaces[3]
 		}
 	}
@@ -64,7 +62,7 @@ func (r *RootSupport) GetApiInfo(svc string, action string) *ApiInfo {
 	for k, v := range r.SupportAction {
 		if k == svc {
 			if v1, ok := v[action]; ok {
-				return v1
+				return v1.ApiInfo
 			}
 		}
 	}

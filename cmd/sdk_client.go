@@ -1,4 +1,4 @@
-package cli
+package cmd
 
 import (
 	"fmt"
@@ -44,7 +44,7 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 			region = currentProfile.Region
 			sessionToken = currentProfile.SessionToken
 			endpoint = currentProfile.Endpoint
-			disableSSl = currentProfile.DisableSSL
+			disableSSl = *currentProfile.DisableSSL
 
 			if ak == "" {
 				return nil, fmt.Errorf("profile AccessKey not set")

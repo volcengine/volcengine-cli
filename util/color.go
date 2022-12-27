@@ -5,7 +5,7 @@ package util
 import "fmt"
 
 const (
-	_BLACK   = "\033[30M"
+	_BLACK   = "\033[30m"
 	_RED     = "\033[31m"
 	_GREEN   = "\033[32m"
 	_YELLOW  = "\033[33m"
