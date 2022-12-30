@@ -77,7 +77,8 @@ func newConfigureSetCmd() *cobra.Command {
 	cmd.Flags().StringVar(&profileFlags.Region, "region", "", "your region")
 	cmd.Flags().StringVar(&profileFlags.Endpoint, "endpoint", "", "endpoint bind with region")
 	cmd.Flags().StringVar(&profileFlags.SessionToken, "session-token", "", "your session token")
-	cmd.Flags().Bool("disable-ssl", true, "disable ssl")
+
+	profileFlags.DisableSSL = cmd.Flags().Bool("disable-ssl", true, "disable ssl")
 	cmd.Flags().BoolP("help", "h", false, "")
 
 	cmd.MarkFlagRequired("profile")

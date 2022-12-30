@@ -13,8 +13,9 @@ import (
 const ConfigFile = "config.json"
 
 type Configure struct {
-	Current  string              `json:"current"`
-	Profiles map[string]*Profile `json:"profiles"`
+	Current     string              `json:"current"`
+	Profiles    map[string]*Profile `json:"profiles"`
+	EnableColor bool                `json:"enableColor"`
 }
 
 type Profile struct {
@@ -28,7 +29,7 @@ type Profile struct {
 	DisableSSL   *bool  `json:"disable-ssl"`
 }
 
-//LoadConfig from CONFIG_FILE_DIR
+//LoadConfig from CONFIG_FILE_DIR(default ~/.volcengine)
 func LoadConfig() *Configure {
 	configFileDir, err := util.GetConfigFileDir()
 	if err != nil {
@@ -43,7 +44,7 @@ func LoadConfig() *Configure {
 
 	if _, err = os.Stat(configFileDir + ConfigFile); err != nil {
 		if os.IsNotExist(err) {
-
+			// todo handle err
 		}
 	}
 
@@ -176,14 +177,16 @@ func getConfigProfile(profileName string) error {
 	if currentProfile, exist = cfg.Profiles[profileName]; !exist || currentProfile == nil {
 		currentProfile = &Profile{}
 	}
-	fmt.Println(*currentProfile)
+
+	util.ShowJson(currentProfile.ToMap(), config.EnableColor)
 	return nil
 }
 
 func listConfigProfiles() error {
 	fmt.Printf("*** current profile: %v ***\n", ctx.config.Current)
 	for _, profile := range ctx.config.Profiles {
-		fmt.Println(profile)
+		//fmt.Println(profile)
+		util.ShowJson(profile.ToMap(), config.EnableColor)
 	}
 	return nil
 }
@@ -214,7 +217,15 @@ func deleteConfigProfile(profileName string) error {
 	return WriteConfigToFile(cfg)
 }
 
-func (p Profile) String() string {
+func (p *Profile) ToMap() map[string]interface{} {
+	data, _ := json.Marshal(p)
+	m := make(map[string]interface{})
+	json.Unmarshal(data, &m)
+
+	return m
+}
+
+func (p *Profile) String() string {
 	b, _ := json.MarshalIndent(p, "", "    ")
 	return string(b)
 }

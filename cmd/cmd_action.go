@@ -147,8 +147,7 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 		}
 	}
 
-	b, _ := json.MarshalIndent(out, "", "    ")
-	fmt.Println(string(b))
+	util.ShowJson(*out, config.EnableColor)
 	return
 }
 
