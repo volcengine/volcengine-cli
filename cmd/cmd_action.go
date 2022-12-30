@@ -35,17 +35,22 @@ func generateActionCmd(actionMeta map[string]*VolcengineMeta) (actionCmds []*cob
 		}
 
 		// only used to enable auto-completion
-		params := meta.GetRequestParams()
-		paramValues := make([]paramValue, len(params))
-		for i := 0; i < len(params); i++ {
-			paramValues[i].param = params[i]
-			actionCmd.Flags().StringVar(&paramValues[i].value, paramValues[i].param, "", "")
+		// todo not support application/json
+		if meta.ApiInfo == nil {
+			params := meta.GetRequestParams()
+			paramValues := make([]paramValue, len(params))
+			for i := 0; i < len(params); i++ {
+				paramValues[i].param = params[i]
+				actionCmd.Flags().StringVar(&paramValues[i].value, paramValues[i].param, "", "")
+			}
+			actionCmd.SetUsageTemplate(actionUsageTemplate(params))
+		} else {
+			var paramBody string
+			actionCmd.Flags().StringVar(&paramBody, "body", "", "")
+			actionCmd.SetUsageTemplate(actionUsageTemplate([]string{"body"}))
 		}
-		var paramBody string
-		actionCmd.Flags().StringVar(&paramBody, "body", "", "")
-		actionCmd.Flags().BoolP("help", "h", false, "")
 
-		actionCmd.SetUsageTemplate(actionUsageTemplate(params))
+		actionCmd.Flags().BoolP("help", "h", false, "")
 
 		actionCmds = append(actionCmds, actionCmd)
 	}

@@ -25,19 +25,21 @@
     ```
 
 
-    
+​    
 
 ### 配置 volcengine-cli
 
 将 volcengine-cli 配置进环境变量
 
-    检查一下 $PATH 系统变量是否存在 /usr/local/bin，若没有则请您根据实际情况为 volcengine-cli 设置可用的环境变量
+检查一下 $PATH 系统变量是否存在 /usr/local/bin，若没有则请您根据实际情况为 volcengine-cli 设置可用的环境变量
 
-    执行下面的命令，将 volcengine-cli 拷贝至 /usr/local/bin 目录下即可使用
+执行下面的命令，将 volcengine-cli 拷贝至 /usr/local/bin 目录下即可使用
 
-    ```shell
-    sudo cp volcengine-cli /usr/local/bin
-    ```
+```shell
+sudo cp volcengine-cli /usr/local/bin
+```
+
+
 
 #### 配置凭证
 
@@ -126,9 +128,23 @@ volcengine-cli configure delete --profile [配置名]
 
 
 
+#### 配置自动补全
+
+使用 `volcengine-cli completion --help` 可以查看各种终端下配置自动补全的方式，用户可以根据提示信息自己选择是否配置自动补全功能
+
+
+
+#### 配置颜色 
+
+使用 `volcengine enable-color` 可以开启彩色显示功能
+
+使用 `volcengine-cli disable-color` 可以关闭彩色显示功能
+
+
+
 
 ### 使用 volcengine-cli
-###### 查询支持的服务列表及服务下支持的接口列表
+#### 查询支持的服务列表及服务下支持的接口列表
 
 1. 查询支持的服务列表
    ```shell
@@ -141,7 +157,7 @@ volcengine-cli configure delete --profile [配置名]
 
 
 
-###### 调用API
+#### 调用API
 
 您可以在 https://www.volcengine.com/docs 找到想要调用的API的参数列表、返回结果等信息
 

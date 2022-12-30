@@ -20,6 +20,7 @@ func colorfulJson(data interface{}, indent int, indentValue, lastValue bool) {
 		printlnWithIndent(0, "\033[1;33mnull\033[0m,")
 		return
 	}
+
 	switch v := data.(type) {
 	case map[string]interface{}:
 		if !indentValue {
