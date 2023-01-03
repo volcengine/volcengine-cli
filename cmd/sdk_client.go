@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/volcengine/volcengine-go-sdk/volcengine/volcengineutil"
 	"os"
 	"strconv"
 	"strings"
@@ -42,8 +43,8 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 			ak = currentProfile.AccessKey
 			sk = currentProfile.SecretKey
 			region = currentProfile.Region
-			sessionToken = currentProfile.SessionToken
 			endpoint = currentProfile.Endpoint
+			sessionToken = currentProfile.SessionToken
 			disableSSl = *currentProfile.DisableSSL
 
 			if ak == "" {
@@ -79,9 +80,6 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		if region == "" {
 			return nil, fmt.Errorf("VOLCENGINE_REGION not set")
 		}
-		if endpoint == "" {
-			return nil, fmt.Errorf("VOLCENGINE_ENDPOINT not set")
-		}
 	}
 
 	config := volcengine.NewConfig().
@@ -90,8 +88,9 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		WithDisableSSL(disableSSl)
 
 	if endpoint == "" {
-		return nil, fmt.Errorf("endpoint is empty, please set")
+		endpoint = volcengineutil.NewEndpoint().GetEndpoint()
 	}
+
 	config.WithEndpoint(endpoint)
 
 	sess, _ := session.NewSession(config)

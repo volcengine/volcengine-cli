@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/volcengine/volcengine-cli/util"
+	"github.com/volcengine/volcengine-go-sdk/volcengine/volcengineutil"
 	"io/ioutil"
 	"os"
 )
@@ -142,6 +143,8 @@ func setConfigProfile(profile *Profile) error {
 	}
 	if profile.Endpoint != "" {
 		currentProfile.Endpoint = profile.Endpoint
+	} else {
+		currentProfile.Endpoint = volcengineutil.NewEndpoint().GetEndpoint()
 	}
 	if profile.SessionToken != "" {
 		currentProfile.SessionToken = profile.SessionToken
@@ -178,14 +181,17 @@ func getConfigProfile(profileName string) error {
 		currentProfile = &Profile{}
 	}
 
-	util.ShowJson(currentProfile.ToMap(), config.EnableColor)
+	if config == nil || !config.EnableColor {
+		util.ShowJson(currentProfile.ToMap(), false)
+	} else {
+		util.ShowJson(currentProfile.ToMap(), true)
+	}
 	return nil
 }
 
 func listConfigProfiles() error {
 	fmt.Printf("*** current profile: %v ***\n", ctx.config.Current)
 	for _, profile := range ctx.config.Profiles {
-		//fmt.Println(profile)
 		util.ShowJson(profile.ToMap(), config.EnableColor)
 	}
 	return nil

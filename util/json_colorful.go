@@ -1,23 +1,34 @@
 package util
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
 
+//ShowJson print data as json
+//data should be map[string]interface{}
 func ShowJson(data interface{}, color bool) {
 	if color {
 		colorfulJson(data, 0, false, true)
 	} else {
-		b, _ := json.MarshalIndent(data, "", "    ")
-		fmt.Println(string(b))
+		buf := bytes.NewBuffer([]byte{})
+		encoder := json.NewEncoder(buf)
+		encoder.SetEscapeHTML(false)
+		encoder.SetIndent("", "    ")
+		encoder.Encode(data)
+
+		fmt.Println(buf.String())
 	}
 }
 
 func colorfulJson(data interface{}, indent int, indentValue, lastValue bool) {
-	// todo handle nil
 	if data == nil {
-		printlnWithIndent(0, "\033[1;33mnull\033[0m,")
+		if !lastValue {
+			printlnWithIndent(0, "\033[1;33mnull\033[0m,")
+		} else {
+			printlnWithIndent(0, "\033[1;33mnull\033[0m")
+		}
 		return
 	}
 

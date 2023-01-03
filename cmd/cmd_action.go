@@ -152,7 +152,11 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 		}
 	}
 
-	util.ShowJson(*out, config.EnableColor)
+	if config == nil || !config.EnableColor {
+		util.ShowJson(*out, false)
+	} else {
+		util.ShowJson(*out, true)
+	}
 	return
 }
 
