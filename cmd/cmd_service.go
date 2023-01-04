@@ -10,6 +10,7 @@ func init() {
 
 func generateServiceCommands() {
 	for svc, actionMeta := range rootSupport.SupportAction {
+		apiMetas := rootSupport.SupportTypes[svc]
 		svcCmd := &cobra.Command{
 			Use: svc,
 			Run: func(cmd *cobra.Command, args []string) {
@@ -21,7 +22,7 @@ func generateServiceCommands() {
 		svcCmd.SetUsageTemplate(serviceUsageTemplate())
 		svcCmd.ValidArgs = rootSupport.GetAllAction(svc)
 
-		actionCmds := generateActionCmd(actionMeta)
+		actionCmds := generateActionCmd(actionMeta, apiMetas)
 		for i := 0; i < len(actionCmds); i++ {
 			svcCmd.AddCommand(actionCmds[i])
 		}

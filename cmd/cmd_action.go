@@ -3,10 +3,11 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/spf13/cobra"
-	"github.com/volcengine/volcengine-cli/util"
 	"sort"
 	"strings"
+
+	"github.com/spf13/cobra"
+	"github.com/volcengine/volcengine-cli/util"
 )
 
 type paramValue struct {
@@ -14,8 +15,12 @@ type paramValue struct {
 	value string
 }
 
-func generateActionCmd(actionMeta map[string]*VolcengineMeta) (actionCmds []*cobra.Command) {
+func generateActionCmd(actionMeta map[string]*VolcengineMeta, apiMetas map[string]*ApiMeta) (actionCmds []*cobra.Command) {
 	for action, meta := range actionMeta {
+		var apiMeta *ApiMeta
+		if len(apiMetas) > 0 {
+			apiMeta = apiMetas[action]
+		}
 		actionCmd := &cobra.Command{
 			Use:                action,
 			DisableFlagParsing: true,
@@ -37,7 +42,7 @@ func generateActionCmd(actionMeta map[string]*VolcengineMeta) (actionCmds []*cob
 		// only used to enable auto-completion
 		// todo not support application/json
 		if meta.ApiInfo == nil {
-			params := meta.GetRequestParams()
+			params := meta.GetRequestParams(apiMeta)
 			paramValues := make([]paramValue, len(params))
 			for i := 0; i < len(params); i++ {
 				paramValues[i].param = params[i]

@@ -24,7 +24,7 @@ type ApiInfo struct {
 	// [], {}
 }
 
-func (meta *VolcengineMeta) GetRequestParams() (params []string) {
+func (meta *VolcengineMeta) GetRequestParams(apiMeta *ApiMeta) (params []string) {
 	var s []string
 	var traverse func(MetaInfo)
 
@@ -32,7 +32,12 @@ func (meta *VolcengineMeta) GetRequestParams() (params []string) {
 		if meta.Basic != nil {
 			for _, v := range *meta.Basic {
 				s = append(s, v)
-				params = append(params, strings.Join(s, "."))
+				if apiMeta == nil {
+					params = append(params, strings.Join(s, "."))
+				} else {
+					pattern := strings.Join(s, ".")
+					params = append(params, strings.Join(s, ".")+" "+apiMeta.GetReqTypeName(pattern))
+				}
 				s = s[:len(s)-1]
 			}
 		}

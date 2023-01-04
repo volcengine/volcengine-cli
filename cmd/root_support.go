@@ -7,18 +7,21 @@ import (
 	"strings"
 
 	"github.com/volcengine/volcengine-cli/asset"
+	"github.com/volcengine/volcengine-cli/typeset"
 )
 
 type RootSupport struct {
 	SupportSvc    []string
 	SupportAction map[string]map[string]*VolcengineMeta
 	Versions      map[string]string
+	SupportTypes  map[string]map[string]*ApiMeta
 }
 
 func NewRootSupport() *RootSupport {
 	var svc []string
 	action := make(map[string]map[string]*VolcengineMeta)
 	version := make(map[string]string)
+	types := make(map[string]map[string]*ApiMeta)
 	for _, name := range asset.AssetNames() {
 		spaces := strings.Split(name, "/")
 		if len(spaces) == 5 {
@@ -34,11 +37,26 @@ func NewRootSupport() *RootSupport {
 			version[spaces[2]] = spaces[3]
 		}
 	}
+	for _, name := range typeset.AssetNames() {
+		spaces := strings.Split(name, "/")
+		if len(spaces) == 5 {
+			svc = append(svc, spaces[2])
+			b, _ := typeset.Asset(name)
+			types[spaces[2]] = make(map[string]*ApiMeta)
+			meta := make(map[string]*ApiMeta)
+			err := json.Unmarshal(b, &meta)
+			if err != nil {
+				panic(err)
+			}
+			types[spaces[2]] = meta
+		}
+	}
 
 	return &RootSupport{
 		SupportSvc:    svc,
 		SupportAction: action,
 		Versions:      version,
+		SupportTypes:  types,
 	}
 }
 
