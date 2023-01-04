@@ -19,6 +19,65 @@ type ApiMeta struct {
 	Response *Meta
 }
 
+func (m *Meta) getDefaultValue(s string) interface{} {
+	var r interface{}
+	switch s {
+	case "string":
+		r = "string"
+	case "boolean":
+		r = false
+	case "integer":
+		r = 0
+	}
+	return r
+}
+
+func (m *Meta) GetReqBody() map[string]interface{} {
+	r := make(map[string]interface{})
+	for k, v := range m.MetaTypes {
+		switch v.TypeName {
+		case "object":
+			if len(m.ChildMetas) > 0 {
+				if _, ok := m.ChildMetas[k]; ok {
+					r[k] = m.ChildMetas[k].GetReqBody()
+				}
+			}
+		case "array":
+			if v.TypeOf != "object" {
+				r[k] = v.TypeName
+			} else {
+				if len(m.ChildMetas) > 0 {
+					if _, ok := m.ChildMetas[k]; ok {
+						r[k] = []interface{}{
+							m.ChildMetas[k].GetReqBody(),
+						}
+					}
+				}
+			}
+		case "map":
+			if v.TypeOf != "object" {
+				r1 := map[string]interface{}{
+					"string": m.getDefaultValue(v.TypeOf),
+				}
+				r[k] = r1
+			} else {
+				if len(m.ChildMetas) > 0 {
+					if _, ok := m.ChildMetas[k]; ok {
+						r1 := map[string]interface{}{
+							"string": m.ChildMetas[k].GetReqBody(),
+						}
+						r[k] = r1
+					}
+				}
+			}
+		default:
+			r[k] = m.getDefaultValue(v.TypeName)
+		}
+
+	}
+	return r
+}
+
 func (m *ApiMeta) GetReqTypeName(pattern string) string {
 	p := strings.Split(pattern, ".")
 	var result string

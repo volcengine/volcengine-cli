@@ -41,18 +41,23 @@ func generateActionCmd(actionMeta map[string]*VolcengineMeta, apiMetas map[strin
 
 		// only used to enable auto-completion
 		// todo not support application/json
-		if meta.ApiInfo == nil {
-			params := meta.GetRequestParams(apiMeta)
-			paramValues := make([]paramValue, len(params))
-			for i := 0; i < len(params); i++ {
-				paramValues[i].param = params[i]
+		if meta.ApiInfo == nil || strings.ToLower(meta.ApiInfo.ContentType) != "application/json" {
+			params, keys := meta.GetRequestParams(apiMeta)
+			paramValues := make([]paramValue, len(keys))
+			for i := 0; i < len(keys); i++ {
+				paramValues[i].param = keys[i]
 				actionCmd.Flags().StringVar(&paramValues[i].value, paramValues[i].param, "", "")
 			}
 			actionCmd.SetUsageTemplate(actionUsageTemplate(params))
 		} else {
 			var paramBody string
 			actionCmd.Flags().StringVar(&paramBody, "body", "", "")
-			actionCmd.SetUsageTemplate(actionUsageTemplate([]string{"body"}))
+			var bodyStr []byte
+			if apiMeta != nil && apiMeta.Request != nil {
+				bodyMap := apiMeta.Request.GetReqBody()
+				bodyStr, _ = json.MarshalIndent(bodyMap, "", "    ")
+			}
+			actionCmd.SetUsageTemplate(actionUsageTemplate([]string{"body " + string(bodyStr)}))
 		}
 
 		actionCmd.Flags().BoolP("help", "h", false, "")
