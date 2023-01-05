@@ -1,6 +1,10 @@
 package cmd
 
-import "strings"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 // Copyright 2022 Beijing Volcanoengine Technology Ltd.  All Rights Reserved.
 
@@ -24,7 +28,40 @@ type ApiInfo struct {
 	// [], {}
 }
 
-func (meta *VolcengineMeta) GetRequestParams(apiMeta *ApiMeta) (params []string, onlyKepParams []string) {
+type param struct {
+	key      string
+	typeName string
+	required bool
+}
+
+func formatParamsHelpUsage(params []param) []string {
+	maxKeyLen := -1
+	maxTypeNameLen := -1
+	for _, p := range params {
+		if len(p.key) > maxKeyLen {
+			maxKeyLen = len(p.key)
+		}
+		if len(p.typeName) > maxTypeNameLen {
+			maxTypeNameLen = len(p.typeName)
+		}
+	}
+
+	maxKeyLen++
+	maxTypeNameLen++
+
+	// TODO: not print required field now
+	//formatString := "%-" + strconv.Itoa(maxKeyLen) + "v%-" + strconv.Itoa(maxTypeNameLen) + "v %v"
+	formatString := "%-" + strconv.Itoa(maxKeyLen) + "v%-" + strconv.Itoa(maxTypeNameLen) + "v"
+
+	var paramStrings []string
+	for _, p := range params {
+		paramStrings = append(paramStrings, fmt.Sprintf(formatString, p.key, p.typeName))
+	}
+
+	return paramStrings
+}
+
+func (meta *VolcengineMeta) GetRequestParams(apiMeta *ApiMeta) (params []param) {
 	var s []string
 	var traverse func(MetaInfo)
 
@@ -33,12 +70,20 @@ func (meta *VolcengineMeta) GetRequestParams(apiMeta *ApiMeta) (params []string,
 			for _, v := range *meta.Basic {
 				s = append(s, v)
 				if apiMeta == nil {
-					params = append(params, strings.Join(s, "."))
+					paramKey := strings.Join(s, ".")
+					params = append(params, param{
+						key:      paramKey,
+						typeName: "",
+						required: false,
+					})
 				} else {
-					pattern := strings.Join(s, ".")
-					params = append(params, strings.Join(s, ".")+" "+apiMeta.GetReqTypeName(pattern))
+					paramKey := strings.Join(s, ".")
+					params = append(params, param{
+						key:      paramKey,
+						typeName: apiMeta.GetReqTypeName(paramKey),
+						required: false,
+					})
 				}
-				onlyKepParams = append(onlyKepParams, strings.Join(s, "."))
 				s = s[:len(s)-1]
 			}
 		}

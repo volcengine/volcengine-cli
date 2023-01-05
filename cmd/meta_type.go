@@ -12,6 +12,7 @@ type MetaType struct {
 type Meta struct {
 	MetaTypes  map[string]*MetaType `json:"MetaTypes,omitempty"`
 	ChildMetas map[string]*Meta     `json:"ChildMetas,omitempty"`
+	Required   bool                 `json:"Required"`
 }
 
 type ApiMeta struct {
