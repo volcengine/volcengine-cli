@@ -55,10 +55,18 @@ func formatParamsHelpUsage(params []param) []string {
 
 	var paramStrings []string
 	for _, p := range params {
+		//paramStrings = append(paramStrings, fmt.Sprintf(formatString, p.key, p.typeName, formatRequired(p.required)))
 		paramStrings = append(paramStrings, fmt.Sprintf(formatString, p.key, p.typeName))
 	}
 
 	return paramStrings
+}
+
+func formatRequired(required bool) string {
+	if required {
+		return "Required"
+	}
+	return "Optional"
 }
 
 func (meta *VolcengineMeta) GetRequestParams(apiMeta *ApiMeta) (params []param) {
@@ -81,7 +89,7 @@ func (meta *VolcengineMeta) GetRequestParams(apiMeta *ApiMeta) (params []param) 
 					params = append(params, param{
 						key:      paramKey,
 						typeName: apiMeta.GetReqTypeName(paramKey),
-						required: false,
+						required: apiMeta.GetReqRequired(paramKey),
 					})
 				}
 				s = s[:len(s)-1]

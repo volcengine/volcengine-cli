@@ -1,18 +1,20 @@
 package cmd
 
-import "strings"
+import (
+	"strings"
+)
 
 // Copyright 2023 Beijing Volcanoengine Technology Ltd.  All Rights Reserved.
 
 type MetaType struct {
 	TypeName string `json:"TypeName,omitempty"`
 	TypeOf   string `json:"TypeOf,omitempty"`
+	Required bool   `json:"Required,omitempty"`
 }
 
 type Meta struct {
 	MetaTypes  map[string]*MetaType `json:"MetaTypes,omitempty"`
 	ChildMetas map[string]*Meta     `json:"ChildMetas,omitempty"`
-	Required   bool                 `json:"Required"`
 }
 
 type ApiMeta struct {
@@ -96,6 +98,35 @@ func (m *ApiMeta) GetReqTypeName(pattern string) string {
 			result = " " + metaTypes[_p].TypeName
 		} else {
 			result = ""
+		}
+		if index < len(p) {
+			if _, ok := meta.ChildMetas[_p]; ok {
+				meta = meta.ChildMetas[_p]
+			} else {
+				break
+			}
+		}
+	}
+	return result
+}
+
+func (m *ApiMeta) GetReqRequired(pattern string) bool {
+	p := strings.Split(pattern, ".")
+	var result bool
+	meta := m.Request
+
+	if v, ok := meta.MetaTypes[pattern]; ok {
+		return v.Required
+	}
+
+	var index int
+	for _, _p := range p {
+		index++
+		metaTypes := meta.MetaTypes
+		if _, ok := metaTypes[_p]; ok {
+			result = metaTypes[_p].Required
+		} else {
+			result = false
 		}
 		if index < len(p) {
 			if _, ok := meta.ChildMetas[_p]; ok {
