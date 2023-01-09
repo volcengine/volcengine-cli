@@ -1,4 +1,4 @@
-package cli
+package cmd
 
 // Copyright 2022 Beijing Volcanoengine Technology Ltd.  All Rights Reserved.
 
@@ -86,7 +86,6 @@ func (p *Parser) parseArg(arg string, ctx *Context) (flag *Flag, value string, e
 			//可变参数放入动态参数集合中
 			flag, err = ctx.dynamicFlags.AddByName(arg[2:])
 		}
-
 	} else {
 		value = arg
 	}
