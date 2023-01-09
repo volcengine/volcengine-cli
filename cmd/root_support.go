@@ -1,4 +1,4 @@
-package cli
+package cmd
 
 // Copyright 2022 Beijing Volcanoengine Technology Ltd.  All Rights Reserved.
 
@@ -7,33 +7,48 @@ import (
 	"strings"
 
 	"github.com/volcengine/volcengine-cli/asset"
+	"github.com/volcengine/volcengine-cli/typeset"
 )
 
 type RootSupport struct {
 	SupportSvc    []string
-	SupportAction map[string]map[string]*ApiInfo
+	SupportAction map[string]map[string]*VolcengineMeta
 	Versions      map[string]string
+	SupportTypes  map[string]map[string]*ApiMeta
 }
 
 func NewRootSupport() *RootSupport {
 	var svc []string
-	action := make(map[string]map[string]*ApiInfo)
+	action := make(map[string]map[string]*VolcengineMeta)
 	version := make(map[string]string)
+	types := make(map[string]map[string]*ApiMeta)
 	for _, name := range asset.AssetNames() {
 		spaces := strings.Split(name, "/")
 		if len(spaces) == 5 {
 			svc = append(svc, spaces[2])
 			b, _ := asset.Asset(name)
-			action[spaces[2]] = make(map[string]*ApiInfo)
-			meta := make(map[string]VestackMeta)
+			action[spaces[2]] = make(map[string]*VolcengineMeta)
+			meta := make(map[string]*VolcengineMeta)
 			err := json.Unmarshal(b, &meta)
 			if err != nil {
 				panic(err)
 			}
-			for k, v := range meta {
-				action[spaces[2]][k] = v.ApiInfo
-			}
+			action[spaces[2]] = meta
 			version[spaces[2]] = spaces[3]
+		}
+	}
+	for _, name := range typeset.AssetNames() {
+		spaces := strings.Split(name, "/")
+		if len(spaces) == 5 {
+			svc = append(svc, spaces[2])
+			b, _ := typeset.Asset(name)
+			types[spaces[2]] = make(map[string]*ApiMeta)
+			meta := make(map[string]*ApiMeta)
+			err := json.Unmarshal(b, &meta)
+			if err != nil {
+				panic(err)
+			}
+			types[spaces[2]] = meta
 		}
 	}
 
@@ -41,6 +56,7 @@ func NewRootSupport() *RootSupport {
 		SupportSvc:    svc,
 		SupportAction: action,
 		Versions:      version,
+		SupportTypes:  types,
 	}
 }
 
@@ -64,7 +80,7 @@ func (r *RootSupport) GetApiInfo(svc string, action string) *ApiInfo {
 	for k, v := range r.SupportAction {
 		if k == svc {
 			if v1, ok := v[action]; ok {
-				return v1
+				return v1.ApiInfo
 			}
 		}
 	}

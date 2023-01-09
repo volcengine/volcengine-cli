@@ -1,4 +1,4 @@
-package cli
+package cmd
 
 import (
 	"runtime"
@@ -12,4 +12,4 @@ var clientVersionAndUserAgentHandler = request.NamedHandler{
 }
 
 const clientName = "volcengine-cli"
-const clientVersion = "1.0.0"
+const clientVersion = "1.0.1"
