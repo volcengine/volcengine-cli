@@ -111,6 +111,8 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 		}
 	}
 
+	version := rootSupport.GetVersion(serviceName)
+
 	if svc, ok := GetServiceMapping(serviceName); ok {
 		serviceName = svc
 	}
@@ -119,7 +121,7 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 		out, err = sdk.CallSdk(SdkClientInfo{
 			ServiceName: serviceName,
 			Action:      action,
-			Version:     rootSupport.GetVersion(serviceName),
+			Version:     version,
 			Method:      method,
 			ContentType: contentType,
 		}, &input)
@@ -139,7 +141,7 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 				out, err = sdk.CallSdk(SdkClientInfo{
 					ServiceName: serviceName,
 					Action:      action,
-					Version:     rootSupport.GetVersion(serviceName),
+					Version:     version,
 					Method:      method,
 					ContentType: contentType,
 				}, &a)
@@ -147,7 +149,7 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 				out, err = sdk.CallSdk(SdkClientInfo{
 					ServiceName: serviceName,
 					Action:      action,
-					Version:     rootSupport.GetVersion(serviceName),
+					Version:     version,
 					Method:      method,
 					ContentType: contentType,
 				}, &m)
@@ -156,7 +158,7 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 			out, err = sdk.CallSdk(SdkClientInfo{
 				ServiceName: serviceName,
 				Action:      action,
-				Version:     rootSupport.GetVersion(serviceName),
+				Version:     version,
 				Method:      method,
 				ContentType: contentType,
 			}, &input)
