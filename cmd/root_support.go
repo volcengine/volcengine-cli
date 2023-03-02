@@ -25,30 +25,38 @@ func NewRootSupport() *RootSupport {
 	for _, name := range asset.AssetNames() {
 		spaces := strings.Split(name, "/")
 		if len(spaces) == 5 {
-			svc = append(svc, spaces[2])
+			svcName := spaces[2]
+			if mappingSvc, ok := GetSvcVersionMapping(spaces[2], spaces[3]); ok {
+				svcName = mappingSvc
+			}
+			svc = append(svc, svcName)
 			b, _ := asset.Asset(name)
-			action[spaces[2]] = make(map[string]*VolcengineMeta)
+			action[svcName] = make(map[string]*VolcengineMeta)
 			meta := make(map[string]*VolcengineMeta)
 			err := json.Unmarshal(b, &meta)
 			if err != nil {
 				panic(err)
 			}
-			action[spaces[2]] = meta
-			version[spaces[2]] = spaces[3]
+			action[svcName] = meta
+			version[svcName] = spaces[3]
 		}
 	}
 	for _, name := range typeset.AssetNames() {
 		spaces := strings.Split(name, "/")
 		if len(spaces) == 5 {
-			svc = append(svc, spaces[2])
+			svcName := spaces[2]
+			if mappingSvc, ok := GetSvcVersionMapping(spaces[2], spaces[3]); ok {
+				svcName = mappingSvc
+			}
+			svc = append(svc, svcName)
 			b, _ := typeset.Asset(name)
-			types[spaces[2]] = make(map[string]*ApiMeta)
+			types[svcName] = make(map[string]*ApiMeta)
 			meta := make(map[string]*ApiMeta)
 			err := json.Unmarshal(b, &meta)
 			if err != nil {
 				panic(err)
 			}
-			types[spaces[2]] = meta
+			types[svcName] = meta
 		}
 	}
 

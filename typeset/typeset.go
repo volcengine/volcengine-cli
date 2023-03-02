@@ -10,6 +10,7 @@
 // volcengine-sdk-metatype/metatype/cr/2022-05-12/meta_type.json
 // volcengine-sdk-metatype/metatype/directconnect/2020-04-01/meta_type.json
 // volcengine-sdk-metatype/metatype/ecs/2020-04-01/meta_type.json
+// volcengine-sdk-metatype/metatype/iam/2018-01-01/meta_type.json
 // volcengine-sdk-metatype/metatype/mongodb/2022-01-01/meta_type.json
 // volcengine-sdk-metatype/metatype/natgateway/2020-04-01/meta_type.json
 // volcengine-sdk-metatype/metatype/rds_mysql/2018-01-01/meta_type.json
@@ -109,7 +110,7 @@ func volcengineSdkMetatypeGit() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/.git", size: 48, mode: os.FileMode(420), modTime: time.Unix(1675246250, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/.git", size: 48, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -129,7 +130,7 @@ func volcengineSdkMetatypeGitignore() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/.gitignore", size: 49, mode: os.FileMode(493), modTime: time.Unix(1675246250, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/.gitignore", size: 49, mode: os.FileMode(493), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -149,7 +150,7 @@ func volcengineSdkMetatypeReadmeMd() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/README.MD", size: 1851, mode: os.FileMode(420), modTime: time.Unix(1675246250, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/README.MD", size: 1851, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -169,7 +170,7 @@ func volcengineSdkMetatypeGoMod() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/go.mod", size: 59, mode: os.FileMode(420), modTime: time.Unix(1675246250, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/go.mod", size: 59, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -189,7 +190,7 @@ func volcengineSdkMetatypeMetatypeAuto_scaling20200101Meta_typeJson() (*asset, e
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/auto_scaling/2020-01-01/meta_type.json", size: 27444, mode: os.FileMode(420), modTime: time.Unix(1675246250, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/auto_scaling/2020-01-01/meta_type.json", size: 27444, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -209,7 +210,7 @@ func volcengineSdkMetatypeMetatypeCen20200401Meta_typeJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/cen/2020-04-01/meta_type.json", size: 20977, mode: os.FileMode(420), modTime: time.Unix(1675246250, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/cen/2020-04-01/meta_type.json", size: 20977, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -229,7 +230,7 @@ func volcengineSdkMetatypeMetatypeClb20200401Meta_typeJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/clb/2020-04-01/meta_type.json", size: 37585, mode: os.FileMode(420), modTime: time.Unix(1675246250, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/clb/2020-04-01/meta_type.json", size: 37585, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -249,7 +250,7 @@ func volcengineSdkMetatypeMetatypeCr20220512Meta_typeJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/cr/2022-05-12/meta_type.json", size: 10364, mode: os.FileMode(420), modTime: time.Unix(1675246250, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/cr/2022-05-12/meta_type.json", size: 10364, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -269,7 +270,7 @@ func volcengineSdkMetatypeMetatypeDirectconnect20200401Meta_typeJson() (*asset, 
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/directconnect/2020-04-01/meta_type.json", size: 26870, mode: os.FileMode(420), modTime: time.Unix(1675246250, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/directconnect/2020-04-01/meta_type.json", size: 26870, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -289,7 +290,27 @@ func volcengineSdkMetatypeMetatypeEcs20200401Meta_typeJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/ecs/2020-04-01/meta_type.json", size: 40231, mode: os.FileMode(420), modTime: time.Unix(1675246250, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/ecs/2020-04-01/meta_type.json", size: 40231, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
+var _volcengineSdkMetatypeMetatypeIam20180101Meta_typeJson = []byte("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\xec\x5d\xdd\x76\xa3\xb8\x0f\xbf\x4e\x9e\x62\x0e\xd7\xf3\x04\x73\x97\x33\x69\x72\xfa\xff\xa7\x1f\x9b\x74\xf6\x9e\x82\xd2\x7a\x97\xe0\xac\xed\x34\xdb\x33\xa7\xef\xbe\x07\xc8\x07\x50\x1b\x6c\xc7\x06\x87\xfa\x66\x3e\x08\x92\x85\xd0\x4f\x92\x25\x01\xbf\xc7\xa3\x60\x12\xc7\xbf\x28\x90\x27\x3c\x27\x78\xb7\x0d\x7e\x7c\xfb\x3d\x1e\x8d\x82\x25\xfc\xb3\x03\xca\x0e\xff\x1d\x05\x77\xc0\xc2\xa7\xf7\x2d\xd0\xe3\x91\x51\x90\x51\xe5\x34\xf7\xe1\x06\x4e\x87\x47\x41\x76\xda\xe1\x50\x40\x19\x41\xe9\x4b\xf0\xfd\xf0\x53\xc6\x15\x11\x88\x83\x1f\xdf\x18\xd9\x41\x7e\xf4\xe3\xfb\x99\xdd\x85\x9c\xc6\x87\x3f\x72\x96\xc1\x12\xe8\x16\xa7\x34\x67\xf8\x31\xce\x0f\x06\x13\xc6\xc2\xe8\x75\x89\x13\x78\xc4\x09\x8a\xde\x15\x2e\xb7\x20\x30\x73\xad\x05\xaf\x8c\xf8\x72\x5e\xd9\xc5\x74\xa4\xb7\xd3\x1d\x1f\x8c\xf2\x4c\xd9\xb0\x8a\x06\x07\xa5\x3c\xeb\x7a\xfb\x49\x20\x64\x30\x89\x22\xa0\xf4\xff\xa0\xa2\x36\x39\xf1\xda\xe4\x10\x71\xaf\x4b\x54\x67\x8f\x9f\xff\x82\x88\x9d\xae\x3e\xfb\xe9\x61\x5d\xfa\xa1\xb4\x6e\x7e\x4e\xf0\xf3\x15\x25\x71\xb6\x50\xcb\x22\x9f\x65\x29\x9f\x78\x1b\x97\x0e\x8b\x2f\xf8\x74\x13\x47\x47\x0d\x4f\x43\x06\xca\xa4\x2b\x88\x08\x30\x8e\x94\xb2\xf4\x2c\x64\x3b\xaa\x4c\xf6\x6b\x1b\xeb\x4a\xfc\xd9\x28\x9a\x09\xc7\xa5\xbf\xce\x56\x52\xb1\x4d\xd5\xb8\x39\x05\x1a\x11\xb4\x65\x08\xa7\x32\xa6\x79\x00\xdb\x14\xd1\x6d\x12\x4a\x78\x81\x8e\xfd\x5b\x6b\x76\x60\x13\x1f\xbc\x45\x44\xf8\xc0\xbb\x94\xdd\x4e\x85\xf7\x1d\xa5\x0c\x5e\x80\x18\x85\x07\xf7\x4e\xcb\xd2\xf2\xee\x77\x37\xf8\xe0\x18\xcc\xc5\x20\x59\xe0\x17\x94\x3e\x12\xbc\x46\x09\x28\x60\x25\x27\x9b\x24\x09\xde\x43\x2c\x30\xa4\x67\x8c\x13\x08\xd3\xaa\xdd\x3f\x86\x94\xee\x31\x11\xd1\xa8\x04\xcc\x03\xa7\x25\x50\x60\xa5\x13\xa5\x45\x59\x85\x6b\x98\xec\xd8\xeb\xcd\xbf\xb0\xd9\xb2\xe9\x8e\x84\x0d\xc8\xaf\x58\x61\x9d\xc3\x2c\x09\x5f\x74\x56\x6e\x8f\xf6\xdd\x85\xf5\xc6\x1b\x5d\xb5\x0f\x2b\x1e\x43\xb0\x0e\xd7\x69\x2c\x42\xca\xf2\xf3\xb5\x90\x74\xa2\xbe\xdd\xaa\xd3\x72\xcd\xbe\xe9\x9e\x97\xa9\x5b\x4c\x56\x96\x8d\x85\x50\xa9\x9c\xfa\xea\xc5\xca\x62\x99\x29\x8e\x76\x1b\x48\x99\xa9\xa4\xb9\x73\x4c\x54\xb4\x65\x05\x0d\x9f\x56\xe0\xe2\xa0\xa7\x08\x28\xba\x8b\x4a\xe4\x5a\xf1\xf3\xb0\x49\x22\xba\x32\x57\x1d\xae\xb5\xa0\x2d\x01\xb8\x25\x56\x0a\xb7\x96\x53\xd3\x8e\xca\x19\x07\x4e\x4f\x64\x47\x99\x8a\x2b\xd0\xc5\x69\x49\xc9\x56\x50\x5a\xe3\xef\x12\x46\x33\xd1\x1a\xb6\x9c\xc2\xa4\xfa\xf3\x5d\x96\x5c\x50\x07\x94\x8d\x86\x70\x31\xc4\x56\x93\xbb\xc5\x23\xc1\x6f\x28\x06\x62\x1d\x6a\x37\x69\x84\x63\x88\xb3\x35\x33\x9e\x71\xc8\x42\x73\x61\xae\x7c\x25\x66\x20\xb8\x5a\x3d\x34\x24\x9f\x47\xeb\x90\xe2\x54\xab\x14\x34\x64\xcd\xea\x00\xe6\x81\xa7\xdd\xeb\x69\xdd\x40\x35\x1d\x6b\x28\x53\x57\x6b\x27\xa7\xa9\x72\x35\xbc\x98\x25\xe1\x59\xab\xf8\x01\xf2\x86\x22\x58\xa0\xf4\x6f\x88\x15\xe3\xd5\x81\xb6\xa3\x22\x64\x96\x10\xbb\x13\x4c\xab\x7e\x61\x13\xa2\x44\xe1\xfc\x3b\xfc\x8c\x12\x78\x7c\xc5\xa9\xf3\x3b\xc3\x92\xd6\xad\x44\xd7\x1a\xff\xc6\xf2\x91\x46\xa4\xbb\xc2\xf2\x51\xcd\x98\x54\xa8\x6e\xe9\x9f\x40\xd0\x5a\x5c\x09\x16\xee\x36\x75\x74\xcb\xb5\x62\x49\x71\x4b\xb4\xfa\x42\xeb\x64\x23\xae\x14\xaf\xa7\x90\x80\x5e\x63\x85\xdb\x6c\xb0\xe0\x75\x0b\x09\xfb\x6a\x4b\xcb\xca\xa7\x59\xd9\xec\xa4\x79\x56\x48\xd8\x4f\xc3\x51\x56\x3a\xc5\x90\xdf\x49\xbb\xbb\x90\x4c\x33\xb3\x37\x98\x46\xcb\x4a\xaa\x98\x99\x74\x64\x7b\x7e\xd4\x42\x5f\x6f\x7e\xd4\xc2\x84\x06\x07\xa5\x3c\xeb\x7a\x9b\x03\x73\x2f\xd8\xb6\xae\x6c\x7b\x6f\xe0\xfb\xcb\xa6\x53\x58\xb3\xfd\xe5\x39\x30\x17\x53\x30\xd1\xa2\xbe\xd1\x39\xec\x46\xe7\x1c\xd8\xf5\x47\x1d\x75\xb3\xf6\xbd\x4a\xdf\xab\xbc\x04\x33\x2e\xed\x02\x9b\x16\xb5\x69\xe1\xbe\xcf\xe7\x66\x9f\x6f\x0e\xcc\xe5\x52\x80\x68\x71\xdf\xd5\xea\xa5\xab\x35\x07\xe6\x52\x39\xa6\x69\x51\xdb\x5b\x27\xd9\x5d\x93\x6f\xab\xf8\xb6\xca\x50\xda\x2a\x0b\x44\xcf\x0f\x44\x50\xe3\x5e\x40\x17\xee\x27\x91\x8e\x63\x23\x82\x65\x42\x42\xc2\x77\x53\x4f\xad\x70\xd6\x72\xea\xe9\x95\xeb\x7e\xfa\x24\xb7\xb4\xfc\xa9\xb2\x62\x6e\x22\xcf\x7c\x10\xa8\xd8\x5c\x2f\x69\xf4\x51\xe6\x22\x53\xeb\xc2\x1e\xdb\x16\xe4\x1b\x65\x4e\xd5\xd3\x4e\xd2\xf9\xad\xa0\xb4\x65\x56\x1b\x19\x6a\xe6\xd9\x5f\x75\xd9\xdb\xe8\x57\xb3\x51\x4d\xf3\xf4\x96\xe9\x2d\xd3\x82\x65\xde\xa4\x0c\x31\x04\x74\x86\xd5\x7b\x98\x39\xed\xfb\x0c\x25\x4c\xb8\xc3\x53\xa8\x27\x2f\xd0\x06\x89\x66\x8b\xb9\x7b\xed\x87\xf5\x9a\x82\x12\xc5\x00\xca\xdf\x9d\x69\x29\xcb\xd8\x44\xa5\x0f\x29\xb4\x57\xb8\x9d\x02\xac\x59\x96\x26\xb8\x3d\x61\x16\x8a\x26\x5a\x39\xf3\xde\x6d\x7d\x83\xba\xde\xdc\x73\x5a\xab\x08\x37\x38\x90\x8a\xea\x84\xca\xbb\xa4\xf4\x3a\xae\xd0\xf3\x54\xd9\x20\x2a\x4f\x9d\x42\x85\x36\xca\x51\xba\x84\xea\x7a\x75\xff\xaa\xc2\x85\xe0\x4c\x47\x82\xe2\x8d\x3a\x23\x55\x0e\xe3\xda\x3f\xaa\xfe\xbf\x1d\x91\x2e\x19\xeb\x25\x15\x30\x3b\x86\x7e\xc9\x48\x81\xb7\xf6\xde\xad\xdd\x1b\xfa\xf9\xb7\x76\x43\xf7\x36\x3e\x72\xdf\xc6\xc7\x9c\x8c\xbe\xe2\xd4\xa5\x5e\x7d\x61\x3f\xa5\xfc\x63\x07\x44\x34\xb3\x71\x61\xbd\xb9\x03\xe9\xe5\x33\xc4\x63\x5f\xcf\x48\xb6\x3b\x6e\xef\x7b\x49\x06\x70\x3f\x33\x28\x5f\x35\x37\x3b\x33\x78\x06\xe4\x0c\x13\xc5\x6e\xad\x59\xcb\xe6\xf5\x9f\xa5\x61\x59\xb2\xeb\xce\xeb\x50\x1e\xe0\xad\x00\xef\x0b\x6a\xff\xc3\x9a\x93\x9c\x76\x80\xa6\x51\x59\xb5\x8f\xb1\x5a\xc2\x73\x65\xa1\xcf\x5c\xf1\xd7\x4e\xb5\x45\xb6\x4a\xec\xa7\x35\x55\x29\x1d\x98\xd6\xcc\x30\x5d\x2e\xa7\xf9\x64\xd6\x80\xf4\x99\x42\x5d\xc4\xb3\x40\x2e\x97\xd0\xfc\xa5\x67\x53\x33\x30\x96\xa7\x2f\x5d\x01\xa5\x93\x20\xe3\x29\xca\x09\x94\x89\x04\x73\x09\x66\xe2\x19\x5f\x59\x06\xf5\x49\x5f\x59\xa0\xb6\xcc\x69\x09\xe9\xba\x19\x23\x6c\x85\x67\xb9\xc8\xe9\x46\xf2\x7b\xdd\xa1\x52\x6b\x5b\xd8\xc1\xa0\x84\x60\x19\x3f\xf9\xec\x27\x9f\xa5\x85\xbe\xf6\xc9\xe7\xdc\xd7\xcd\x30\x51\x7d\x8e\xdc\xbe\xcf\xeb\x6f\x96\xd0\x55\x97\x68\xbb\x48\x36\xcc\xfa\x98\x31\xb8\x2c\x61\x83\xdf\xf2\x37\xb7\xcc\x08\xde\x7c\x85\x8f\xef\x14\x8e\xaa\xbf\x37\x4e\x1d\x77\x01\x4d\x8f\x8f\x99\xbc\x52\xd5\x7b\x7a\x0f\x7b\xbd\xc7\xef\x32\x42\xad\xd7\x06\xde\xc3\x5e\xc1\x90\x1c\xf1\xa7\xfe\xcd\x1f\xbe\x8b\x57\x42\x99\x93\x5f\x96\xe0\x92\xf8\x4f\x48\xd8\xcd\xb3\xfc\x9b\x55\xca\xb4\x83\x7b\xb3\x4a\x01\x77\xe5\x71\xf8\x4b\xa2\xaa\xfa\xdb\xe3\xeb\xb4\x8a\x51\xd5\x7f\x69\xc2\xf7\x03\xaf\xad\x1f\x58\xb0\x73\xeb\x4b\x13\x75\x30\xca\x3d\xe8\x5a\xa1\xea\xf1\x43\x14\x46\x76\x1f\x9d\x7e\x97\xe0\x1e\xf6\xda\x9f\x26\xa8\x26\x1c\x3d\x7d\x83\xa0\x4a\xe2\x3f\x36\x30\xb8\xd7\xb2\x14\xd4\x8a\xb3\x7e\xbd\xec\xc8\x55\xdf\xe5\x7f\x0f\x7b\xbd\xd7\xf9\x1f\x76\xff\x1a\x1b\xff\x5e\xf6\xfc\xb6\xb7\xfb\xb2\x3b\x7d\xdf\xb3\xf1\x3d\x9b\x21\xf4\x6c\xc6\x1f\xff\x05\x00\x00\xff\xff\x44\x9b\xc2\x80\xff\x7d\x00\x00")
+
+func volcengineSdkMetatypeMetatypeIam20180101Meta_typeJsonBytes() ([]byte, error) {
+	return bindataRead(
+		_volcengineSdkMetatypeMetatypeIam20180101Meta_typeJson,
+		"volcengine-sdk-metatype/metatype/iam/2018-01-01/meta_type.json",
+	)
+}
+
+func volcengineSdkMetatypeMetatypeIam20180101Meta_typeJson() (*asset, error) {
+	bytes, err := volcengineSdkMetatypeMetatypeIam20180101Meta_typeJsonBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/iam/2018-01-01/meta_type.json", size: 32255, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -309,7 +330,7 @@ func volcengineSdkMetatypeMetatypeMongodb20220101Meta_typeJson() (*asset, error)
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/mongodb/2022-01-01/meta_type.json", size: 21695, mode: os.FileMode(420), modTime: time.Unix(1675246250, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/mongodb/2022-01-01/meta_type.json", size: 21695, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -329,7 +350,7 @@ func volcengineSdkMetatypeMetatypeNatgateway20200401Meta_typeJson() (*asset, err
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/natgateway/2020-04-01/meta_type.json", size: 13560, mode: os.FileMode(420), modTime: time.Unix(1675246250, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/natgateway/2020-04-01/meta_type.json", size: 13560, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -349,7 +370,7 @@ func volcengineSdkMetatypeMetatypeRds_mysql20180101Meta_typeJson() (*asset, erro
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/rds_mysql/2018-01-01/meta_type.json", size: 29117, mode: os.FileMode(420), modTime: time.Unix(1675246250, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/rds_mysql/2018-01-01/meta_type.json", size: 29117, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -369,7 +390,7 @@ func volcengineSdkMetatypeMetatypeRedis20201207Meta_typeJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/redis/2020-12-07/meta_type.json", size: 23253, mode: os.FileMode(420), modTime: time.Unix(1675246250, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/redis/2020-12-07/meta_type.json", size: 23253, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -389,7 +410,7 @@ func volcengineSdkMetatypeMetatypeStorage_ebs20200401Meta_typeJson() (*asset, er
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/storage_ebs/2020-04-01/meta_type.json", size: 4523, mode: os.FileMode(420), modTime: time.Unix(1675246250, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/storage_ebs/2020-04-01/meta_type.json", size: 4523, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -409,7 +430,7 @@ func volcengineSdkMetatypeMetatypeVke20220512Meta_typeJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/vke/2022-05-12/meta_type.json", size: 45913, mode: os.FileMode(420), modTime: time.Unix(1675246250, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/vke/2022-05-12/meta_type.json", size: 45913, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -429,7 +450,7 @@ func volcengineSdkMetatypeMetatypeVpc20200401Meta_typeJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/vpc/2020-04-01/meta_type.json", size: 61502, mode: os.FileMode(420), modTime: time.Unix(1675246250, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/vpc/2020-04-01/meta_type.json", size: 61502, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -449,7 +470,7 @@ func volcengineSdkMetatypeMetatypeVpn20200401Meta_typeJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/vpn/2020-04-01/meta_type.json", size: 20986, mode: os.FileMode(420), modTime: time.Unix(1675246250, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/vpn/2020-04-01/meta_type.json", size: 20986, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -516,6 +537,7 @@ var _bindata = map[string]func() (*asset, error){
 	"volcengine-sdk-metatype/metatype/cr/2022-05-12/meta_type.json":            volcengineSdkMetatypeMetatypeCr20220512Meta_typeJson,
 	"volcengine-sdk-metatype/metatype/directconnect/2020-04-01/meta_type.json": volcengineSdkMetatypeMetatypeDirectconnect20200401Meta_typeJson,
 	"volcengine-sdk-metatype/metatype/ecs/2020-04-01/meta_type.json":           volcengineSdkMetatypeMetatypeEcs20200401Meta_typeJson,
+	"volcengine-sdk-metatype/metatype/iam/2018-01-01/meta_type.json":           volcengineSdkMetatypeMetatypeIam20180101Meta_typeJson,
 	"volcengine-sdk-metatype/metatype/mongodb/2022-01-01/meta_type.json":       volcengineSdkMetatypeMetatypeMongodb20220101Meta_typeJson,
 	"volcengine-sdk-metatype/metatype/natgateway/2020-04-01/meta_type.json":    volcengineSdkMetatypeMetatypeNatgateway20200401Meta_typeJson,
 	"volcengine-sdk-metatype/metatype/rds_mysql/2018-01-01/meta_type.json":     volcengineSdkMetatypeMetatypeRds_mysql20180101Meta_typeJson,
@@ -601,6 +623,11 @@ var _bintree = &bintree{nil, map[string]*bintree{
 			"ecs": &bintree{nil, map[string]*bintree{
 				"2020-04-01": &bintree{nil, map[string]*bintree{
 					"meta_type.json": &bintree{volcengineSdkMetatypeMetatypeEcs20200401Meta_typeJson, map[string]*bintree{}},
+				}},
+			}},
+			"iam": &bintree{nil, map[string]*bintree{
+				"2018-01-01": &bintree{nil, map[string]*bintree{
+					"meta_type.json": &bintree{volcengineSdkMetatypeMetatypeIam20180101Meta_typeJson, map[string]*bintree{}},
 				}},
 			}},
 			"mongodb": &bintree{nil, map[string]*bintree{

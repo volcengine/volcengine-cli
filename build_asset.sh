@@ -1,6 +1,8 @@
 #!/bin/bash
 url=$1
 typeUrl=$2
+urlBranch=$3
+typeUrlBranch=$4
 
 if [ "$url" == "" ]
 then
@@ -13,6 +15,8 @@ then
   echo 'Please set metatype repo url'
   exit
 fi
+
+
 
 #clean git cache before build
 rm -rf volcengine-sdk-metadata
@@ -31,9 +35,21 @@ rm -rf .gitmodules
 touch .gitmodules
 
 git submodule add "$url" volcengine-sdk-metadata
+if [ "$urlBranch" != "" ]
+then
+ cd volcengine-sdk-metadata
+ git checkout -b "$urlBranch" origin/"$urlBranch"
+ cd ..
+fi
 go-bindata -pkg asset  -o asset/asset.go volcengine-sdk-metadata/...
 
 git submodule add "$typeUrl" volcengine-sdk-metatype
+if [ "$typeUrlBranch" != "" ]
+then
+ cd volcengine-sdk-metatype
+ git checkout -b "$typeUrlBranch" origin/"$typeUrlBranch"
+ cd ..
+fi
 go-bindata -pkg typeset  -o typeset/typeset.go volcengine-sdk-metatype/...
 
 #clean git cache after build
