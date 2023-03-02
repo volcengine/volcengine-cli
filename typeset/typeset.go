@@ -110,7 +110,7 @@ func volcengineSdkMetatypeGit() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/.git", size: 48, mode: os.FileMode(420), modTime: time.Unix(1677752568, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/.git", size: 48, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -130,7 +130,7 @@ func volcengineSdkMetatypeGitignore() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/.gitignore", size: 49, mode: os.FileMode(493), modTime: time.Unix(1677752568, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/.gitignore", size: 49, mode: os.FileMode(493), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -150,7 +150,7 @@ func volcengineSdkMetatypeReadmeMd() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/README.MD", size: 1851, mode: os.FileMode(420), modTime: time.Unix(1677752568, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/README.MD", size: 1851, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -170,7 +170,7 @@ func volcengineSdkMetatypeGoMod() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/go.mod", size: 59, mode: os.FileMode(420), modTime: time.Unix(1677752568, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/go.mod", size: 59, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -190,7 +190,7 @@ func volcengineSdkMetatypeMetatypeAuto_scaling20200101Meta_typeJson() (*asset, e
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/auto_scaling/2020-01-01/meta_type.json", size: 27444, mode: os.FileMode(420), modTime: time.Unix(1677752568, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/auto_scaling/2020-01-01/meta_type.json", size: 27444, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -210,7 +210,7 @@ func volcengineSdkMetatypeMetatypeCen20200401Meta_typeJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/cen/2020-04-01/meta_type.json", size: 20977, mode: os.FileMode(420), modTime: time.Unix(1677752568, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/cen/2020-04-01/meta_type.json", size: 20977, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -230,7 +230,7 @@ func volcengineSdkMetatypeMetatypeClb20200401Meta_typeJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/clb/2020-04-01/meta_type.json", size: 37585, mode: os.FileMode(420), modTime: time.Unix(1677752568, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/clb/2020-04-01/meta_type.json", size: 37585, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -250,7 +250,7 @@ func volcengineSdkMetatypeMetatypeCr20220512Meta_typeJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/cr/2022-05-12/meta_type.json", size: 10364, mode: os.FileMode(420), modTime: time.Unix(1677752568, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/cr/2022-05-12/meta_type.json", size: 10364, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -270,7 +270,7 @@ func volcengineSdkMetatypeMetatypeDirectconnect20200401Meta_typeJson() (*asset, 
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/directconnect/2020-04-01/meta_type.json", size: 26870, mode: os.FileMode(420), modTime: time.Unix(1677752568, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/directconnect/2020-04-01/meta_type.json", size: 26870, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -290,7 +290,7 @@ func volcengineSdkMetatypeMetatypeEcs20200401Meta_typeJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/ecs/2020-04-01/meta_type.json", size: 40231, mode: os.FileMode(420), modTime: time.Unix(1677752568, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/ecs/2020-04-01/meta_type.json", size: 40231, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -310,7 +310,7 @@ func volcengineSdkMetatypeMetatypeIam20180101Meta_typeJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/iam/2018-01-01/meta_type.json", size: 32255, mode: os.FileMode(420), modTime: time.Unix(1677752568, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/iam/2018-01-01/meta_type.json", size: 32255, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -330,7 +330,7 @@ func volcengineSdkMetatypeMetatypeMongodb20220101Meta_typeJson() (*asset, error)
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/mongodb/2022-01-01/meta_type.json", size: 21695, mode: os.FileMode(420), modTime: time.Unix(1677752568, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/mongodb/2022-01-01/meta_type.json", size: 21695, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -350,7 +350,7 @@ func volcengineSdkMetatypeMetatypeNatgateway20200401Meta_typeJson() (*asset, err
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/natgateway/2020-04-01/meta_type.json", size: 13560, mode: os.FileMode(420), modTime: time.Unix(1677752568, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/natgateway/2020-04-01/meta_type.json", size: 13560, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -370,7 +370,7 @@ func volcengineSdkMetatypeMetatypeRds_mysql20180101Meta_typeJson() (*asset, erro
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/rds_mysql/2018-01-01/meta_type.json", size: 29117, mode: os.FileMode(420), modTime: time.Unix(1677752568, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/rds_mysql/2018-01-01/meta_type.json", size: 29117, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -390,7 +390,7 @@ func volcengineSdkMetatypeMetatypeRedis20201207Meta_typeJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/redis/2020-12-07/meta_type.json", size: 23253, mode: os.FileMode(420), modTime: time.Unix(1677752568, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/redis/2020-12-07/meta_type.json", size: 23253, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -410,7 +410,7 @@ func volcengineSdkMetatypeMetatypeStorage_ebs20200401Meta_typeJson() (*asset, er
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/storage_ebs/2020-04-01/meta_type.json", size: 4523, mode: os.FileMode(420), modTime: time.Unix(1677752568, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/storage_ebs/2020-04-01/meta_type.json", size: 4523, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -430,7 +430,7 @@ func volcengineSdkMetatypeMetatypeVke20220512Meta_typeJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/vke/2022-05-12/meta_type.json", size: 45913, mode: os.FileMode(420), modTime: time.Unix(1677752568, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/vke/2022-05-12/meta_type.json", size: 45913, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -450,7 +450,7 @@ func volcengineSdkMetatypeMetatypeVpc20200401Meta_typeJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/vpc/2020-04-01/meta_type.json", size: 61502, mode: os.FileMode(420), modTime: time.Unix(1677752568, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/vpc/2020-04-01/meta_type.json", size: 61502, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -470,7 +470,7 @@ func volcengineSdkMetatypeMetatypeVpn20200401Meta_typeJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/vpn/2020-04-01/meta_type.json", size: 20986, mode: os.FileMode(420), modTime: time.Unix(1677752568, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metatype/metatype/vpn/2020-04-01/meta_type.json", size: 20986, mode: os.FileMode(420), modTime: time.Unix(1677753766, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
