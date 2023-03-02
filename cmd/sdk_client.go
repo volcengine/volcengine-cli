@@ -2,10 +2,11 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/volcengine/volcengine-go-sdk/volcengine/volcengineutil"
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/volcengine/volcengine-go-sdk/volcengine/volcengineutil"
 
 	"github.com/volcengine/volcengine-go-sdk/volcengine"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/client"
@@ -140,6 +141,8 @@ func (s *SdkClient) CallSdk(info SdkClientInfo, input interface{}) (output *map[
 	req := c.NewRequest(op, input, output)
 	if strings.ToLower(info.ContentType) == "application/json" {
 		req.HTTPRequest.Header.Set("Content-Type", "application/json; charset=utf-8")
+	} else if info.ContentType != "" {
+		req.HTTPRequest.Header.Set("Content-Type", info.ContentType)
 	}
 	err = req.Send()
 	return output, err
