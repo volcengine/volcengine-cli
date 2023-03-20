@@ -58,7 +58,7 @@ func generateActionCmd(actionMeta map[string]*VolcengineMeta, apiMetas map[strin
 				bodyMap := apiMeta.Request.GetReqBody()
 				bodyStr, _ = json.MarshalIndent(bodyMap, "", "    ")
 			}
-			actionCmd.SetUsageTemplate(actionUsageTemplate([]string{"body " + string(bodyStr)}))
+			actionCmd.SetUsageTemplate(actionUsageTemplate([]string{fmt.Sprintf(`body '%s'`, string(bodyStr))}))
 		}
 
 		actionCmd.Flags().BoolP("help", "h", false, "")
