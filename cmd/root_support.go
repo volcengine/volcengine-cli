@@ -4,6 +4,8 @@ package cmd
 
 import (
 	"encoding/json"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/volcengine/volcengine-cli/asset"
@@ -22,13 +24,23 @@ func NewRootSupport() *RootSupport {
 	action := make(map[string]map[string]*VolcengineMeta)
 	version := make(map[string]string)
 	types := make(map[string]map[string]*ApiMeta)
-	for _, name := range asset.AssetNames() {
+	svcs := make(map[string]string)
+	existSvcs := make(map[string]int)
+	temp := asset.AssetNames()
+	sort.Strings(temp)
+	for _, name := range temp {
 		spaces := strings.Split(name, "/")
 		if len(spaces) == 5 {
 			svcName := spaces[2]
 			if mappingSvc, ok := GetSvcVersionMapping(spaces[2], spaces[3]); ok {
 				svcName = mappingSvc
+			} else if i, ok1 := existSvcs[spaces[2]]; ok1 {
+				svcName = spaces[2] + "_v" + strconv.Itoa(i+1)
+				existSvcs[spaces[2]] = i + 1
+			} else {
+				existSvcs[spaces[2]] = 1
 			}
+			svcs[spaces[2]+"_"+spaces[3]] = svcName
 			svc = append(svc, svcName)
 			b, _ := asset.Asset(name)
 			action[svcName] = make(map[string]*VolcengineMeta)
@@ -44,10 +56,7 @@ func NewRootSupport() *RootSupport {
 	for _, name := range typeset.AssetNames() {
 		spaces := strings.Split(name, "/")
 		if len(spaces) == 5 {
-			svcName := spaces[2]
-			if mappingSvc, ok := GetSvcVersionMapping(spaces[2], spaces[3]); ok {
-				svcName = mappingSvc
-			}
+			svcName := svcs[spaces[2]+"_"+spaces[3]]
 			svc = append(svc, svcName)
 			b, _ := typeset.Asset(name)
 			types[svcName] = make(map[string]*ApiMeta)

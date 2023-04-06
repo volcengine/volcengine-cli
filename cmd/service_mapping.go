@@ -4,13 +4,13 @@ package cmd
 
 var (
 	serviceMapping = map[string]string{
-		"rds_mysql_v2": "rds_mysql",
+		//"rds_mysql_v2": "rds_mysql",
 	}
 
 	svcVersionMapping = map[string]map[string]string{
-		"rds_mysql": {
-			"2022-01-01": "rds_mysql_v2",
-		},
+		//"rds_mysql": {
+		//	"2022-01-01": "rds_mysql_v2",
+		//},
 	}
 )
 
