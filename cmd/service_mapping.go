@@ -14,6 +14,10 @@ var (
 	}
 )
 
+func SetServiceMapping(s1, s2 string) {
+	serviceMapping[s1] = s2
+}
+
 func GetServiceMapping(s string) (string, bool) {
 	if v, ok := serviceMapping[s]; ok {
 		return v, true
