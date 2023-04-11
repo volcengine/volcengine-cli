@@ -34,9 +34,11 @@ func NewRootSupport() *RootSupport {
 			svcName := spaces[2]
 			if mappingSvc, ok := GetSvcVersionMapping(spaces[2], spaces[3]); ok {
 				svcName = mappingSvc
+				SetServiceMapping(svcName, spaces[2])
 			} else if i, ok1 := existSvcs[spaces[2]]; ok1 {
 				svcName = spaces[2] + "_v" + strconv.Itoa(i+1)
 				existSvcs[spaces[2]] = i + 1
+				SetServiceMapping(svcName, spaces[2])
 			} else {
 				existSvcs[spaces[2]] = 1
 			}
