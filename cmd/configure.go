@@ -30,7 +30,7 @@ type Profile struct {
 	DisableSSL   *bool  `json:"disable-ssl"`
 }
 
-//LoadConfig from CONFIG_FILE_DIR(default ~/.volcengine)
+// LoadConfig from CONFIG_FILE_DIR(default ~/.volcengine)
 func LoadConfig() *Configure {
 	configFileDir, err := util.GetConfigFileDir()
 	if err != nil {
@@ -70,7 +70,7 @@ func LoadConfig() *Configure {
 	return cfg
 }
 
-//WriteConfigToFile store config
+// WriteConfigToFile store config
 func WriteConfigToFile(config *Configure) error {
 	configFileDir, err := util.GetConfigFileDir()
 	if err != nil {
@@ -167,12 +167,12 @@ func getConfigProfile(profileName string) error {
 
 	// if config not exist, return
 	if cfg = ctx.config; cfg == nil {
-		fmt.Println(Profile{})
+		fmt.Println("no profile created")
 		return nil
 	}
 
 	if profileName == "" {
-		fmt.Printf("no profile specified, show current profile: [%v]\n", cfg.Current)
+		fmt.Printf("no profile name specified, show current profile: [%v]\n", cfg.Current)
 		profileName = cfg.Current
 	}
 
@@ -190,6 +190,16 @@ func getConfigProfile(profileName string) error {
 }
 
 func listConfigProfiles() error {
+	var (
+		cfg *Configure
+	)
+
+	// if config not exist, return
+	if cfg = ctx.config; cfg == nil {
+		fmt.Println("no profile created")
+		return nil
+	}
+
 	fmt.Printf("*** current profile: %v ***\n", ctx.config.Current)
 	for _, profile := range ctx.config.Profiles {
 		util.ShowJson(profile.ToMap(), config.EnableColor)
