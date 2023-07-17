@@ -35,6 +35,7 @@ func generateServiceCommands() {
 
 		for _, v := range compatible_support_cmd {
 			if strings.ReplaceAll(v, "_", "") == svc {
+				//copy a non ptr value from svcCmd for compatible svc cmd with _
 				compatibleCmd := *svcCmd
 				compatibleCmd.Use = v
 				compatibleCmd.Hidden = true
