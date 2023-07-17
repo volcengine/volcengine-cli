@@ -26,7 +26,7 @@ func NewRootSupport() *RootSupport {
 	types := make(map[string]map[string]*ApiMeta)
 	svcs := make(map[string]string)
 
-	//generate structure info form meta and set a map form service_version:pkgName
+	//generate structure info form meta and set a map with service_version:pkgName
 	svcMappings := make(map[string]string)
 	structSet := structset.AssetNames()
 	sort.Strings(structSet)
