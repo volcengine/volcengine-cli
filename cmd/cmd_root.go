@@ -2,8 +2,9 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/spf13/cobra"
 	"os"
+
+	"github.com/spf13/cobra"
 )
 
 var rootCmd = &cobra.Command{
@@ -12,12 +13,13 @@ var rootCmd = &cobra.Command{
 		cmd.Usage()
 		return nil
 	},
-	ValidArgs:     rootSupport.GetAllSvc(),
+	ValidArgs:     rootSupport.GetAllSvcCompatible(),
 	SilenceErrors: true,
 	SilenceUsage:  true,
 }
 
 func initRootCmd() {
+
 	rootCmd.SetHelpCommand(&cobra.Command{
 		Hidden: true,
 	})

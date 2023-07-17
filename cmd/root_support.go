@@ -5,10 +5,10 @@ package cmd
 import (
 	"encoding/json"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/volcengine/volcengine-cli/asset"
+	"github.com/volcengine/volcengine-cli/structset"
 	"github.com/volcengine/volcengine-cli/typeset"
 )
 
@@ -25,49 +25,63 @@ func NewRootSupport() *RootSupport {
 	version := make(map[string]string)
 	types := make(map[string]map[string]*ApiMeta)
 	svcs := make(map[string]string)
-	existSvcs := make(map[string]int)
+
+	//generate structure info form meta and set a map with service_version:pkgName
+	svcMappings := make(map[string]string)
+	structSet := structset.AssetNames()
+	sort.Strings(structSet)
+	for _, name := range structSet {
+		spaces := strings.Split(name, "/")
+		b, _ := structset.Asset(name)
+		st := StructInfo{}
+		err := json.Unmarshal(b, &st)
+		if err != nil {
+			panic(err)
+		}
+		svcName := spaces[2]
+		svcVersion := spaces[3]
+		pkgName := st.PkgName
+		svcMappings[svcName+"_"+svcVersion] = pkgName
+		SetServiceMapping(pkgName, svcName)
+	}
+
 	temp := asset.AssetNames()
 	sort.Strings(temp)
 	for _, name := range temp {
 		spaces := strings.Split(name, "/")
 		if len(spaces) == 5 {
-			svcName := spaces[2]
-			if mappingSvc, ok := GetSvcVersionMapping(spaces[2], spaces[3]); ok {
-				svcName = mappingSvc
-				SetServiceMapping(svcName, spaces[2])
-			} else if i, ok1 := existSvcs[spaces[2]]; ok1 {
-				svcName = spaces[2] + "_v" + strconv.Itoa(i+1)
-				existSvcs[spaces[2]] = i + 1
-				SetServiceMapping(svcName, spaces[2])
-			} else {
-				existSvcs[spaces[2]] = 1
+			var svcName string
+			//if structure info is nil skip it
+			if s, ok := svcMappings[spaces[2]+"_"+spaces[3]]; ok {
+				svcName = s
+				svcs[spaces[2]+"_"+spaces[3]] = svcName
+				b, _ := asset.Asset(name)
+				action[svcName] = make(map[string]*VolcengineMeta)
+				meta := make(map[string]*VolcengineMeta)
+				err := json.Unmarshal(b, &meta)
+				if err != nil {
+					panic(err)
+				}
+				action[svcName] = meta
+				version[svcName] = spaces[3]
 			}
-			svcs[spaces[2]+"_"+spaces[3]] = svcName
-			svc = append(svc, svcName)
-			b, _ := asset.Asset(name)
-			action[svcName] = make(map[string]*VolcengineMeta)
-			meta := make(map[string]*VolcengineMeta)
-			err := json.Unmarshal(b, &meta)
-			if err != nil {
-				panic(err)
-			}
-			action[svcName] = meta
-			version[svcName] = spaces[3]
 		}
 	}
 	for _, name := range typeset.AssetNames() {
 		spaces := strings.Split(name, "/")
 		if len(spaces) == 5 {
-			svcName := svcs[spaces[2]+"_"+spaces[3]]
-			svc = append(svc, svcName)
-			b, _ := typeset.Asset(name)
-			types[svcName] = make(map[string]*ApiMeta)
-			meta := make(map[string]*ApiMeta)
-			err := json.Unmarshal(b, &meta)
-			if err != nil {
-				panic(err)
+			//if structure info is nil skip it
+			if _, ok := svcMappings[spaces[2]+"_"+spaces[3]]; ok {
+				svcName := svcs[spaces[2]+"_"+spaces[3]]
+				svc = append(svc, svcName)
+				b, _ := typeset.Asset(name)
+				meta := make(map[string]*ApiMeta)
+				err := json.Unmarshal(b, &meta)
+				if err != nil {
+					panic(err)
+				}
+				types[svcName] = meta
 			}
-			types[svcName] = meta
 		}
 	}
 
@@ -77,6 +91,14 @@ func NewRootSupport() *RootSupport {
 		Versions:      version,
 		SupportTypes:  types,
 	}
+}
+
+func (r *RootSupport) GetAllSvcCompatible() []string {
+	re := r.SupportSvc
+	for _, v := range compatible_support_cmd {
+		re = append(re, v)
+	}
+	return re
 }
 
 func (r *RootSupport) GetAllSvc() []string {

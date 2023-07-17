@@ -28,6 +28,12 @@ type ApiInfo struct {
 	// [], {}
 }
 
+type StructInfo struct {
+	PkgName     string
+	ServiceName string
+	Version     string
+}
+
 type param struct {
 	key      string
 	typeName string

@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"strings"
+
 	"github.com/spf13/cobra"
 )
 
@@ -30,6 +32,16 @@ func generateServiceCommands() {
 		svcCmd.Flags().BoolP("help", "h", false, "")
 
 		rootCmd.AddCommand(svcCmd)
+
+		for _, v := range compatible_support_cmd {
+			if strings.ReplaceAll(v, "_", "") == svc {
+				//copy a non ptr value from svcCmd for compatible svc cmd with _
+				compatibleCmd := *svcCmd
+				compatibleCmd.Use = v
+				compatibleCmd.Hidden = true
+				rootCmd.AddCommand(&compatibleCmd)
+			}
+		}
 	}
 }
 
