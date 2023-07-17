@@ -25,8 +25,8 @@ func NewRootSupport() *RootSupport {
 	version := make(map[string]string)
 	types := make(map[string]map[string]*ApiMeta)
 	svcs := make(map[string]string)
-	//existSvcs := make(map[string]int)
 
+	//generate structure info form meta and set a map form service_version:pkgName
 	svcMappings := make(map[string]string)
 	structSet := structset.AssetNames()
 	sort.Strings(structSet)
@@ -51,6 +51,7 @@ func NewRootSupport() *RootSupport {
 		spaces := strings.Split(name, "/")
 		if len(spaces) == 5 {
 			var svcName string
+			//if structure info is nil skip it
 			if s, ok := svcMappings[spaces[2]+"_"+spaces[3]]; ok {
 				svcName = s
 				svcs[spaces[2]+"_"+spaces[3]] = svcName
@@ -69,6 +70,7 @@ func NewRootSupport() *RootSupport {
 	for _, name := range typeset.AssetNames() {
 		spaces := strings.Split(name, "/")
 		if len(spaces) == 5 {
+			//if structure info is nil skip it
 			if _, ok := svcMappings[spaces[2]+"_"+spaces[3]]; ok {
 				svcName := svcs[spaces[2]+"_"+spaces[3]]
 				svc = append(svc, svcName)
