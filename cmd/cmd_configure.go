@@ -14,6 +14,7 @@ func init() {
 	configureCmd.AddCommand(newConfigureGetCmd())
 	configureCmd.AddCommand(newConfigureListCmd())
 	configureCmd.AddCommand(newConfigureDeleteCmd())
+	configureCmd.AddCommand(newConfigureProfileCmd())
 	configureCmd.AddCommand(newConfigureSetCmd())
 
 	rootCmd.AddCommand(configureCmd)
@@ -116,6 +117,29 @@ func newConfigureDeleteCmd() *cobra.Command {
 		Short: "delete target profile",
 		Long: `Description:
   delete target profile`,
+		DisableFlagsInUseLine: true,
+	}
+
+	cmd.SetUsageTemplate(configureActionUsageTemplate())
+
+	cmd.Flags().StringVar(&profileFlags.Name, "profile", "", "target profile name")
+	cmd.Flags().BoolP("help", "h", false, "")
+
+	cmd.MarkFlagRequired("profile")
+
+	return cmd
+}
+
+func newConfigureProfileCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use: "profile",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			profileName := cmd.Flag("profile").Value.String()
+			return changeConfigProfile(profileName)
+		},
+		Short: "change target profile",
+		Long: `Description:
+  change target profile`,
 		DisableFlagsInUseLine: true,
 	}
 
