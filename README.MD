@@ -79,7 +79,7 @@
 
 1. volcengine-cli使用configure配置profile之后，会优先使用profile中的鉴权信息进行接口签名访问
 2. 新增或者修改profile后，当前configure中的默认使用profile会被切换到新增或者修改的profile上
-3. 如果存在了多了profile，请在调用接口前，使用volcengine-cli configure profile --profile [配置名] 进行切换，以保证正确的使用
+3. 如果存在多个profile，请在调用接口前，使用volcengine-cli configure profile --profile [配置名] 进行切换，以保证正确的使用
 
 ###### 获取指定配置(profile)信息
 
