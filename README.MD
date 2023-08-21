@@ -77,7 +77,11 @@
 
 #### configure命令的其他操作
 
-###### 获取指定配置信息
+1. volcengine-cli使用configure配置profile之后，会优先使用profile中的鉴权信息进行接口签名访问
+2. 新增或者修改profile后，当前configure中的默认使用profile会被切换到新增或者修改的profile上
+3. 如果存在了多了profile，请在调用接口前，使用volcengine-cli configure profile --profile [配置名] 进行切换，以保证正确的使用
+
+###### 获取指定配置(profile)信息
 
 ```shell
 volcengine-cli configure get --profile [配置名]
@@ -89,19 +93,30 @@ volcengine-cli configure get --profile [配置名]
 
 
 
-###### 显示当前所有配置信息
+###### 显示当前所有配置(profile)信息
 
 ```shell
 volcengine-cli configure list
 ```
 
+###### 切换当前使用的配置(profile)信息 请确保版本大于或者等于>=1.0.16
+
+```shell
+volcengine-cli configure profile --profile [配置名]
+```
+
+其中 profile 为必选字段，指定了 profile 则 volcengine-cli 会尝试获切换当前的配值
+
+若配置不存在，当前的配置不会发生切换，并且会给出错误的提示
 
 
-###### 新建/修改配置
+###### 新建/修改配置(profile)
 
 ```shell
 volcengine-cli configure set --profile [配置名] --region [地区] --access-key [用户的AK] --secret-key [用户的SK] --endpoint [地区对应的endpoint]
 ```
+
+新建或者修改配置后，当前的使用配置会切换到修改的配置上
 
 新建配置时必须指定 profile 字段和 region 字段，修改已有配置必须指定 profile 字段
 
@@ -117,7 +132,7 @@ volcengine-cli configure set --profile [配置名] --region [地区] --access-ke
 
 
 
-###### 删除配置
+###### 删除配置(profile)
 
 ```shell
 volcengine-cli configure delete --profile [配置名]

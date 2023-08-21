@@ -5,10 +5,11 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/volcengine/volcengine-cli/util"
-	"github.com/volcengine/volcengine-go-sdk/volcengine/volcengineutil"
 	"io/ioutil"
 	"os"
+
+	"github.com/volcengine/volcengine-cli/util"
+	"github.com/volcengine/volcengine-go-sdk/volcengine/volcengineutil"
 )
 
 const ConfigFile = "config.json"
@@ -230,6 +231,32 @@ func deleteConfigProfile(profileName string) error {
 		fmt.Printf("delete current profile, set new current profile to [%v]\n", cfg.Current)
 	}
 
+	return WriteConfigToFile(cfg)
+}
+
+func changeConfigProfile(profileName string) error {
+	var (
+		exist bool
+		cfg   *Configure
+	)
+
+	// if config not exist, return error
+	if cfg = ctx.config; cfg == nil {
+		return fmt.Errorf("configuration profile %v not found", profileName)
+	}
+
+	// check if the target profileFlags exists
+	if _, exist = cfg.Profiles[profileName]; !exist {
+		return fmt.Errorf("configuration profile %v not found", profileName)
+	}
+
+	// if not change,skip it
+	if profileName == cfg.Current {
+		return nil
+	}
+
+	// change current
+	cfg.Current = profileName
 	return WriteConfigToFile(cfg)
 }
 
