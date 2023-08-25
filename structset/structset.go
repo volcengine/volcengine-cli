@@ -9,6 +9,7 @@
 // volcengine-sdk-metadata/structure/directconnect/2020-04-01/structure.json
 // volcengine-sdk-metadata/structure/ecs/2020-04-01/structure.json
 // volcengine-sdk-metadata/structure/iam/2018-01-01/structure.json
+// volcengine-sdk-metadata/structure/iam/2021-08-01/structure.json
 // volcengine-sdk-metadata/structure/kafka/2022-05-01/structure.json
 // volcengine-sdk-metadata/structure/ml_platform/2021-10-01/structure.json
 // volcengine-sdk-metadata/structure/mongodb/2022-01-01/structure.json
@@ -18,6 +19,7 @@
 // volcengine-sdk-metadata/structure/redis/2020-12-07/structure.json
 // volcengine-sdk-metadata/structure/spark/2021-06-01/structure.json
 // volcengine-sdk-metadata/structure/storage_ebs/2020-04-01/structure.json
+// volcengine-sdk-metadata/structure/tag/2022-06-01/structure.json
 // volcengine-sdk-metadata/structure/vke/2022-05-12/structure.json
 // volcengine-sdk-metadata/structure/vpc/2020-04-01/structure.json
 // volcengine-sdk-metadata/structure/vpn/2020-04-01/structure.json
@@ -112,7 +114,7 @@ func volcengineSdkMetadataStructureAlb20200401StructureJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/alb/2020-04-01/structure.json", size: 96192, mode: os.FileMode(420), modTime: time.Unix(1692587647, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/alb/2020-04-01/structure.json", size: 96192, mode: os.FileMode(420), modTime: time.Unix(1692950476, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -132,7 +134,7 @@ func volcengineSdkMetadataStructureAuto_scaling20200101StructureJson() (*asset, 
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/auto_scaling/2020-01-01/structure.json", size: 71362, mode: os.FileMode(420), modTime: time.Unix(1692587647, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/auto_scaling/2020-01-01/structure.json", size: 71362, mode: os.FileMode(420), modTime: time.Unix(1692950476, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -152,7 +154,7 @@ func volcengineSdkMetadataStructureBilling20220101StructureJson() (*asset, error
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/billing/2022-01-01/structure.json", size: 1207, mode: os.FileMode(420), modTime: time.Unix(1692587647, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/billing/2022-01-01/structure.json", size: 1207, mode: os.FileMode(420), modTime: time.Unix(1692950476, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -172,7 +174,7 @@ func volcengineSdkMetadataStructureCen20200401StructureJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/cen/2020-04-01/structure.json", size: 47701, mode: os.FileMode(420), modTime: time.Unix(1692587647, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/cen/2020-04-01/structure.json", size: 47701, mode: os.FileMode(420), modTime: time.Unix(1692950476, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -192,7 +194,7 @@ func volcengineSdkMetadataStructureClb20200401StructureJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/clb/2020-04-01/structure.json", size: 71836, mode: os.FileMode(420), modTime: time.Unix(1692587647, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/clb/2020-04-01/structure.json", size: 71836, mode: os.FileMode(420), modTime: time.Unix(1692950476, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -212,7 +214,7 @@ func volcengineSdkMetadataStructureCr20220512StructureJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/cr/2022-05-12/structure.json", size: 21535, mode: os.FileMode(420), modTime: time.Unix(1692587647, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/cr/2022-05-12/structure.json", size: 21535, mode: os.FileMode(420), modTime: time.Unix(1692950476, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -232,7 +234,7 @@ func volcengineSdkMetadataStructureDirectconnect20200401StructureJson() (*asset,
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/directconnect/2020-04-01/structure.json", size: 38266, mode: os.FileMode(420), modTime: time.Unix(1692587647, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/directconnect/2020-04-01/structure.json", size: 38266, mode: os.FileMode(420), modTime: time.Unix(1692950476, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -252,7 +254,7 @@ func volcengineSdkMetadataStructureEcs20200401StructureJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/ecs/2020-04-01/structure.json", size: 84437, mode: os.FileMode(420), modTime: time.Unix(1692587647, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/ecs/2020-04-01/structure.json", size: 84437, mode: os.FileMode(420), modTime: time.Unix(1692950476, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -272,7 +274,27 @@ func volcengineSdkMetadataStructureIam20180101StructureJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/iam/2018-01-01/structure.json", size: 35562, mode: os.FileMode(420), modTime: time.Unix(1692587647, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/iam/2018-01-01/structure.json", size: 35562, mode: os.FileMode(420), modTime: time.Unix(1692950476, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
+var _volcengineSdkMetadataStructureIam20210801StructureJson = []byte("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\xec\x9a\xcd\x6e\xdb\x3a\x10\x85\xd7\xd2\x53\x18\x5c\x27\x80\x92\x55\xe0\x5d\xee\x75\x5b\xb8\x88\x13\xd7\x49\xdb\x35\x2d\x8f\x15\xb6\x12\xa5\x0e\x87\x06\x8c\xc0\xef\x5e\x50\x7f\x56\xac\xd4\x40\x02\x02\xad\xe2\xd9\x1e\x0e\x48\xfb\xc3\xf0\xf0\x80\xd4\x53\x18\x88\xf9\xcf\xe4\x56\x66\x20\xc6\x23\xa1\x64\x76\x19\x5d\x5e\x44\x57\xd1\x85\x38\x0b\x03\x71\x0f\xb8\x51\x71\x33\x54\x4a\xdf\x00\x8d\xca\xb5\x93\x5c\xe9\x79\x74\x75\xde\x14\x13\xda\x98\x2c\xba\xf2\xa7\x30\x08\xc4\x35\x91\x8c\x1f\xe7\x79\xaa\xe2\xed\x54\xcf\x31\xff\x01\x31\xd5\x83\x81\xa8\xf4\x7a\xe5\x52\x0a\xc4\xc3\xb6\x28\x17\x33\x84\x4a\x27\x6e\x56\xa7\x4e\xcd\x35\xa2\xdc\x8a\xf1\x68\x2d\x53\x03\xad\x3a\x93\xc5\x81\x36\x93\xc5\xdd\xd2\xad\x72\x03\x1b\x48\xc5\x78\x14\xb5\xc5\x95\xde\x9b\xe3\x83\xb6\x59\x4f\xfc\x6c\x72\x7d\x6b\xb3\x25\xe0\xc1\xd0\x02\x7e\x59\x85\xb0\x12\xe3\x11\xa1\x6d\xd4\x8f\x39\x66\xd2\x4d\x2d\x9a\x5f\x3c\x97\x08\x9a\x9a\x7f\xd3\xfe\x0f\x82\xac\xd5\x9c\xb4\x3b\xeb\x90\xa8\x47\x4e\x9b\x04\x2a\x1d\xab\x42\xa6\xdc\x16\x1d\x18\xdc\x19\x0e\x46\xe9\x1e\xaf\xeb\x8b\xce\xfa\x7f\x99\x44\x57\x7e\x3b\x8a\xb0\xc6\x21\xfe\x47\x90\x04\x87\x8e\x3a\x01\x13\xa3\x2a\xa8\xb2\xe7\xe1\xb5\x8b\x1f\x48\x55\xbf\x4c\x94\x29\x52\x39\xdc\xe3\xc5\x27\x8b\xaa\xfa\x4d\x3b\xe8\xbd\x12\x19\x38\x0b\x2f\xc6\xda\xba\xc9\x04\x52\xe8\xbb\x09\x33\x7a\xce\x88\xb3\x2c\x67\x59\xce\xb2\x9c\x65\x39\xcb\xfa\xcd\xb2\x9f\x80\xf8\xe8\x39\x06\xe8\x46\x99\x86\xd0\x74\x05\x9a\x14\x29\x30\x2d\xab\x5a\x62\xcb\x2d\x49\x65\x8a\xfa\x10\x94\x26\x48\x00\xff\x69\x0a\x3e\xd3\xed\xdd\x7a\x6d\x80\x39\xb0\x8d\xec\x51\x7c\xb1\x80\xdb\x41\x42\xf0\x7c\xda\x74\xcc\x74\x01\x26\xb7\x18\x77\xbc\x94\xfd\x83\xfd\xa3\xcb\x01\x57\x80\xff\x9d\xf2\xb6\x61\x1f\x65\x1f\x7d\x81\x42\xe3\x9c\x0b\x48\xf8\xae\x79\x8f\x63\xb0\x11\xdc\x27\x8c\xfa\xc9\x78\xb0\x66\xe1\x95\x45\x8e\x7c\x8c\x8a\xef\x8a\x1e\xef\xed\xf2\x20\x75\x9d\x32\x97\x97\xd2\x28\xa7\x50\x4e\xa1\x1c\x39\x8e\x9a\xc8\xb3\x77\xcc\x53\x6e\x8c\xd6\x3f\x66\xf9\x06\xfe\xe0\xab\xfb\x54\x82\xaf\x48\x68\xef\xed\x96\xb9\x6a\x9e\x07\x89\x09\x0c\xfe\x01\xdc\xef\xad\xf2\xd7\x62\xc5\x9f\x90\x1c\xed\x1a\xfe\x84\x84\xaf\x00\x7a\x7b\x27\x0c\x76\xe1\xee\x77\x00\x00\x00\xff\xff\x0f\xd1\xcb\x69\x36\x2b\x00\x00")
+
+func volcengineSdkMetadataStructureIam20210801StructureJsonBytes() ([]byte, error) {
+	return bindataRead(
+		_volcengineSdkMetadataStructureIam20210801StructureJson,
+		"volcengine-sdk-metadata/structure/iam/2021-08-01/structure.json",
+	)
+}
+
+func volcengineSdkMetadataStructureIam20210801StructureJson() (*asset, error) {
+	bytes, err := volcengineSdkMetadataStructureIam20210801StructureJsonBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/iam/2021-08-01/structure.json", size: 11062, mode: os.FileMode(420), modTime: time.Unix(1692950476, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -292,7 +314,7 @@ func volcengineSdkMetadataStructureKafka20220501StructureJson() (*asset, error) 
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/kafka/2022-05-01/structure.json", size: 41400, mode: os.FileMode(420), modTime: time.Unix(1692587647, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/kafka/2022-05-01/structure.json", size: 41400, mode: os.FileMode(420), modTime: time.Unix(1692950476, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -312,7 +334,7 @@ func volcengineSdkMetadataStructureMl_platform20211001StructureJson() (*asset, e
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/ml_platform/2021-10-01/structure.json", size: 27994, mode: os.FileMode(420), modTime: time.Unix(1692587647, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/ml_platform/2021-10-01/structure.json", size: 27994, mode: os.FileMode(420), modTime: time.Unix(1692950476, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -332,7 +354,7 @@ func volcengineSdkMetadataStructureMongodb20220101StructureJson() (*asset, error
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/mongodb/2022-01-01/structure.json", size: 27072, mode: os.FileMode(420), modTime: time.Unix(1692587647, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/mongodb/2022-01-01/structure.json", size: 27072, mode: os.FileMode(420), modTime: time.Unix(1692950476, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -352,7 +374,7 @@ func volcengineSdkMetadataStructureNatgateway20200401StructureJson() (*asset, er
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/natgateway/2020-04-01/structure.json", size: 20911, mode: os.FileMode(420), modTime: time.Unix(1692587647, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/natgateway/2020-04-01/structure.json", size: 20911, mode: os.FileMode(420), modTime: time.Unix(1692950476, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -372,7 +394,7 @@ func volcengineSdkMetadataStructureRds_mysql20180101StructureJson() (*asset, err
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/rds_mysql/2018-01-01/structure.json", size: 40593, mode: os.FileMode(420), modTime: time.Unix(1692587647, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/rds_mysql/2018-01-01/structure.json", size: 40593, mode: os.FileMode(420), modTime: time.Unix(1692950476, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -392,7 +414,7 @@ func volcengineSdkMetadataStructureRds_mysql20220101StructureJson() (*asset, err
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/rds_mysql/2022-01-01/structure.json", size: 160619, mode: os.FileMode(420), modTime: time.Unix(1692587647, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/rds_mysql/2022-01-01/structure.json", size: 160619, mode: os.FileMode(420), modTime: time.Unix(1692950476, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -412,7 +434,7 @@ func volcengineSdkMetadataStructureRedis20201207StructureJson() (*asset, error) 
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/redis/2020-12-07/structure.json", size: 47032, mode: os.FileMode(420), modTime: time.Unix(1692587647, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/redis/2020-12-07/structure.json", size: 47032, mode: os.FileMode(420), modTime: time.Unix(1692950476, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -432,7 +454,7 @@ func volcengineSdkMetadataStructureSpark20210601StructureJson() (*asset, error) 
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/spark/2021-06-01/structure.json", size: 35387, mode: os.FileMode(420), modTime: time.Unix(1692587647, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/spark/2021-06-01/structure.json", size: 35387, mode: os.FileMode(420), modTime: time.Unix(1692950476, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -452,7 +474,27 @@ func volcengineSdkMetadataStructureStorage_ebs20200401StructureJson() (*asset, e
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/storage_ebs/2020-04-01/structure.json", size: 17178, mode: os.FileMode(420), modTime: time.Unix(1692587647, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/storage_ebs/2020-04-01/structure.json", size: 17178, mode: os.FileMode(420), modTime: time.Unix(1692950476, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
+var _volcengineSdkMetadataStructureTag20220601StructureJson = []byte("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\xec\x97\x4f\x6f\x9b\x40\x10\xc5\xcf\xf0\x29\xac\x3d\x27\x15\xf5\xa1\x07\xdf\xaa\xb4\x54\x69\x62\x37\x72\x51\xee\x6b\x3a\x45\x34\xb0\x4b\x67\x67\xa3\xa0\xc8\xdf\xbd\x02\x87\x3f\xe6\x8f\x8d\x55\x4b\xad\x61\xaf\x6f\x47\xc3\xee\x4f\xf3\xde\x88\x57\xdb\x62\x0f\x4f\xc1\x8a\xc7\xc0\x16\x33\x46\x3c\x60\x57\xb6\xc5\xbe\x03\x3e\x87\xfe\x9e\xf4\x08\xa8\x42\x29\x32\x69\xee\xcc\xe7\xd7\xce\x87\x6b\xe7\xfd\xae\x98\x50\xfb\xa4\x31\x2b\x7f\xb5\x2d\x8b\xdd\x20\x70\x02\x8f\x07\xea\x4d\xb1\x98\xc7\x03\x57\x62\x75\x70\x2b\x12\x4d\xef\xee\x20\x2d\x2a\x2c\xe6\xa5\x49\xfe\x41\x45\x18\x8a\xfc\x9b\x99\x7a\xab\x3e\x22\xf2\xac\xec\x27\x8f\x14\x94\xea\x92\x27\x0d\x6d\xc9\x93\x6f\x9b\x5f\xe0\xd3\x3d\x3c\x43\xc4\x16\x33\xa7\x2c\xde\xe9\xad\x1e\x9f\x85\x8e\x5b\xe2\x57\x25\xc5\x4a\xc7\x1b\xc0\xc6\xd1\x1a\x7e\xeb\x10\xe1\x07\x5b\xcc\x08\x75\xa1\xba\x12\x63\x9e\xb5\x66\xc5\x8d\x1f\x38\x82\xa0\xe2\x35\x9d\x0f\x2f\x1f\x47\x10\x17\x85\x2c\x93\xb6\x57\x07\x68\x3d\xf2\x48\x83\xe1\xd5\xcd\x4b\xb5\xc1\x1c\x6e\x55\x72\xaa\x5d\xee\x1f\x63\xaa\xcb\xc7\x38\xf5\x23\xb1\xdf\xb0\xb0\x4f\x10\x41\xa7\x0d\xab\x83\x89\xd9\xb0\xf1\xf0\x61\x36\x6c\xd2\x9a\x90\x0d\x4f\xe7\xd5\x6b\xc3\xbe\x56\xe3\xb7\xe1\x17\xa0\x35\x28\xa9\xd1\x87\xca\x88\x4b\xfe\xb2\x06\xa5\x23\xea\x00\x16\x0a\x82\x00\xf0\xbf\x1e\xa5\xf3\x30\xda\x8d\xcd\x0a\x5e\xc8\x93\x4f\x20\x2e\xd2\x54\xe7\x24\x51\xcc\x89\x87\xe2\x3e\x54\x34\x9c\xc7\xd8\xcc\xd3\xc0\x91\x26\xe0\x86\x11\x01\x76\xb8\x65\x5a\x48\xb2\x30\xcd\x49\xb8\x12\xeb\xc1\x72\xd9\x8b\xfc\x14\x42\x07\x09\xfc\x1d\xbe\x7c\xb3\x8f\x7e\xc4\xce\x03\xb0\x67\xd1\x1f\x6f\x7c\xe1\xf4\x86\x2d\x7c\x8f\x07\x77\x90\x9a\x75\x6f\xd6\xfd\xa0\x59\xd9\x0f\x1e\x33\x2d\x66\x5a\xba\xa3\xb7\x9e\x29\x63\x5d\x4f\x83\x4d\x53\xf9\xe5\x46\x6a\xd1\xfe\xc7\xaa\x00\x6d\xa4\x8c\x80\x8b\xc9\x4c\x8a\xc9\x0f\x93\x1f\x26\x3f\x3a\xf3\xc3\xb6\xb6\xf6\xf6\x4f\x00\x00\x00\xff\xff\x84\xbc\x91\x24\xf5\x18\x00\x00")
+
+func volcengineSdkMetadataStructureTag20220601StructureJsonBytes() ([]byte, error) {
+	return bindataRead(
+		_volcengineSdkMetadataStructureTag20220601StructureJson,
+		"volcengine-sdk-metadata/structure/tag/2022-06-01/structure.json",
+	)
+}
+
+func volcengineSdkMetadataStructureTag20220601StructureJson() (*asset, error) {
+	bytes, err := volcengineSdkMetadataStructureTag20220601StructureJsonBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/tag/2022-06-01/structure.json", size: 6389, mode: os.FileMode(420), modTime: time.Unix(1692950476, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -472,7 +514,7 @@ func volcengineSdkMetadataStructureVke20220512StructureJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/vke/2022-05-12/structure.json", size: 100822, mode: os.FileMode(420), modTime: time.Unix(1692587647, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/vke/2022-05-12/structure.json", size: 100822, mode: os.FileMode(420), modTime: time.Unix(1692950476, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -492,7 +534,7 @@ func volcengineSdkMetadataStructureVpc20200401StructureJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/vpc/2020-04-01/structure.json", size: 109553, mode: os.FileMode(420), modTime: time.Unix(1692587647, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/vpc/2020-04-01/structure.json", size: 109553, mode: os.FileMode(420), modTime: time.Unix(1692950476, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -512,7 +554,7 @@ func volcengineSdkMetadataStructureVpn20200401StructureJson() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/vpn/2020-04-01/structure.json", size: 29035, mode: os.FileMode(420), modTime: time.Unix(1692587647, 0)}
+	info := bindataFileInfo{name: "volcengine-sdk-metadata/structure/vpn/2020-04-01/structure.json", size: 29035, mode: os.FileMode(420), modTime: time.Unix(1692950476, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -578,6 +620,7 @@ var _bindata = map[string]func() (*asset, error){
 	"volcengine-sdk-metadata/structure/directconnect/2020-04-01/structure.json": volcengineSdkMetadataStructureDirectconnect20200401StructureJson,
 	"volcengine-sdk-metadata/structure/ecs/2020-04-01/structure.json":           volcengineSdkMetadataStructureEcs20200401StructureJson,
 	"volcengine-sdk-metadata/structure/iam/2018-01-01/structure.json":           volcengineSdkMetadataStructureIam20180101StructureJson,
+	"volcengine-sdk-metadata/structure/iam/2021-08-01/structure.json":           volcengineSdkMetadataStructureIam20210801StructureJson,
 	"volcengine-sdk-metadata/structure/kafka/2022-05-01/structure.json":         volcengineSdkMetadataStructureKafka20220501StructureJson,
 	"volcengine-sdk-metadata/structure/ml_platform/2021-10-01/structure.json":   volcengineSdkMetadataStructureMl_platform20211001StructureJson,
 	"volcengine-sdk-metadata/structure/mongodb/2022-01-01/structure.json":       volcengineSdkMetadataStructureMongodb20220101StructureJson,
@@ -587,6 +630,7 @@ var _bindata = map[string]func() (*asset, error){
 	"volcengine-sdk-metadata/structure/redis/2020-12-07/structure.json":         volcengineSdkMetadataStructureRedis20201207StructureJson,
 	"volcengine-sdk-metadata/structure/spark/2021-06-01/structure.json":         volcengineSdkMetadataStructureSpark20210601StructureJson,
 	"volcengine-sdk-metadata/structure/storage_ebs/2020-04-01/structure.json":   volcengineSdkMetadataStructureStorage_ebs20200401StructureJson,
+	"volcengine-sdk-metadata/structure/tag/2022-06-01/structure.json":           volcengineSdkMetadataStructureTag20220601StructureJson,
 	"volcengine-sdk-metadata/structure/vke/2022-05-12/structure.json":           volcengineSdkMetadataStructureVke20220512StructureJson,
 	"volcengine-sdk-metadata/structure/vpc/2020-04-01/structure.json":           volcengineSdkMetadataStructureVpc20200401StructureJson,
 	"volcengine-sdk-metadata/structure/vpn/2020-04-01/structure.json":           volcengineSdkMetadataStructureVpn20200401StructureJson,
@@ -681,6 +725,9 @@ var _bintree = &bintree{nil, map[string]*bintree{
 				"2018-01-01": &bintree{nil, map[string]*bintree{
 					"structure.json": &bintree{volcengineSdkMetadataStructureIam20180101StructureJson, map[string]*bintree{}},
 				}},
+				"2021-08-01": &bintree{nil, map[string]*bintree{
+					"structure.json": &bintree{volcengineSdkMetadataStructureIam20210801StructureJson, map[string]*bintree{}},
+				}},
 			}},
 			"kafka": &bintree{nil, map[string]*bintree{
 				"2022-05-01": &bintree{nil, map[string]*bintree{
@@ -723,6 +770,11 @@ var _bintree = &bintree{nil, map[string]*bintree{
 			"storage_ebs": &bintree{nil, map[string]*bintree{
 				"2020-04-01": &bintree{nil, map[string]*bintree{
 					"structure.json": &bintree{volcengineSdkMetadataStructureStorage_ebs20200401StructureJson, map[string]*bintree{}},
+				}},
+			}},
+			"tag": &bintree{nil, map[string]*bintree{
+				"2022-06-01": &bintree{nil, map[string]*bintree{
+					"structure.json": &bintree{volcengineSdkMetadataStructureTag20220601StructureJson, map[string]*bintree{}},
 				}},
 			}},
 			"vke": &bintree{nil, map[string]*bintree{
