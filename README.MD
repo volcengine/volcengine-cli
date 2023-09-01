@@ -47,7 +47,7 @@
 1. 通过 volcengine-cli configure set 设置，示例
 
    ```shell
-   volcengine-cli configure set --profile test --region cn-beijing --access-key ak --secret-key sk --endpoint endpoint
+   volcengine-cli configure set --profile test --region cn-beijing --access-key ak --secret-key sk
    ```
    支持参数及相关说明
 
@@ -58,6 +58,7 @@
    region: 地域，如 cn-beijing
    session-token: 如果使用角色扮演，需要提供
    disable-ssl: 是否禁用 ssl，默认为 false
+   endpoint: 可以不填，默认值为 open.volcengineapi.com
    ```
 
 2. 若配置文件中无配置，则会尝试从 export 的环境变量中读取配置
