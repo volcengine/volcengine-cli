@@ -14,7 +14,7 @@
 1. 使用build.sh编译客户端
     ```shell
     # 如果是mac 
-    sh build.sh darwain
+    sh build.sh darwin
     mv volcengine-cli-darwin volcengine-cli
     # 如果是windows
     sh build.sh windows
@@ -68,7 +68,7 @@
    export VOLCENGINE_REGION=cn-bejing
    
    # 是否禁用SSL, 不设置的话默认为false
-   export VOLCENGINE_SESSION_TOKEN=false
+   export VOLCENGINE_DISABLE_SSL=false
    
    # 如果使用角色扮演，需要提供
    export VOLCENGINE_SESSION_TOKEN=sessionToken
