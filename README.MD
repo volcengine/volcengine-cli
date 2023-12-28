@@ -1,9 +1,12 @@
 ## Volcengine Command Line Tools
+### 特别说明
+为了便于用户使用，从v1.0.19版本开始，火山引擎CLI工具命令前缀由“volcengine-cli”  更新为“ve”。低版本不受影响，请升级到v1.0.19及以后版本的用户及时更新指令前缀（可参考alias命令统一设置）。
+
 ###  概述
 1. 火山引擎-命令行工具
 2. Go版本最低1.5+ 推荐是用1.12+
 
-### 安装 volcengine-cli 
+### 安装 火山引擎CLI 
 
 #### 通过release获取客户端
 1. https://github.com/volcengine/volcengine-cli/releases 获取最新版本
@@ -14,29 +17,29 @@
 1. 使用build.sh编译客户端
     ```shell
     # 如果是mac 
-    sh build.sh darwain
-    mv volcengine-cli-darwin volcengine-cli
+    sh build.sh darwin
+    mv ve-darwin ve
     # 如果是windows
     sh build.sh windows
-    mv volcengine-cli-windows volcengine-cli
+    mv ve-windows ve
     # 如果是linux
     sh build.sh linux
-    mv volcengine-cli-linux volcengine-cli
+    mv ve-linux ve
     ```
 
 
 ​    
 
-### 配置 volcengine-cli
+### 配置 火山引擎CLI
 
-将 volcengine-cli 配置进环境变量
+将 火山引擎CLI 配置进环境变量
 
-1. 检查一下 $PATH 系统变量是否存在 /usr/local/bin，若没有则请您根据实际情况为 volcengine-cli 设置可用的环境变量
+1. 检查一下 $PATH 系统变量是否存在 /usr/local/bin，若没有则请您根据实际情况为 火山引擎CLI 设置可用的环境变量
 
-2. 执行下面的命令，将 volcengine-cli 拷贝至 /usr/local/bin 目录下即可使用
+2. 执行下面的命令，将 ve 拷贝至 /usr/local/bin 目录下即可使用
 
     ```shell
-    sudo cp volcengine-cli /usr/local/bin
+    sudo cp ve /usr/local/bin
     ```
 
 
@@ -44,10 +47,10 @@
 #### 配置凭证
 
 调用服务需要用到 AK，SK，region，可以通过以下两种方式进行配置
-1. 通过 volcengine-cli configure set 设置，示例
+1. 通过 ve configure set 设置，示例
 
    ```shell
-   volcengine-cli configure set --profile test --region cn-beijing --access-key ak --secret-key sk
+   ve configure set --profile test --region cn-beijing --access-key ak --secret-key sk
    ```
    支持参数及相关说明
 
@@ -68,7 +71,7 @@
    export VOLCENGINE_REGION=cn-bejing
    
    # 是否禁用SSL, 不设置的话默认为false
-   export VOLCENGINE_SESSION_TOKEN=false
+   export VOLCENGINE_DISABLE_SSL=false
    
    # 如果使用角色扮演，需要提供
    export VOLCENGINE_SESSION_TOKEN=sessionToken
@@ -78,17 +81,17 @@
 
 #### configure命令的其他操作
 
-1. volcengine-cli使用configure配置profile之后，会优先使用profile中的鉴权信息进行接口签名访问
+1. 火山引擎CLI使用configure配置profile之后，会优先使用profile中的鉴权信息进行接口签名访问
 2. 新增或者修改profile后，当前configure中的默认使用profile会被切换到新增或者修改的profile上
-3. 如果存在多个profile，请在调用接口前，使用volcengine-cli configure profile --profile [配置名] 进行切换，以保证正确的使用
+3. 如果存在多个profile，请在调用接口前，使用ve configure profile --profile [配置名] 进行切换，以保证正确的使用
 
 ###### 获取指定配置(profile)信息
 
 ```shell
-volcengine-cli configure get --profile [配置名]
+ve configure get --profile [配置名]
 ```
 
-其中 profile 为可选字段，若不指定 profile 字段则会展示当前配置；若指定了 profile 则 volcengine-cli 会尝试获取指定配置并展示
+其中 profile 为可选字段，若不指定 profile 字段则会展示当前配置；若指定了 profile 则 火山引擎CLI 会尝试获取指定配置并展示
 
 若配置不存在，则返回的配置字段全为默认值
 
@@ -97,16 +100,16 @@ volcengine-cli configure get --profile [配置名]
 ###### 显示当前所有配置(profile)信息
 
 ```shell
-volcengine-cli configure list
+ve configure list
 ```
 
 ###### 切换当前使用的配置(profile)信息 请确保版本大于或者等于>=1.0.16
 
 ```shell
-volcengine-cli configure profile --profile [配置名]
+ve configure profile --profile [配置名]
 ```
 
-其中 profile 为必选字段，指定了 profile 则 volcengine-cli 会尝试获切换当前的配值
+其中 profile 为必选字段，指定了 profile 则 火山引擎CLI 会尝试获切换当前的配值
 
 若配置不存在，当前的配置不会发生切换，并且会给出错误的提示
 
@@ -114,7 +117,7 @@ volcengine-cli configure profile --profile [配置名]
 ###### 新建/修改配置(profile)
 
 ```shell
-volcengine-cli configure set --profile [配置名] --region [地区] --access-key [用户的AK] --secret-key [用户的SK] --endpoint [地区对应的endpoint]
+ve configure set --profile [配置名] --region [地区] --access-key [用户的AK] --secret-key [用户的SK] --endpoint [地区对应的endpoint]
 ```
 
 新建或者修改配置后，当前的使用配置会切换到修改的配置上
@@ -136,28 +139,28 @@ volcengine-cli configure set --profile [配置名] --region [地区] --access-ke
 ###### 删除配置(profile)
 
 ```shell
-volcengine-cli configure delete --profile [配置名]
+ve configure delete --profile [配置名]
 ```
 
 删除配置时必须指定 profile 字段以指示需要删除的配置名
 
-若待删除的是当前正在使用的配置，则删除成功后 volcengine-cli 会尝试从剩余的配置中随机挑选一个作为当前配置
+若待删除的是当前正在使用的配置，则删除成功后 火山引擎CLI 会尝试从剩余的配置中随机挑选一个作为当前配置
 
 
 
 #### 配置自动补全
 
-使用 volcengine-cli completion --help 可以查看各种终端下配置自动补全的方式，用户可以根据提示信息自己选择是否配置自动补全功能
+使用 ve completion --help 可以查看各种终端下配置自动补全的方式，用户可以根据提示信息自己选择是否配置自动补全功能
 
 <br/>
 
 ##### Bash
 
-volcengine-cli 的 Bash 补全脚本可以通过 volcengine-cli completion bash 进行查看，在 shell 中导入该自动补全脚本，即可开启自动补全功能
+火山引擎CLI 的 Bash 补全脚本可以通过 ve completion bash 进行查看，在 shell 中导入该自动补全脚本，即可开启自动补全功能
 
 ###### 1. 安装 bash-completion
 
-volcengine-cli 补全脚本依赖于工具 bash-completiom，所以你必须先安装并启用它（可以用命令 type _init_completion 检查 bash-completion 是否已安装）
+火山引擎CLI 补全脚本依赖于工具 bash-completiom，所以你必须先安装并启用它（可以用命令 type _init_completion 检查 bash-completion 是否已安装）
 
 1. 安装：yum install bash-completion 或 apt-get install bash-completion
 
@@ -173,8 +176,8 @@ volcengine-cli 补全脚本依赖于工具 bash-completiom，所以你必须先�
 
 按以下步骤配置即可在 Bash 下开启自动补全功能：
 
-1. echo 'source <(volcengine-cli completion bash)' >> ~/.bashrc
-2. volcengine-cli completion bash > /etc/bash_completion.d/volcengine-cli
+1. echo 'source <(ve completion bash)' >> ~/.bashrc
+2. ve completion bash > /etc/bash_completion.d/ve
 
 之后重新加载 Shell （或者 source ~/.bashrc） 后即可生效
 
@@ -186,14 +189,14 @@ volcengine-cli 补全脚本依赖于工具 bash-completiom，所以你必须先�
 
 ##### Zsh
 
-volcengine-cli 的 Zsh 补全脚本可以通过 volcengine-cli completion zsh 进行查看，在 shell 中导入该自动补全脚本，即可开启自动补全功能
+火山引擎CLI 的 Zsh 补全脚本可以通过 ve completion zsh 进行查看，在 shell 中导入该自动补全脚本，即可开启自动补全功能
 
 按以下步骤配置即可在 Zsh 下开启自动补全功能：
 
 1. Zsh 中启用 compinit：
     echo "autoload -U compinit; compinit" >> ~/.zshrc
 2. 配置自动补全
-    volcengine-cli completion zsh > "${fpath[1]}/_volcengine-cli"
+    ve completion zsh > "${fpath[1]}/_ve"
 
 之后重新加载 Shell （或者 source ~/.zshrc） 后即可生效
 
@@ -203,36 +206,36 @@ volcengine-cli 的 Zsh 补全脚本可以通过 volcengine-cli completion zsh �
 
 #### 配置颜色 
 
-使用 volcengine-cli enable-color 可以开启彩色显示功能
+使用 ve enable-color 可以开启彩色显示功能
 
-使用 volcengine-cli disable-color 可以关闭彩色显示功能
-
-
+使用 ve disable-color 可以关闭彩色显示功能
 
 
-### 使用 volcengine-cli
+
+
+### 使用 火山引擎CLI
 #### 查询支持的服务列表及服务下支持的接口列表
 
 1. 查询支持的服务列表
    ```shell
-   volcengine-cli [-h|--help]
+   ve [-h|--help]
    ```
 2. 查询服务下支持的接口列表
    ```shell
-   volcengine-cli ecs [-h|--help]
+   ve ecs [-h|--help]
    ```
 
 
 
 #### 调用API
 
-使用 volcengine-cli 调用 API 时，基本命令结构如下：
+使用 火山引擎CLI 调用 API 时，基本命令结构如下：
 
 ```shell
-volcengine-cli <service name> <action> [--parameter1 value1 --parameter2 value2 ...]
+ve <service name> <action> [--parameter1 value1 --parameter2 value2 ...]
 ```
 
-您可以使用 volcengine-cli &lt;service name&gt; &lt;action&gt; --help 查看想要调用的API的参数列表、返回结果等信息，例如：volcengine-cli ecs DescribeInstances --help
+您可以使用 ve &lt;service name&gt; &lt;action&gt; --help 查看想要调用的API的参数列表、返回结果等信息，例如：ve ecs DescribeInstances --help
 
 若需要查看更详细的信息，您也可以在 https://www.volcengine.com/docs 进行查阅
 
@@ -243,23 +246,23 @@ volcengine-cli <service name> <action> [--parameter1 value1 --parameter2 value2 
 - 基本使用
 
     ```shell
-    volcengine-cli ecs DescribeInstances
+    ve ecs DescribeInstances
     ```
 
     ```shell
-    volcengine-cli rds_mysql ListDBInstanceIPLists --InstanceId "xxxxxx"
+    ve rds_mysql ListDBInstanceIPLists --InstanceId "xxxxxx"
     ```
 
 - 支持传入 JSON
 
     ```shell
-    volcengine-cli rds_mysql ModifyDBInstanceIPList --InstanceId "xxxxxx" --GroupName "xxxxxx" --IPList '["10.20.30.40", "50.60.70.80"]'
+    ve rds_mysql ModifyDBInstanceIPList --InstanceId "xxxxxx" --GroupName "xxxxxx" --IPList '["10.20.30.40", "50.60.70.80"]'
     ```
 
-- 对于 ContentType 为 application/json 的请求，volcengine-cli 还支持直接将 body 作为 JSON 数据传入
+- 对于 ContentType 为 application/json 的请求，火山引擎CLI 还支持直接将 body 作为 JSON 数据传入
 
     ```shell
-    volcengine-cli rds_mysql ModifyDBInstanceIPList --body '{"InstanceId":"xxxxxx", "GroupName": "xxxxxx", "IPList": ["10.20.30.40", "50.60.70.80"]}'
+    ve rds_mysql ModifyDBInstanceIPList --body '{"InstanceId":"xxxxxx", "GroupName": "xxxxxx", "IPList": ["10.20.30.40", "50.60.70.80"]}'
     ```
 
     
