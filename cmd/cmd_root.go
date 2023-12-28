@@ -8,7 +8,7 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use: "volcengine-cli",
+	Use: "ve",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cmd.Usage()
 		return nil
