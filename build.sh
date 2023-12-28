@@ -8,6 +8,6 @@ then
   OS="darwin"
 fi
 
-NAME="volcengine-cli"
+NAME="ve"
 
 CGO_ENABLED=0 GOOS=$OS GOARCH=amd64 go build  -o $NAME -tags codegen
