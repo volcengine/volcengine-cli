@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/volcengine/volcengine-cli/util"
 )
 
@@ -22,17 +23,22 @@ func generateActionCmd(actionMeta map[string]*VolcengineMeta, apiMetas map[strin
 			apiMeta = apiMetas[action]
 		}
 		actionCmd := &cobra.Command{
-			Use:                action,
-			DisableFlagParsing: true,
+			Use: action,
 			RunE: func(cmd *cobra.Command, args []string) error {
-				if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+
+				cmd.Flags().Visit(func(f *pflag.Flag) {
+					name := f.Name
+					value := f.Value.String()
+					ctx.dynamicFlags.AddFlag(&Flag{
+						Name:  name,
+						value: value,
+					})
+				})
+
+				if len(ctx.dynamicFlags.flags) == 1 &&
+					(ctx.dynamicFlags.flags[0].Name == "-h" || ctx.dynamicFlags.flags[0].Name == "--help") {
 					cmd.Usage()
 					return nil
-				}
-
-				parser := NewParser(args)
-				if _, err := parser.ReadArgs(ctx); err != nil {
-					return err
 				}
 
 				return doAction(ctx, cmd.Parent().Name(), cmd.Name())
