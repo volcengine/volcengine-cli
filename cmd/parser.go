@@ -79,7 +79,7 @@ func (p *Parser) readArg(ctx *Context) (arg string, flag *Flag, more bool, err e
 }
 
 func (p *Parser) parseArg(arg string, ctx *Context) (flag *Flag, value string, err error) {
-	if strings.HasPrefix(arg, "--") {
+	if strings.HasPrefix(arg, "--") && !strings.HasPrefix(arg, "---") {
 		if len(arg) == 2 {
 			err = fmt.Errorf("-- is not support command")
 		} else {
