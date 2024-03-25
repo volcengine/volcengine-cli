@@ -12,4 +12,4 @@ var clientVersionAndUserAgentHandler = request.NamedHandler{
 }
 
 const clientName = "volcengine-cli"
-const clientVersion = "1.0.22"
+const clientVersion = "1.0.23"
