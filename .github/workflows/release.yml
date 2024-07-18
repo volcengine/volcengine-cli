@@ -33,7 +33,7 @@ jobs:
         name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v3.0.0
         with:
-          version: latest
+          version: '~> v2'
           args: release --clean
         env:
           # GitHub sets this automatically
