@@ -6,8 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/volcengine/volcengine-go-sdk/volcengine/volcengineutil"
-
 	"github.com/volcengine/volcengine-go-sdk/volcengine"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/client"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/client/metadata"
@@ -88,11 +86,9 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		WithCredentials(credentials.NewStaticCredentials(ak, sk, sessionToken)).
 		WithDisableSSL(disableSSl)
 
-	if endpoint == "" {
-		endpoint = volcengineutil.NewEndpoint().GetEndpoint()
+	if endpoint != "" {
+		config.WithEndpoint(endpoint)
 	}
-
-	config.WithEndpoint(endpoint)
 
 	sess, _ := session.NewSession(config)
 

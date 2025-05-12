@@ -9,7 +9,6 @@ import (
 	"os"
 
 	"github.com/volcengine/volcengine-cli/util"
-	"github.com/volcengine/volcengine-go-sdk/volcengine/volcengineutil"
 )
 
 const ConfigFile = "config.json"
@@ -144,8 +143,6 @@ func setConfigProfile(profile *Profile) error {
 	}
 	if profile.Endpoint != "" {
 		currentProfile.Endpoint = profile.Endpoint
-	} else {
-		currentProfile.Endpoint = volcengineutil.NewEndpoint().GetEndpoint()
 	}
 	if profile.SessionToken != "" {
 		currentProfile.SessionToken = profile.SessionToken
