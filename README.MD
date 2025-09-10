@@ -1,6 +1,6 @@
 ## Volcengine Command Line Tools
 
-中文 | [English Version](README.EN.MD)
+中文 | [English](README.EN.MD)
 
 ### 特别说明
 为了便于用户使用，从v1.0.20版本开始，火山引擎CLI工具命令前缀由“volcengine-cli”  更新为“ve”。低版本不受影响，请升级到v1.0.20及以后版本的用户及时更新指令前缀（可参考alias命令统一设置）。
