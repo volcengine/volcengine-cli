@@ -21,11 +21,18 @@ To make it easier for users, starting from version v1.0.20, the command prefix f
 #### Obtaining the client by compiling from source
 
 1.  Compile the client using build.sh.
-    ```shell
-    # If using a Mac     sh build.sh darwin     mv ve-darwin ve     # If Using Windows     sh build.sh windows     mv ve-windows ve     # If using Linux     sh build.sh linux     mv ve-linux ve
-    ```
+```shell
+# If using a Mac 
+sh build.sh darwin
+mv ve-darwin ve
+# If Using Windows
+sh build.sh windows
+mv ve-windows ve
+# If using Linux
+sh build.sh linux
+mv ve-linux ve
+```
 
-​
 
 ### Configuring VolcEngine CLI
 
@@ -52,12 +59,26 @@ To invoke the service, you must provide AK, SK, and region. These parameters can
     Supported Parameters and Related Descriptions
 
     ```shell
-    profile: Configuration name. If the profile already exists, this command will modify the existing configuration; otherwise, it will create a new configuration and set the currently used profile to the new configuration.     access-key: Your Access Key     secret-key: Your SK     region: Geographic area, such as cn-beijing     session-token: Required if role-playing is used.     disable-ssl: Specifies whether to disable SSL. The default value is false.     endpoint: Optional; the default value is open.volcengineapi.com.
+	profile: Configuration name. If the profile already exists, this command will modify the existing configuration; otherwise, it will create a new configuration and set the currently used profile to the new configuration. 
+	access-key: Your Access Key 
+	secret-key: Your SK 
+	region: Geographic area, such as cn-beijing 
+	session-token: Required if role-playing is used. 
+	disable-ssl: Specifies whether to disable SSL. The default value is false. 
+	endpoint: Optional; the default value is open.volcengineapi.com.
     ```
 
 2.  If no configuration is specified in the configuration file, an attempt will be made to read the configuration from environment variables set via export.
     ```shell
-    export VOLCENGINE_ACCESS_KEY=AK     export VOLCENGINE_SECRET_KEY=SK     export VOLCENGINE_REGION=cn-bejing     # Whether to disable SSL; if not set, the default is false.     export VOLCENGINE_DISABLE_SSL=false     # If role-playing is employed, the following must be provided     export VOLCENGINE_SESSION_TOKEN=sessionToken
+	export VOLCENGINE_ACCESS_KEY=AK
+	export VOLCENGINE_SECRET_KEY=SK 
+	export VOLCENGINE_REGION=cn-bejing 
+
+	# Whether to disable SSL; if not set, the default is false. 
+	export VOLCENGINE_DISABLE_SSL=false 
+
+	# If role-playing is employed, the following must be provided 
+	export VOLCENGINE_SESSION_TOKEN=sessionToken
     ```
 
 #### Other Operations of the configure Command
@@ -163,8 +184,10 @@ The Zsh completion script for Volcengine CLI can be viewed by executing 've comp
 
 Configure the auto-completion feature in Zsh by following these steps:
 
-1.  Enabling compinit in Zsh:     echo "autoload -U compinit; compinit" >> ~/.zshrc
-2.  Configure Auto-Completion     ve completion zsh > "${fpath[1]}/_ve"
+1.  Enabling compinit in Zsh:
+	echo "autoload -U compinit; compinit" >> ~/.zshrc
+2.  Configure Auto-Completion
+	ve completion zsh > "${fpath[1]}/_ve"
 
 The changes will take effect after reloading the shell or executing 'source ~/.zshrc'.
 
