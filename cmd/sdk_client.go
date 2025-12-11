@@ -1,4 +1,4 @@
-package cmd
+﻿package cmd
 
 import (
 	"fmt"
@@ -30,6 +30,7 @@ type SdkClientInfo struct {
 	ContentType string
 }
 
+// NewSimpleClient 鍒涘缓绠€鍗曠殑SDK瀹㈡埛绔?
 func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 	var (
 		ak, sk, sessionToken, region, endpoint string
@@ -42,25 +43,40 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 	var currentProfile *Profile
 	if ctx.config != nil {
 		if currentProfile = ctx.config.Profiles[ctx.config.Current]; currentProfile != nil {
-			ak = currentProfile.AccessKey
-			sk = currentProfile.SecretKey
-			region = currentProfile.Region
-			endpoint = currentProfile.Endpoint
-			endpointResolver = currentProfile.EndpointResolver
-			sessionToken = currentProfile.SessionToken
-			disableSSl = *currentProfile.DisableSSL
-			if currentProfile.UseDualStack != nil {
-				useDualStack = *currentProfile.UseDualStack
-			}
+			switch strings.ToLower(strings.TrimSpace(currentProfile.Mode)) {
+			case ModeSSO:
+				// 刷新 stsToken（过期或不存在则刷新）
+				sso := &Sso{
+					Profile:        currentProfile,
+					SsoSessionName: currentProfile.SsoSessionName,
+					Region:         currentProfile.Region,
+				}
+				if err := sso.EnsureValidStsToken(ctx); err != nil {
+					return nil, err
+				}
 
-			if ak == "" {
-				return nil, fmt.Errorf("profile AccessKey not set")
-			}
-			if sk == "" {
-				return nil, fmt.Errorf("profile SecretKey not set")
-			}
-			if region == "" {
-				return nil, fmt.Errorf("profile Region not set")
+				fallthrough
+			case ModeAK, "": // 使用 AK 模式
+				ak = currentProfile.AccessKey
+				sk = currentProfile.SecretKey
+				region = currentProfile.Region
+				endpoint = currentProfile.Endpoint
+				endpointResolver = currentProfile.EndpointResolver
+				sessionToken = currentProfile.SessionToken
+				disableSSl = *currentProfile.DisableSSL
+				if currentProfile.UseDualStack != nil {
+					useDualStack = *currentProfile.UseDualStack
+				}
+
+				if ak == "" {
+					return nil, fmt.Errorf("profile AccessKey not set")
+				}
+				if sk == "" {
+					return nil, fmt.Errorf("profile SecretKey not set")
+				}
+				if region == "" {
+					return nil, fmt.Errorf("profile Region not set")
+				}
 			}
 		}
 	}
@@ -104,7 +120,11 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		config.WithEndpointResolver(endpoints.NewStandardEndpointResolver())
 	default:
 		if endpoint != "" {
-			config.WithEndpoint(endpoint)
+			if strings.ToLower(strings.TrimSpace(endpoint)) == "auto-addressing" {
+				config.WithEndpointResolver(endpoints.NewStandardEndpointResolver())
+			} else {
+				config.WithEndpoint(endpoint)
+			}
 		}
 	}
 

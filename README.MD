@@ -163,7 +163,85 @@ ve configure delete --profile [配置名]
 
 若待删除的是当前正在使用的配置，则删除成功后 火山引擎CLI 会尝试从剩余的配置中随机挑选一个作为当前配置
 
+#### SSO Session 管理
 
+###### 配置 SSO 会话 (configure sso-session)
+
+```shell
+ve configure sso-session --name [会话名] --start-url [SSO Start URL] --region [地区] --registration-scopes [scope1,scope2]
+```
+
+该命令用于新增或修改 SSO 会话，后续可被 `configure sso` 复用。支持的行为与参数说明：
+
+```shell
+name: SSO 会话名称；未提供时进入交互式选择/创建模式
+start-url: SSO Start URL；必填，若已有会话则支持回车使用默认值
+region: SSO 区域；必填，默认 cn-beijing，已有会话会回填默认值
+registration-scopes: SSO scope 列表（逗号分隔）；允许值仅 cloudidentity:account:access, offline_access
+```
+
+交互式流程说明：
+- 若当前无任何 SSO 会话，会提示输入会话名，不能为空
+- 若已有会话，会进入可搜索的列表选择，可选 “<Create new session>” 创建新会话
+- 编辑已有会话时，Start URL、Region、Scopes 会回填默认值，回车可沿用
+- Scopes 会进行去重与校验；未输入时使用默认值 cloudidentity:account:access, offline_access
+
+###### 配置 SSO 类型 profile (configure sso)
+
+```shell
+ve configure sso --profile [配置名] --sso-session [会话名] --no-browser
+```
+
+该命令用于配置 SSO 类型 profile，会关联 SSO 会话并执行设备码授权流程，完成后写入 ~/.volcengine/config.json。支持的行为与参数说明：
+
+```shell
+profile: profile 名称；未输入时使用 {sso-role-name}-{sso-account-id} 作为默认值
+sso-session: SSO 会话名称；未输入时进入交互式选择/创建模式
+no-browser: 禁止自动打开浏览器，默认 false
+```
+
+注意事项：
+- 若指定的 profile 已存在且不是 SSO 类型，将拒绝覆盖并返回错误
+- 若 SSO 会话不存在，将引导创建，并要求输入 Start URL、Region 与 Scopes
+
+
+#### SSO 登录与登出
+
+##### SSO 登录 (sso login)
+
+```shell
+ve sso login --profile [配置名]
+# 或
+ve sso login --sso-session [会话名]
+```
+
+该命令用于 SSO 登录，获取访问令牌并缓存。支持参数及说明：
+
+```shell
+profile: 指定要使用的 SSO profile；必须存在且类型为 sso，且已配置 sso-session
+sso-session: 指定要使用的 SSO 会话；会话必须存在且有效
+no-browser: 禁止自动打开浏览器，默认 false
+```
+
+登录行为说明：
+- 未指定 profile 和 sso-session 时：未配置任何会话会返回错误，仅有一个会话时直接使用该会话登录，有多个会话时进入交互式选择（可搜索筛选）
+- 当前仅支持设备码授权流程，`--no-browser` 用于关闭自动打开浏览器
+
+##### SSO 登出 (sso logout)
+
+```shell
+ve sso logout --sso-session [会话名]
+```
+
+该命令用于退出 SSO 登录，撤销缓存的令牌并清除本地凭证。支持参数及说明：
+
+```shell
+sso-session: 指定要退出的 SSO 会话名称
+```
+
+登出行为说明：
+- 不指定 sso-session 时：未配置任何会话会返回错误，仅有一个会话时直接登出该会话，有多个会话时进入交互式选择，支持选择 “All SSO sessions” 批量登出
+- 选择批量登出时会逐个注销，并在有失败时汇总错误信息返回
 
 #### 配置自动补全
 
@@ -293,6 +371,7 @@ ve <service name> <action> [--parameter1 value1 --parameter2 value2 ...]
     ```
 
     
+
 
 
 

@@ -157,6 +157,86 @@ When deleting a configuration, the profile field must be specified to indicate t
 
 If the configuration to be deleted is currently in use, then after successful deletion, Volcano Engine CLI will attempt to randomly select one of the remaining configurations as the new current configuration.
 
+#### SSO Session Management
+
+###### Configure SSO Session (configure sso-session)
+
+```shell
+ve configure sso-session --name [session name] --start-url [SSO Start URL] --region [region] --registration-scopes [scope1,scope2]
+```
+
+This command creates or updates an SSO session for later use with `configure sso`. Behaviors and parameters:
+
+```shell
+name: SSO session name; if omitted, enter interactive selection/creation mode
+start-url: SSO Start URL; required; if editing an existing session, Enter keeps the default
+region: SSO region; required; default is cn-beijing, existing session values are used as defaults
+registration-scopes: SSO scope list (comma-separated); allowed values are cloudidentity:account:access, offline_access
+```
+
+Interactive flow notes:
+- If no sessions exist, you will be prompted to enter a non-empty session name
+- If sessions exist, you get a searchable list with “<Create new session>” to add one
+- When editing, Start URL, Region, and Scopes are pre-filled; press Enter to keep defaults
+- Scopes are deduplicated and validated; empty input falls back to cloudidentity:account:access, offline_access
+
+###### Configure SSO Profile (configure sso)
+
+```shell
+ve configure sso --profile [profile name] --sso-session [session name] --no-browser
+```
+
+This command configures an SSO profile, links an SSO session, runs the device authorization flow, and writes the profile to ~/.volcengine/config.json. Behaviors and parameters:
+
+```shell
+profile: profile name; empty uses {sso-role-name}-{sso-account-id} as the default
+sso-session: SSO session name; if omitted, enter interactive selection/creation mode
+no-browser: do not automatically open the browser; default false
+```
+
+Notes:
+- If the profile already exists and is not an SSO profile, the command will refuse to overwrite it
+- If the SSO session does not exist, you will be guided to create it and enter Start URL, Region, and Scopes
+
+
+#### SSO Login and Logout
+
+##### SSO Login (sso login)
+
+```shell
+ve sso login --profile [profile name]
+# or
+ve sso login --sso-session [session name]
+```
+
+This command logs in via SSO, obtains an access token, and caches it. Parameters:
+
+```shell
+profile: the SSO profile to use; must exist, be of sso type, and have sso-session configured
+sso-session: the SSO session to use; the session must exist and be valid
+no-browser: do not automatically open the browser; default false
+```
+
+Login behavior:
+- If neither profile nor sso-session is provided: error when no sessions are configured; use the only session if one exists; otherwise enter interactive selection with search
+- Only the device code flow is supported; use `--no-browser` to disable auto-opening the browser
+
+##### SSO Logout (sso logout)
+
+```shell
+ve sso logout --sso-session [session name]
+```
+
+This command logs out from SSO by revoking the cached token and clearing local credentials. Parameters:
+
+```shell
+sso-session: the SSO session name to log out
+```
+
+Logout behavior:
+- If sso-session is not provided: error when no sessions are configured; logout the only session if one exists; otherwise enter interactive selection that includes “All SSO sessions”
+- Batch logout logs out each session and returns aggregated errors on failure
+
 #### Configure Auto-Completion
 
 By executing ve completion --help, users can view the methods for configuring auto-completion in various terminals. Based on the instructions provided, users may choose whether to configure the auto-completion feature.
@@ -271,3 +351,4 @@ The following code examples are provided:
     ```shell
     ve rds_mysql ModifyDBInstanceIPList --body '{"InstanceId":"xxxxxx", "GroupName": "xxxxxx", "IPList": ["10.20.30.40", "50.60.70.80"]}'
     ```
+

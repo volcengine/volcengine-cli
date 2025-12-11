@@ -4,8 +4,12 @@ package util
 
 import (
 	"encoding/json"
+	"fmt"
+	"os/exec"
 	"os/user"
+	"runtime"
 	"strings"
+	"time"
 )
 
 func IsRepeatedField(f string) bool {
@@ -16,7 +20,7 @@ func IsJsonArray(value string) bool {
 	return len(value) >= 2 && value[0] == '[' && value[len(value)-1] == ']'
 }
 
-//ParseToJsonArrayOrObject try to parse string to json array or json object
+// ParseToJsonArrayOrObject try to parse string to json array or json object
 func ParseToJsonArrayOrObject(s string) (interface{}, bool) {
 	if !json.Valid([]byte(s)) || len(s) < 2 {
 		return nil, false
@@ -53,4 +57,33 @@ func getHomeDir() (string, error) {
 	}
 
 	return user.HomeDir, nil
+}
+
+// OpenBrowser 打开浏览器
+func OpenBrowser(url string) error {
+	switch runtime.GOOS {
+	case "linux":
+		return exec.Command("xdg-open", url).Start()
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	case "darwin":
+		return exec.Command("open", url).Start()
+	default:
+		return fmt.Errorf("无法自动打开浏览器，请手动访问")
+	}
+}
+
+func UnixTimestampToTime(ts int64) time.Time {
+	switch {
+	case ts >= 1e18: // 纳秒
+		return time.Unix(0, ts)
+	case ts >= 1e15: // 微秒
+		return time.Unix(0, ts*int64(time.Microsecond))
+	case ts >= 1e12: // 毫秒
+		sec := ts / 1000
+		nsec := (ts % 1000) * int64(time.Millisecond)
+		return time.Unix(sec, nsec)
+	default: // 秒
+		return time.Unix(ts, 0)
+	}
 }
