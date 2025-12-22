@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/volcengine/volcengine-go-sdk/volcengine/endpoints"
 	"os"
 	"strconv"
 	"strings"
@@ -32,7 +33,9 @@ type SdkClientInfo struct {
 func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 	var (
 		ak, sk, sessionToken, region, endpoint string
+		endpointResolver                       string
 		disableSSl                             bool
+		useDualStack                           bool
 	)
 
 	// first try to get ak/sk/region from config file
@@ -43,8 +46,12 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 			sk = currentProfile.SecretKey
 			region = currentProfile.Region
 			endpoint = currentProfile.Endpoint
+			endpointResolver = currentProfile.EndpointResolver
 			sessionToken = currentProfile.SessionToken
 			disableSSl = *currentProfile.DisableSSL
+			if currentProfile.UseDualStack != nil {
+				useDualStack = *currentProfile.UseDualStack
+			}
 
 			if ak == "" {
 				return nil, fmt.Errorf("profile AccessKey not set")
@@ -64,10 +71,15 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		sk = os.Getenv("VOLCENGINE_SECRET_KEY")
 		region = os.Getenv("VOLCENGINE_REGION")
 		endpoint = os.Getenv("VOLCENGINE_ENDPOINT")
+		endpointResolver = os.Getenv("VOLCENGINE_ENDPOINT_RESOLVER")
 		sessionToken = os.Getenv("VOLCENGINE_SESSION_TOKEN")
 		ssl := os.Getenv("VOLCENGINE_DISABLE_SSL")
 		if ssl == "true" || ssl == "false" {
 			disableSSl, _ = strconv.ParseBool(ssl)
+		}
+		dualStack := os.Getenv("VOLCENGINE_USE_DUALSTACK")
+		if dualStack == "true" || dualStack == "false" {
+			useDualStack, _ = strconv.ParseBool(dualStack)
 		}
 
 		if ak == "" {
@@ -86,8 +98,18 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		WithCredentials(credentials.NewStaticCredentials(ak, sk, sessionToken)).
 		WithDisableSSL(disableSSl)
 
-	if endpoint != "" {
-		config.WithEndpoint(endpoint)
+	resolverValue := strings.ToLower(strings.TrimSpace(endpointResolver))
+	switch resolverValue {
+	case "standard":
+		config.WithEndpointResolver(endpoints.NewStandardEndpointResolver())
+	default:
+		if endpoint != "" {
+			config.WithEndpoint(endpoint)
+		}
+	}
+
+	if useDualStack {
+		config.WithUseDualStack(true)
 	}
 
 	sess, _ := session.NewSession(config)
