@@ -64,7 +64,9 @@
    region: 地域，如 cn-beijing
    session-token: 如果使用角色扮演，需要提供
    disable-ssl: 是否禁用 ssl，默认为 false
-   endpoint: 可以不填，默认值为 open.volcengineapi.com
+   endpoint: 可以不填，默认值为 open.volcengineapi.com；当 endpoint-resolver 为 standard 时该值会被忽略
+   endpoint-resolver: 可选；指定 endpoint 解析器。设置为 standard（不区分大小写）时使用标准解析器；否则当 endpoint 非空时使用 endpoint
+   use-dual-stack: 可选；是否启用双栈，默认为 false
    ```
 
 2. 若配置文件中无配置，则会尝试从 export 的环境变量中读取配置
@@ -72,6 +74,15 @@
    export VOLCENGINE_ACCESS_KEY=AK
    export VOLCENGINE_SECRET_KEY=SK
    export VOLCENGINE_REGION=cn-bejing
+
+   # 可选：自定义 endpoint；当 VOLCENGINE_ENDPOINT_RESOLVER=standard 时会忽略
+   export VOLCENGINE_ENDPOINT=open.volcengineapi.com
+
+   # 可选：endpoint 解析器；设置为 standard（不区分大小写）使用标准解析器
+   export VOLCENGINE_ENDPOINT_RESOLVER=standard
+
+   # 可选：是否启用双栈，true/false
+   export VOLCENGINE_USE_DUALSTACK=false
    
    # 是否禁用SSL, 不设置的话默认为false
    export VOLCENGINE_DISABLE_SSL=false
@@ -134,6 +145,9 @@ ve configure set --profile [配置名] --region [地区] --access-key [用户的
 - region
 - session-token
 - disable-ssl
+- endpoint
+- endpoint-resolver
+- use-dual-stack
 
 各个字段的作用您可以参考上节中 "支持参数及相关说明" 部分
 
@@ -227,6 +241,16 @@ ve configure delete --profile [配置名]
    ```shell
    ve ecs [-h|--help]
    ```
+
+#### 查看版本
+
+```shell
+ve version
+```
+
+```shell
+ve -v
+```
 
 
 

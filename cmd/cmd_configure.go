@@ -77,9 +77,11 @@ func newConfigureSetCmd() *cobra.Command {
 	cmd.Flags().StringVar(&profileFlags.SecretKey, "secret-key", "", "your secret key(SK)")
 	cmd.Flags().StringVar(&profileFlags.Region, "region", "", "your region")
 	cmd.Flags().StringVar(&profileFlags.Endpoint, "endpoint", "", "endpoint bind with region")
+	cmd.Flags().StringVar(&profileFlags.EndpointResolver, "endpoint-resolver", "", "endpoint resolver (auto-addressing)")
 	cmd.Flags().StringVar(&profileFlags.SessionToken, "session-token", "", "your session token")
 
 	profileFlags.DisableSSL = cmd.Flags().Bool("disable-ssl", false, "disable ssl")
+	profileFlags.UseDualStack = cmd.Flags().Bool("use-dual-stack", false, "use dual-stack endpoints")
 	cmd.Flags().BoolP("help", "h", false, "")
 
 	cmd.MarkFlagRequired("profile")

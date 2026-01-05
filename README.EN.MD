@@ -65,7 +65,9 @@ To invoke the service, you must provide AK, SK, and region. These parameters can
 	region: Geographic area, such as cn-beijing 
 	session-token: Required if role-playing is used. 
 	disable-ssl: Specifies whether to disable SSL. The default value is false. 
-	endpoint: Optional; the default value is open.volcengineapi.com.
+	endpoint: Optional; the default value is open.volcengineapi.com. Ignored when endpoint-resolver is standard.
+    endpoint-resolver: Optional; set to standard (case-insensitive) to use the standard resolver. Otherwise, the CLI uses endpoint when provided.
+    use-dual-stack: Optional; enable dual-stack endpoints when true. The default value is false.
     ```
 
 2.  If no configuration is specified in the configuration file, an attempt will be made to read the configuration from environment variables set via export.
@@ -76,6 +78,15 @@ To invoke the service, you must provide AK, SK, and region. These parameters can
 
 	# Whether to disable SSL; if not set, the default is false. 
 	export VOLCENGINE_DISABLE_SSL=false 
+
+	# Optional: custom endpoint. Ignored when VOLCENGINE_ENDPOINT_RESOLVER is standard.
+	export VOLCENGINE_ENDPOINT=open.volcengineapi.com
+
+	# Optional: endpoint resolver; set to standard (case-insensitive) to use the standard resolver.
+	export VOLCENGINE_ENDPOINT_RESOLVER=standard
+
+	# Optional: enable dual-stack endpoints; accepts true/false.
+	export VOLCENGINE_USE_DUALSTACK=false 
 
 	# If role-playing is employed, the following must be provided 
 	export VOLCENGINE_SESSION_TOKEN=sessionToken
@@ -130,6 +141,9 @@ Other fields that can be specified:
 -   region
 -   session-token
 -   disable-ssl
+-   endpoint
+-   endpoint-resolver
+-   use-dual-stack
 
 For information on the function of each field, please refer to the 'Supported Parameters and Related Descriptions' section in the previous section.
 
@@ -209,6 +223,16 @@ The ve disable-color command can be used to disable the color display feature.
     ```shell
     ve ecs [-h|--help]
     ```
+
+#### Show CLI version
+
+```shell
+ve version
+```
+
+```shell
+ve -v
+```
 
 #### Call the API
 

@@ -26,10 +26,27 @@ func initRootCmd() {
 
 	rootCmd.Flags().BoolP("help", "h", false, "")
 
+	rootCmd.Flags().BoolP("version", "v", false, "Show CLI version")
+
+	rootCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
+		showVersion, _ := cmd.Flags().GetBool("version")
+		if showVersion {
+			fmt.Fprintln(cmd.OutOrStdout(), clientVersion)
+			os.Exit(0)
+		}
+		return nil
+	}
+
 	// todo enable color?
 	rootCmd.SetUsageTemplate(rootUsageTemplate())
 
 	rootCmd.AddCommand(&cobra.Command{
+		Use:   "version",
+		Short: "Show CLI version",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Fprintln(cmd.OutOrStdout(), clientVersion)
+		},
+	}, &cobra.Command{
 		Use: "enable-color",
 		Run: func(cmd *cobra.Command, args []string) {
 			config.EnableColor = true
