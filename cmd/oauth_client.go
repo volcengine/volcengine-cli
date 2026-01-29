@@ -297,8 +297,11 @@ func doOAuthPost(ctx context.Context, client *http.Client, url string, payload i
 		}
 
 		if resp.StatusCode/100 != 2 {
+			requestId := resp.Header.Get("X-Tt-Logid")
+			fmt.Printf("requestId: %s\n", requestId)
 			var errResp oauthErrorResponse
 			if len(respBytes) > 0 && json.Unmarshal(respBytes, &errResp) == nil && (errResp.Error != "" || errResp.ErrorDescription != "") {
+				errResp.ErrorDescription = fmt.Sprintf("%s, (requestId: %s)", errResp.ErrorDescription, requestId)
 				return &OAuthAPIError{
 					StatusCode: resp.StatusCode,
 					Response:   errResp,
