@@ -263,8 +263,8 @@ func newConfigureSsoSessionCmd() *cobra.Command {
 	// 同时支持参数式输入，便于脚本化配置。
 	cmd.Flags().StringVar(&ssoSessionFlags.Name, "name", "", "SSO session name")
 	cmd.Flags().StringVar(&ssoSessionFlags.StartURL, "start-url", "", "SSO start URL")
-	cmd.Flags().StringVar(&ssoSessionFlags.Region, "region", defaultSsoRegion, "SSO region")
-	cmd.Flags().StringSliceVar(&ssoSessionFlags.RegistrationScopes, "registration-scopes", defaultRegistrationScopes, "comma-separated SSO registration scopes (cloudidentity:account:access,offline_access)")
+	cmd.Flags().StringVar(&ssoSessionFlags.Region, "region", "", "SSO region")
+	cmd.Flags().StringSliceVar(&ssoSessionFlags.RegistrationScopes, "registration-scopes", nil, "comma-separated SSO registration scopes (cloudidentity:account:access,offline_access)")
 	cmd.Flags().BoolP("help", "h", false, "")
 
 	return cmd
