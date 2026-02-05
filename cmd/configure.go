@@ -7,56 +7,76 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
+	"sync"
 
 	"github.com/volcengine/volcengine-cli/util"
 )
 
-const ConfigFile = "config.json"
+var configFileMu sync.Mutex
+
+// 定义模式枚举常量
+const (
+	ModeSSO = "sso"
+	ModeAK  = "ak"
+
+	ConfigFile = "config.json"
+)
 
 type Configure struct {
-	Current     string              `json:"current"`
-	Profiles    map[string]*Profile `json:"profiles"`
-	EnableColor bool                `json:"enableColor"`
+	Current     string                 `json:"current"`
+	Profiles    map[string]*Profile    `json:"profiles"`
+	EnableColor bool                   `json:"enableColor"`
+	SsoSession  map[string]*SsoSession `json:"sso-session"`
 }
 
 type Profile struct {
-	Name         string `json:"name"`
-	Mode         string `json:"mode"`
-	AccessKey    string `json:"access-key"`
-	SecretKey    string `json:"secret-key"`
-	Region       string `json:"region"`
-	Endpoint     string `json:"endpoint"`
+	Name             string `json:"name"`
+	Mode             string `json:"mode"`
+	AccessKey        string `json:"access-key"`
+	SecretKey        string `json:"secret-key"`
+	Region           string `json:"region"`
+	Endpoint         string `json:"endpoint"`
 	EndpointResolver string `json:"endpoint-resolver,omitempty"`
-	UseDualStack *bool  `json:"use-dual-stack,omitempty"`
-	SessionToken string `json:"session-token"`
-	DisableSSL   *bool  `json:"disable-ssl"`
+	UseDualStack     *bool  `json:"use-dual-stack,omitempty"`
+	SessionToken     string `json:"session-token"`
+	DisableSSL       *bool  `json:"disable-ssl"`
+	SsoSessionName   string `json:"sso-session-name"`
+	AccountId        string `json:"account-id"`
+	RoleName         string `json:"role-name"`
+	StsExpiration    int64  `json:"sts-expiration"`
+}
+
+type SsoSession struct {
+	Name               string   `json:"name"`
+	StartURL           string   `json:"start-url"`
+	Region             string   `json:"region"`
+	RegistrationScopes []string `json:"registration-scopes,omitempty"`
 }
 
 // LoadConfig from CONFIG_FILE_DIR(default ~/.volcengine)
 func LoadConfig() *Configure {
+	configFileMu.Lock()
+	defer configFileMu.Unlock()
+
 	configFileDir, err := util.GetConfigFileDir()
 	if err != nil {
 		return nil
 	}
 
-	if _, err = os.Stat(configFileDir); err != nil {
-		if os.IsNotExist(err) {
-			os.MkdirAll(configFileDir, 0755)
-		}
+	if err := os.MkdirAll(configFileDir, 0700); err != nil {
+		return nil
 	}
+	_ = os.Chmod(configFileDir, 0700)
 
-	if _, err = os.Stat(configFileDir + ConfigFile); err != nil {
-		if os.IsNotExist(err) {
-			// todo handle err
-		}
-	}
-
-	file, err := os.OpenFile(configFileDir+ConfigFile, os.O_CREATE|os.O_RDWR, 0666)
+	configFilePath := filepath.Join(configFileDir, ConfigFile)
+	file, err := os.OpenFile(configFilePath, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		fmt.Println(err)
 		return nil
 	}
 	defer file.Close()
+	_ = file.Chmod(0600)
 
 	fileContent, err := ioutil.ReadAll(file)
 	if err != nil {
@@ -74,19 +94,47 @@ func LoadConfig() *Configure {
 
 // WriteConfigToFile store config
 func WriteConfigToFile(config *Configure) error {
-	configFileDir, err := util.GetConfigFileDir()
-	if err != nil {
-		return nil
-	}
+	configFileMu.Lock()
+	defer configFileMu.Unlock()
 
-	file, err := os.OpenFile(configFileDir+ConfigFile, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0666)
+	configFileDir, err := util.GetConfigFileDir()
 	if err != nil {
 		return err
 	}
-	defer file.Close()
 
-	enc := json.NewEncoder(file)
-	enc.Encode(config)
+	if err := os.MkdirAll(configFileDir, 0700); err != nil {
+		return err
+	}
+	_ = os.Chmod(configFileDir, 0700)
+
+	targetPath := filepath.Join(configFileDir, ConfigFile)
+
+	dir := filepath.Dir(targetPath)
+	tempFile, err := os.CreateTemp(dir, ".tmp-config-*")
+	if err != nil {
+		return err
+	}
+	tempName := tempFile.Name()
+	defer func() {
+		_ = tempFile.Close()
+		_ = os.Remove(tempName)
+	}()
+	_ = tempFile.Chmod(0600)
+
+	if err := json.NewEncoder(tempFile).Encode(config); err != nil {
+		return err
+	}
+	if err := tempFile.Close(); err != nil {
+		return err
+	}
+
+	if err := os.Rename(tempName, targetPath); err != nil {
+		_ = os.Remove(targetPath)
+		if err2 := os.Rename(tempName, targetPath); err2 != nil {
+			return err2
+		}
+	}
+	_ = os.Chmod(targetPath, 0600)
 	return nil
 }
 
@@ -116,7 +164,7 @@ func setConfigProfile(profile *Profile) error {
 		cfg            *Configure
 	)
 
-	// if config not exist, create an empty config
+	// 若配置为空则初始化基础结构。
 	if cfg = ctx.config; cfg == nil {
 		cfg = &Configure{
 			Profiles: make(map[string]*Profile),
@@ -127,10 +175,10 @@ func setConfigProfile(profile *Profile) error {
 	// otherwise create a new profileFlags
 	if currentProfile, exist = cfg.Profiles[profile.Name]; !exist {
 		currentProfile = &Profile{
-			Name:           profile.Name,
-			Mode:           "AK",
-			DisableSSL:     new(bool),
-			UseDualStack:   new(bool),
+			Name:         profile.Name,
+			Mode:         ModeAK,
+			DisableSSL:   new(bool),
+			UseDualStack: new(bool),
 		}
 		*currentProfile.DisableSSL = false
 		*currentProfile.UseDualStack = false
@@ -163,9 +211,13 @@ func setConfigProfile(profile *Profile) error {
 		}
 		*currentProfile.UseDualStack = *profile.UseDualStack
 	}
+	if profile.SsoSessionName != "" {
+		currentProfile.SsoSessionName = profile.SsoSessionName
+	}
 
 	cfg.Profiles[currentProfile.Name] = currentProfile
 	cfg.Current = currentProfile.Name
+	// 写入配置文件，完成持久化。
 	return WriteConfigToFile(cfg)
 }
 
@@ -176,7 +228,7 @@ func getConfigProfile(profileName string) error {
 		cfg            *Configure
 	)
 
-	// if config not exist, return
+	// 若配置为空则初始化基础结构。
 	if cfg = ctx.config; cfg == nil {
 		fmt.Println("no profile created")
 		return nil
@@ -205,7 +257,7 @@ func listConfigProfiles() error {
 		cfg *Configure
 	)
 
-	// if config not exist, return
+	// 若配置为空则初始化基础结构。
 	if cfg = ctx.config; cfg == nil {
 		fmt.Println("no profile created")
 		return nil
@@ -224,7 +276,7 @@ func deleteConfigProfile(profileName string) error {
 		cfg   *Configure
 	)
 
-	// if config not exist, return error
+	// 若配置为空则初始化基础结构。
 	if cfg = ctx.config; cfg == nil {
 		return fmt.Errorf("configuration profile %v not found", profileName)
 	}
@@ -241,6 +293,7 @@ func deleteConfigProfile(profileName string) error {
 		fmt.Printf("delete current profile, set new current profile to [%v]\n", cfg.Current)
 	}
 
+	// 写入配置文件，完成持久化。
 	return WriteConfigToFile(cfg)
 }
 
@@ -250,7 +303,7 @@ func changeConfigProfile(profileName string) error {
 		cfg   *Configure
 	)
 
-	// if config not exist, return error
+	// 若配置为空则初始化基础结构。
 	if cfg = ctx.config; cfg == nil {
 		return fmt.Errorf("configuration profile %v not found", profileName)
 	}
@@ -267,6 +320,7 @@ func changeConfigProfile(profileName string) error {
 
 	// change current
 	cfg.Current = profileName
+	// 写入配置文件，完成持久化。
 	return WriteConfigToFile(cfg)
 }
 
@@ -281,4 +335,43 @@ func (p *Profile) ToMap() map[string]interface{} {
 func (p *Profile) String() string {
 	b, _ := json.MarshalIndent(p, "", "    ")
 	return string(b)
+}
+
+// setSsoSession 保存/更新 SSO 会话配置。
+// 该函数会规范化 scopes，初始化配置结构，并将会话写入配置文件。
+func setSsoSession(session *SsoSession) error {
+	var (
+		cfg *Configure
+	)
+	scopes, err := normalizeRegistrationScopes(session.RegistrationScopes)
+	if err != nil {
+		return err
+	}
+
+	// 若配置为空则初始化基础结构。
+	if cfg = ctx.config; cfg == nil {
+		cfg = &Configure{
+			Profiles:   make(map[string]*Profile),
+			SsoSession: make(map[string]*SsoSession),
+		}
+	}
+
+	// 确保 SsoSession 映射已初始化。
+	if cfg.SsoSession == nil {
+		cfg.SsoSession = make(map[string]*SsoSession)
+	}
+
+	// 构建新会话对象，使用规范化后的 scopes。
+	newSession := &SsoSession{
+		Name:               session.Name,
+		StartURL:           session.StartURL,
+		Region:             session.Region,
+		RegistrationScopes: scopes,
+	}
+
+	// 写入内存配置并提示成功。
+	cfg.SsoSession[session.Name] = newSession
+
+	// 写入配置文件，完成持久化。
+	return WriteConfigToFile(cfg)
 }
