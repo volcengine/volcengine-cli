@@ -189,7 +189,7 @@ registration-scopes: SSO scope 列表（逗号分隔）；允许值仅 cloudiden
 ###### 配置 SSO 类型 profile (configure sso)
 
 ```shell
-ve configure sso --profile [配置名] --sso-session [会话名] --no-browser
+ve configure sso --profile [配置名] --sso-session [会话名]
 ```
 
 该命令用于配置 SSO 类型 profile，会关联 SSO 会话并执行设备码授权流程，完成后写入 ~/.volcengine/config.json。支持的行为与参数说明：
@@ -197,7 +197,7 @@ ve configure sso --profile [配置名] --sso-session [会话名] --no-browser
 ```shell
 profile: profile 名称；未输入时使用 {sso-role-name}-{sso-account-id} 作为默认值
 sso-session: SSO 会话名称；未输入时进入交互式选择/创建模式
-no-browser: 禁止自动打开浏览器，默认 false
+no-browser: 命令行添加参数--no-browser表示禁止打开浏览器，不添默认自动打开浏览器
 ```
 
 注意事项：
@@ -220,7 +220,7 @@ ve sso login --sso-session [会话名]
 ```shell
 profile: 指定要使用的 SSO profile；必须存在且类型为 sso，且已配置 sso-session
 sso-session: 指定要使用的 SSO 会话；会话必须存在且有效
-no-browser: 禁止自动打开浏览器，默认 false
+no-browser: 命令行添加参数--no-browser表示禁止打开浏览器，不添默认自动打开浏览器
 ```
 
 登录行为说明：
