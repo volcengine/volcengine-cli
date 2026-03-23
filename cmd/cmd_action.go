@@ -87,6 +87,7 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 	method := "GET"
 	contentType := ""
 	apiInfo := rootSupport.GetApiInfo(serviceName, action)
+	apiMeta := rootSupport.GetApiMeta(serviceName, action)
 
 	if apiInfo != nil && apiInfo.Method != "" {
 		method = apiInfo.Method
@@ -100,7 +101,14 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 	for _, f := range ctx.dynamicFlags.flags {
 		// rebuild input
 		if f.Name != "body" {
-			if a, success := util.ParseToJsonArrayOrObject(strings.TrimSpace(f.value)); success {
+			// Skip JSON parsing for parameters whose declared type is "string".
+			// Without this, a value like '{"Statement":[...]}' is deserialized
+			// into a Go map and then flattened into query params, which breaks
+			// APIs that expect a raw JSON string (e.g. IAM CreatePolicy's
+			// PolicyDocument parameter).
+			if isStringParam(apiMeta, f.Name) {
+				input[f.Name] = f.value
+			} else if a, success := util.ParseToJsonArrayOrObject(strings.TrimSpace(f.value)); success {
 				input[f.Name] = a
 			} else {
 				input[f.Name] = f.value
@@ -171,6 +179,18 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 		util.ShowJson(*out, true)
 	}
 	return
+}
+
+// isStringParam reports whether the named parameter is declared as type
+// "string" in the API metadata. When true, the caller must NOT attempt to
+// parse the value as JSON, because the API expects a literal string — even
+// if that string happens to contain valid JSON (e.g. PolicyDocument).
+func isStringParam(apiMeta *ApiMeta, name string) bool {
+	if apiMeta == nil || apiMeta.Request == nil || apiMeta.Request.MetaTypes == nil {
+		return false
+	}
+	mt, ok := apiMeta.Request.MetaTypes[name]
+	return ok && mt.TypeName == "string"
 }
 
 func actionUsageTemplate(params []string) string {
