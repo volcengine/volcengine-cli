@@ -49,47 +49,123 @@
 
 #### 配置凭证
 
-调用服务需要用到 AK，SK，region，可以通过以下两种方式进行配置
-1. 通过 ve configure set 设置，示例
+火山引擎 CLI 支持多种凭证模式，按以下优先级解析凭证：
 
-   ```shell
-   ve configure set --profile test --region cn-beijing --access-key ak --secret-key sk
-   ```
-   支持参数及相关说明
+1. **配置文件 profile**：若存在活跃的 profile，使用 profile 中的凭证信息
+2. **默认凭证链**：若配置文件为空或无 profile，自动按以下顺序尝试获取凭证：
+   - 环境变量（`VOLCENGINE_ACCESS_KEY` / `VOLCENGINE_SECRET_KEY`）
+   - OIDC Token（通过环境变量 `VOLCENGINE_OIDC_TOKEN_FILE` + `VOLCENGINE_OIDC_ROLE_TRN`）
+   - ECS 实例角色（通过 IMDS 自动获取，仅在 ECS 环境中有效）
+3. 以上全部失败时，报错提示
 
-   ```shell
-   profile: 配置名称，如果 profile 已存在，则该命令会修改已有配置；否则就会新建配置，并将当前使用的profile指定为新配置
-   access-key: 您的 AK
-   secret-key: 您的 SK
-   region: 地域，如 cn-beijing
-   session-token: 如果使用角色扮演，需要提供
-   disable-ssl: 是否禁用 ssl，默认为 false
-   endpoint: 可以不填，默认值为 open.volcengineapi.com；当 endpoint-resolver 为 standard 时该值会被忽略
-   endpoint-resolver: 可选；指定 endpoint 解析器。设置为 standard（不区分大小写）时使用标准解析器；否则当 endpoint 非空时使用 endpoint
-   use-dual-stack: 可选；是否启用双栈，默认为 false
-   ```
+##### 凭证模式说明
 
-2. 若配置文件中无配置，则会尝试从 export 的环境变量中读取配置
-   ```shell
-   export VOLCENGINE_ACCESS_KEY=AK
-   export VOLCENGINE_SECRET_KEY=SK
-   export VOLCENGINE_REGION=cn-bejing
+| 模式 | 说明 | 必填参数 |
+|------|------|----------|
+| `ak` | AK/SK 静态凭证（默认） | `access-key`, `secret-key` |
+| `ststoken` | AK/SK + 临时 Session Token | `access-key`, `secret-key`, `session-token` |
+| `sso` | SSO 单点登录 | 通过 `ve configure sso` 配置 |
+| `ramrolearn` | 角色扮演（通过 STS AssumeRole） | `access-key`, `secret-key`, `role-name`, `account-id` |
+| `oidc` | OIDC Token 换取临时凭证 | `oidc-token-file`, `role-trn` |
+| `ecsrole` | ECS 实例角色（通过 IMDS 获取） | `role-name` |
 
-   # 可选：自定义 endpoint；当 VOLCENGINE_ENDPOINT_RESOLVER=standard 时会忽略
-   export VOLCENGINE_ENDPOINT=open.volcengineapi.com
+##### 方式一：通过 ve configure set 配置 profile
 
-   # 可选：endpoint 解析器；设置为 standard（不区分大小写）使用标准解析器
-   export VOLCENGINE_ENDPOINT_RESOLVER=standard
+**AK 模式（默认）**
 
-   # 可选：是否启用双栈，true/false
-   export VOLCENGINE_USE_DUALSTACK=false
-   
-   # 是否禁用SSL, 不设置的话默认为false
-   export VOLCENGINE_DISABLE_SSL=false
-   
-   # 如果使用角色扮演，需要提供
-   export VOLCENGINE_SESSION_TOKEN=sessionToken
-   ```
+```shell
+ve configure set --profile test --region cn-beijing --access-key ak --secret-key sk
+```
+
+**STS Token 模式**
+
+```shell
+ve configure set --profile test-sts --mode ststoken --region cn-beijing \
+  --access-key ak --secret-key sk --session-token your-session-token
+```
+
+**角色扮演模式（RamRoleArn）**
+
+```shell
+ve configure set --profile test-ram --mode ramrolearn --region cn-beijing \
+  --access-key ak --secret-key sk --role-name YourRoleName --account-id 2100000000
+```
+
+**OIDC 模式**
+
+```shell
+ve configure set --profile test-oidc --mode oidc --region cn-beijing \
+  --oidc-token-file /path/to/oidc/token --role-trn trn:iam::2100000000:role/YourRoleName
+```
+
+**ECS 实例角色模式**
+
+```shell
+ve configure set --profile test-ecs --mode ecsrole --region cn-beijing \
+  --role-name YourEcsRoleName
+```
+
+支持参数及相关说明
+
+```shell
+profile: 配置名称，如果 profile 已存在，则该命令会修改已有配置；否则就会新建配置，并将当前使用的profile指定为新配置
+mode: 凭证模式，可选值：ak, ststoken, sso, ramrolearn, oidc, ecsrole；默认为 ak
+access-key: 您的 AK
+secret-key: 您的 SK
+region: 地域，如 cn-beijing
+session-token: 临时凭证的 Session Token（ststoken 模式必填）
+role-name: 角色名称（ramrolearn、ecsrole 模式必填）
+account-id: 账户 ID（ramrolearn 模式必填）
+oidc-token-file: OIDC Token 文件路径（oidc 模式必填，也可通过环境变量 VOLCENGINE_OIDC_TOKEN_FILE 设置）
+role-trn: 角色 TRN（oidc 模式必填，也可通过环境变量 VOLCENGINE_OIDC_ROLE_TRN 设置）
+disable-ssl: 是否禁用 ssl，默认为 false
+endpoint: 可以不填，默认值为 open.volcengineapi.com；当 endpoint-resolver 为 standard 时该值会被忽略
+endpoint-resolver: 可选；指定 endpoint 解析器。设置为 standard（不区分大小写）时使用标准解析器；否则当 endpoint 非空时使用 endpoint
+use-dual-stack: 可选；是否启用双栈，默认为 false
+```
+
+##### 方式二：通过环境变量配置（默认凭证链）
+
+若配置文件中无配置，CLI 会自动通过默认凭证链获取凭证。最常用的方式是设置环境变量：
+
+```shell
+export VOLCENGINE_ACCESS_KEY=AK
+export VOLCENGINE_SECRET_KEY=SK
+export VOLCENGINE_REGION=cn-beijing
+
+# 可选：自定义 endpoint；当 VOLCENGINE_ENDPOINT_RESOLVER=standard 时会忽略
+export VOLCENGINE_ENDPOINT=open.volcengineapi.com
+
+# 可选：endpoint 解析器；设置为 standard（不区分大小写）使用标准解析器
+export VOLCENGINE_ENDPOINT_RESOLVER=standard
+
+# 可选：是否启用双栈，true/false
+export VOLCENGINE_USE_DUALSTACK=false
+
+# 是否禁用SSL, 不设置的话默认为false
+export VOLCENGINE_DISABLE_SSL=false
+
+# 如果使用临时凭证，需要提供
+export VOLCENGINE_SESSION_TOKEN=sessionToken
+```
+
+OIDC 凭证通过环境变量配置：
+
+```shell
+export VOLCENGINE_OIDC_TOKEN_FILE=/path/to/oidc/token
+export VOLCENGINE_OIDC_ROLE_TRN=trn:iam::2100000000:role/YourRoleName
+export VOLCENGINE_REGION=cn-beijing
+```
+
+ECS 实例角色无需额外配置，CLI 会自动通过 IMDS 获取凭证（仅在 ECS 环境中有效）。
+
+如需禁用默认凭证链（例如在调试或安全敏感场景下，确保仅使用显式配置的 profile），可设置以下环境变量：
+
+```shell
+export VOLCENGINE_DISABLE_DEFAULT_CREDENTIALS=true
+```
+
+设置后，若无活跃的 profile，CLI 将直接报错而不会尝试从环境变量或 IMDS 自动获取凭证。
 
 
 
@@ -136,14 +212,21 @@ ve configure set --profile [配置名] --region [地区] --access-key [用户的
 
 新建或者修改配置后，当前的使用配置会切换到修改的配置上
 
-新建配置时必须指定 profile 字段和 region 字段，修改已有配置必须指定 profile 字段
+新建配置时必须指定 profile 字段，修改已有配置必须指定 profile 字段
+
+> 注意：region 在 `configure set` 时非强制，但运行 API 调用时必须存在（通过 profile 配置、`---region` 覆盖或环境变量 `VOLCENGINE_REGION`）。
 
 其余可指定的字段：
 
+- mode
 - access-key
 - secret-key
 - region
 - session-token
+- role-name
+- account-id
+- oidc-token-file
+- role-trn
 - disable-ssl
 - endpoint
 - endpoint-resolver
@@ -346,6 +429,28 @@ ve <service name> <action> [--parameter1 value1 --parameter2 value2 ...]
 
 <br/>
 
+##### 运行时覆盖参数
+
+调用 API 时，可以使用 `---`（三横线）前缀指定 CLI 内部参数，覆盖当前 profile 的设置。`---` 参数不会与 API 参数冲突：
+
+- `---profile`：运行时指定使用的 profile（不修改配置文件）
+- `---region`：运行时覆盖 region
+
+```shell
+# 使用指定 profile 调用 API
+ve ecs DescribeInstances ---profile prod
+
+# 使用指定 profile 并覆盖 region
+ve ecs DescribeInstances ---profile prod ---region ap-southeast-1
+
+# ---region 也可以单独使用，覆盖当前 profile 的 region
+ve ecs DescribeInstances ---region cn-shanghai --InstanceId "i-xxx"
+```
+
+> 注意：`--`（双横线）是 API 参数，`---`（三横线）是 CLI 内部参数，两者互不干扰。
+
+<br/>
+
 以下提供一些代码示例：
 
 - 基本使用
@@ -368,6 +473,25 @@ ve <service name> <action> [--parameter1 value1 --parameter2 value2 ...]
 
     ```shell
     ve rds_mysql ModifyDBInstanceIPList --body '{"InstanceId":"xxxxxx", "GroupName": "xxxxxx", "IPList": ["10.20.30.40", "50.60.70.80"]}'
+    ```
+
+- 使用不同凭证模式调用 API
+
+    ```shell
+    # 使用 ECS 实例角色（需先配置 ecsrole 模式的 profile）
+    ve configure set --profile ecs-role --mode ecsrole --role-name MyRole --region cn-beijing
+    ve ecs DescribeInstances ---profile ecs-role
+
+    # 使用 OIDC 凭证
+    ve configure set --profile ci-oidc --mode oidc --region cn-beijing \
+      --oidc-token-file /var/run/secrets/oidc-token --role-trn trn:iam::2100000000:role/CIRole
+    ve ecs DescribeInstances ---profile ci-oidc
+
+    # 无配置文件，通过环境变量 + 默认凭证链
+    export VOLCENGINE_ACCESS_KEY=AK
+    export VOLCENGINE_SECRET_KEY=SK
+    export VOLCENGINE_REGION=cn-beijing
+    ve ecs DescribeInstances
     ```
 
     

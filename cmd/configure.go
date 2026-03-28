@@ -17,8 +17,12 @@ var configFileMu sync.Mutex
 
 // 定义模式枚举常量
 const (
-	ModeSSO = "sso"
-	ModeAK  = "ak"
+	ModeSSO        = "sso"
+	ModeAK         = "ak"
+	ModeStsToken   = "ststoken"
+	ModeRamRoleArn = "ramrolearn"
+	ModeOIDC       = "oidc"
+	ModeEcsRole    = "ecsrole"
 
 	ConfigFile = "config.json"
 )
@@ -45,6 +49,8 @@ type Profile struct {
 	AccountId        string `json:"account-id"`
 	RoleName         string `json:"role-name"`
 	StsExpiration    int64  `json:"sts-expiration"`
+	OidcTokenFile    string `json:"oidc-token-file,omitempty"`
+	RoleTrn          string `json:"role-trn,omitempty"`
 }
 
 type SsoSession struct {
@@ -121,7 +127,11 @@ func WriteConfigToFile(config *Configure) error {
 	}()
 	_ = tempFile.Chmod(0600)
 
-	if err := json.NewEncoder(tempFile).Encode(config); err != nil {
+	data, err := marshalConfig(config)
+	if err != nil {
+		return err
+	}
+	if _, err := tempFile.Write(data); err != nil {
 		return err
 	}
 	if err := tempFile.Close(); err != nil {
@@ -136,6 +146,14 @@ func WriteConfigToFile(config *Configure) error {
 	}
 	_ = os.Chmod(targetPath, 0600)
 	return nil
+}
+
+func marshalConfig(config *Configure) ([]byte, error) {
+	data, err := json.MarshalIndent(config, "", "    ")
+	if err != nil {
+		return nil, err
+	}
+	return append(data, '\n'), nil
 }
 
 func (config *Configure) SetRandomCurrentProfile() {
@@ -184,41 +202,101 @@ func setConfigProfile(profile *Profile) error {
 		*currentProfile.UseDualStack = false
 	}
 
-	if profile.AccessKey != "" {
-		currentProfile.AccessKey = profile.AccessKey
-	}
-	if profile.SecretKey != "" {
-		currentProfile.SecretKey = profile.SecretKey
-	}
-	if profile.Region != "" {
-		currentProfile.Region = profile.Region
-	}
-	if profile.Endpoint != "" {
-		currentProfile.Endpoint = profile.Endpoint
-	}
-	if profile.EndpointResolver != "" {
-		currentProfile.EndpointResolver = profile.EndpointResolver
-	}
-	if profile.SessionToken != "" {
-		currentProfile.SessionToken = profile.SessionToken
-	}
-	if profile.DisableSSL != nil {
-		*currentProfile.DisableSSL = *profile.DisableSSL
-	}
-	if profile.UseDualStack != nil {
-		if currentProfile.UseDualStack == nil {
-			currentProfile.UseDualStack = new(bool)
-		}
-		*currentProfile.UseDualStack = *profile.UseDualStack
-	}
-	if profile.SsoSessionName != "" {
-		currentProfile.SsoSessionName = profile.SsoSessionName
+	nextProfile := mergeProfile(currentProfile, profile)
+	if err := validateProfileMode(nextProfile); err != nil {
+		return err
 	}
 
-	cfg.Profiles[currentProfile.Name] = currentProfile
-	cfg.Current = currentProfile.Name
+	cfg.Profiles[nextProfile.Name] = nextProfile
+	cfg.Current = nextProfile.Name
 	// 写入配置文件，完成持久化。
 	return WriteConfigToFile(cfg)
+}
+
+func mergeProfile(base *Profile, input *Profile) *Profile {
+	merged := cloneProfile(base)
+	if merged == nil {
+		merged = &Profile{}
+	}
+
+	if input == nil {
+		return merged
+	}
+
+	if input.Name != "" {
+		merged.Name = input.Name
+	}
+	if input.AccessKey != "" {
+		merged.AccessKey = input.AccessKey
+	}
+	if input.SecretKey != "" {
+		merged.SecretKey = input.SecretKey
+	}
+	if input.Region != "" {
+		merged.Region = input.Region
+	}
+	if input.Endpoint != "" {
+		merged.Endpoint = input.Endpoint
+	}
+	if input.EndpointResolver != "" {
+		merged.EndpointResolver = input.EndpointResolver
+	}
+	if input.SessionToken != "" {
+		merged.SessionToken = input.SessionToken
+	}
+	if input.DisableSSL != nil {
+		if merged.DisableSSL == nil {
+			merged.DisableSSL = new(bool)
+		}
+		*merged.DisableSSL = *input.DisableSSL
+	}
+	if input.UseDualStack != nil {
+		if merged.UseDualStack == nil {
+			merged.UseDualStack = new(bool)
+		}
+		*merged.UseDualStack = *input.UseDualStack
+	}
+	if input.SsoSessionName != "" {
+		merged.SsoSessionName = input.SsoSessionName
+	}
+	if input.AccountId != "" {
+		merged.AccountId = input.AccountId
+	}
+	if input.RoleName != "" {
+		merged.RoleName = input.RoleName
+	}
+	if input.OidcTokenFile != "" {
+		merged.OidcTokenFile = input.OidcTokenFile
+	}
+	if input.RoleTrn != "" {
+		merged.RoleTrn = input.RoleTrn
+	}
+	if input.Mode != "" {
+		merged.Mode = input.Mode
+	}
+	// 仅新建 profile 时默认 mode 为 ak，修改已有 profile 时保留原 mode
+	if base == nil && merged.Mode == "" {
+		merged.Mode = ModeAK
+	}
+
+	return merged
+}
+
+func cloneProfile(p *Profile) *Profile {
+	if p == nil {
+		return nil
+	}
+
+	clone := *p
+	if p.DisableSSL != nil {
+		clone.DisableSSL = new(bool)
+		*clone.DisableSSL = *p.DisableSSL
+	}
+	if p.UseDualStack != nil {
+		clone.UseDualStack = new(bool)
+		*clone.UseDualStack = *p.UseDualStack
+	}
+	return &clone
 }
 
 func getConfigProfile(profileName string) error {

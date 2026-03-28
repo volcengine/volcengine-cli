@@ -79,7 +79,15 @@ func (p *Parser) readArg(ctx *Context) (arg string, flag *Flag, more bool, err e
 }
 
 func (p *Parser) parseArg(arg string, ctx *Context) (flag *Flag, value string, err error) {
-	if strings.HasPrefix(arg, "--") && !strings.HasPrefix(arg, "---") {
+	if strings.HasPrefix(arg, "---") {
+		// CLI 内部 flag（如 ---profile, ---region），存入 fixedFlags
+		name := arg[3:]
+		if name == "" {
+			err = fmt.Errorf("--- is not a valid flag")
+			return
+		}
+		flag, err = ctx.fixedFlags.AddByName(name)
+	} else if strings.HasPrefix(arg, "--") {
 		if len(arg) == 2 {
 			err = fmt.Errorf("-- is not support command")
 		} else {

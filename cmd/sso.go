@@ -111,7 +111,7 @@ func (s *Sso) EnsureValidStsToken(ctx *Context) error {
 	s.Profile.SecretKey = roleCredentials.SecretAccessKey
 	s.Profile.SessionToken = roleCredentials.SessionToken
 	s.Profile.StsExpiration = roleCredentials.Expiration
-	ctx.config.Profiles[ctx.config.Current] = s.Profile
+	ctx.config.Profiles[s.Profile.Name] = s.Profile
 	return WriteConfigToFile(ctx.config)
 }
 
