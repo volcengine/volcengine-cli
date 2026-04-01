@@ -175,7 +175,7 @@ ve configure sso-session --name [会话名] --start-url [SSO Start URL] --region
 
 ```shell
 name: SSO 会话名称；未提供时进入交互式选择/创建模式
-start-url: SSO Start URL；必填，若已有会话则支持回车使用默认值
+start-url: SSO Start URL；必填。格式为“用户登录链接 + /userportal”后缀，例如 `https://{custom}.volccloudidentity.com/userportal`；若编辑已有会话，回车可沿用默认值
 region: SSO 区域；必填，默认 cn-beijing，已有会话会回填默认值
 registration-scopes: SSO scope 列表（逗号分隔）；允许值仅 cloudidentity:account:access, offline_access
 ```
