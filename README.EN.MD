@@ -169,7 +169,7 @@ This command creates or updates an SSO session for later use with `configure sso
 
 ```shell
 name: SSO session name; if omitted, enter interactive selection/creation mode
-start-url: SSO Start URL; required; if editing an existing session, Enter keeps the default
+start-url: SSO Start URL; required. Format: your sign-in URL with the `/userportal` suffix, for example `https://{custom}.volccloudidentity.com/userportal`. If editing an existing session, press Enter to keep the default
 region: SSO region; required; default is cn-beijing, existing session values are used as defaults
 registration-scopes: SSO scope list (comma-separated); allowed values are cloudidentity:account:access, offline_access
 ```
