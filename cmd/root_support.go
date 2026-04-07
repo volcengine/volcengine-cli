@@ -117,6 +117,13 @@ func (r *RootSupport) GetVersion(svc string) string {
 	return r.Versions[svc]
 }
 
+func (r *RootSupport) GetApiMeta(svc string, action string) *ApiMeta {
+	if metas, ok := r.SupportTypes[svc]; ok {
+		return metas[action]
+	}
+	return nil
+}
+
 func (r *RootSupport) GetApiInfo(svc string, action string) *ApiInfo {
 	for k, v := range r.SupportAction {
 		if k == svc {
