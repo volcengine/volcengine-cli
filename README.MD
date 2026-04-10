@@ -243,6 +243,64 @@ sso-session: 指定要退出的 SSO 会话名称
 - 不指定 sso-session 时：未配置任何会话会返回错误，仅有一个会话时直接登出该会话，有多个会话时进入交互式选择，支持选择 “All SSO sessions” 批量登出
 - 选择批量登出时会逐个注销，并在有失败时汇总错误信息返回
 
+#### Console 登录 (login)
+
+```shell
+ve login --profile [配置名]
+# 或跨设备登录
+ve login --profile [配置名] --remote
+```
+
+该命令用于通过火山引擎控制台完成 OAuth 2.0 + PKCE 登录，并将临时 STS 凭证缓存到本地，后续调用接口时可直接复用。支持参数及说明：
+
+```shell
+profile: 配置名称，可选，默认为 default
+region: 地域，可选；未指定时优先复用当前 profile 中已配置的 region
+remote: 是否启用跨设备登录模式；开启后会输出登录链接，并要求手动输入浏览器中展示的授权码
+endpoint-url: 可选；登录服务地址覆盖项，默认值为 https://signin.volcengine.com
+```
+
+登录行为说明：
+- 默认模式为本机登录：CLI 会启动本地回调服务，尝试自动打开浏览器，并等待浏览器完成登录后回跳
+- 指定 `--remote` 后为跨设备登录：适用于无图形界面或无法本地打开浏览器的环境，CLI 会打印登录 URL，用户可在任意设备完成登录，再将浏览器展示的授权码粘贴回终端
+- 登录成功后，会将 `mode` 写为 `console-login`，并在 profile 中记录 `login-session`；对应的令牌缓存保存在 `~/.volcengine/login/cache/`
+- 若 profile 已存在且模式不是 `console-login`，为了避免覆盖 AK/SK 或 SSO 配置，命令会直接返回错误，不允许跨模式覆盖
+- 若 profile 已绑定其他 `login-session`，CLI 会提示是否替换，只有确认后才会覆盖
+- 若未显式指定 `--region`，且 profile 中已存在 region，CLI 会自动复用该值
+
+使用建议：
+- 适合需要通过控制台身份快速换取临时凭证的场景，无需手动准备 AK/SK
+- 若本地会话过期且缓存中存在 refresh token，CLI 会自动尝试刷新；若刷新失败，则需要重新执行 `ve login`
+- 如需隔离不同身份，建议为不同控制台账号使用不同的 `--profile`
+
+
+#### Console 登出 (logout)
+
+```shell
+ve logout --profile [配置名]
+# 或清除所有登录凭证
+ve logout --all
+```
+
+该命令用于退出通过 `ve login` 建立的控制台登录会话，清除本地缓存的临时 STS 凭证。这是一个纯本地操作，不会发起任何网络请求。支持参数及说明：
+
+```shell
+profile: 配置名称，可选，默认为 default
+all: 是否清除所有 console-login 类型 profile 的登录凭证缓存；开启后忽略 --profile 参数
+```
+
+登出行为说明：
+- 默认模式为单 profile 登出：CLI 会根据 profile 中记录的 `login-session` 定位并删除 `~/.volcengine/login/cache/` 下对应的缓存文件，同时清除配置中的 `login-session` 字段
+- 指定 `--all` 后为批量登出：CLI 遍历配置文件中的所有 Profile，筛选出 `console-login` 模式且 `login-session` 非空的条目，逐个通过 SHA-1 定位并删除对应的缓存文件，同时清除配置中的 `login-session` 字段。单个 Profile 清理失败不影响其余 Profile 的处理
+- 仅 `console-login` 模式的 profile 允许执行登出操作；若 profile 使用的是 AK 或 SSO 模式，命令会返回错误
+- 若 profile 不存在活跃的登录会话（`login-session` 为空），命令会提示无操作并正常退出
+- 登出后，已被其他工具加载的临时凭证可能在过期前（通常 15 分钟内）仍然有效
+
+使用建议：
+- 在共享设备上使用完毕后，建议执行 `ve logout` 清除本地凭证
+- 若需彻底清理所有登录缓存（如排查问题或设备交接），使用 `ve logout --all`
+- 登出后若需重新使用，执行 `ve login` 即可重新建立登录会话
+
 #### 配置自动补全
 
 使用 ve completion --help 可以查看各种终端下配置自动补全的方式，用户可以根据提示信息自己选择是否配置自动补全功能

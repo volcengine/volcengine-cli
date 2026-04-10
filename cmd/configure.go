@@ -17,10 +17,10 @@ var configFileMu sync.Mutex
 
 // 定义模式枚举常量
 const (
-	ModeSSO = "sso"
-	ModeAK  = "ak"
-
-	ConfigFile = "config.json"
+	ModeSSO          = "sso"
+	ModeAK           = "ak"
+	ModeConsoleLogin = "console-login"
+	ConfigFile       = "config.json"
 )
 
 type Configure struct {
@@ -45,6 +45,7 @@ type Profile struct {
 	AccountId        string `json:"account-id"`
 	RoleName         string `json:"role-name"`
 	StsExpiration    int64  `json:"sts-expiration"`
+	LoginSession     string `json:"login-session,omitempty"`
 }
 
 type SsoSession struct {
@@ -170,6 +171,9 @@ func setConfigProfile(profile *Profile) error {
 			Profiles: make(map[string]*Profile),
 		}
 	}
+	if cfg.Profiles == nil {
+		cfg.Profiles = make(map[string]*Profile)
+	}
 
 	// check if the target profileFlags already exists
 	// otherwise create a new profileFlags
@@ -182,7 +186,9 @@ func setConfigProfile(profile *Profile) error {
 		}
 		*currentProfile.DisableSSL = false
 		*currentProfile.UseDualStack = false
+	} else {
 	}
+	currentProfile.Mode = ModeAK
 
 	if profile.AccessKey != "" {
 		currentProfile.AccessKey = profile.AccessKey

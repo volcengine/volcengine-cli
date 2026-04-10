@@ -237,6 +237,64 @@ Logout behavior:
 - If sso-session is not provided: error when no sessions are configured; logout the only session if one exists; otherwise enter interactive selection that includes “All SSO sessions”
 - Batch logout logs out each session and returns aggregated errors on failure
 
+#### Console Login (login)
+
+```shell
+ve login --profile [profile name]
+# or cross-device login
+ve login --profile [profile name] --remote
+```
+
+This command signs in through the Volcengine Console using OAuth 2.0 + PKCE and caches temporary STS credentials locally for subsequent CLI calls. Parameters:
+
+```shell
+profile: configuration profile name; optional; defaults to default
+region: optional; when omitted, the CLI first reuses the region already configured on the target profile
+remote: enables cross-device login mode; when set, the CLI prints a login URL and prompts for the authorization code shown in the browser
+endpoint-url: optional; overrides the sign-in service endpoint; defaults to https://signin.volcengine.com
+```
+
+Login behavior:
+- The default mode is local login: the CLI starts a local callback server, tries to open your browser automatically, and waits for the browser redirect after authentication
+- With `--remote`, the CLI uses cross-device login: this is suitable for headless environments or machines that cannot open a browser locally. The CLI prints a login URL, you complete authentication on any device, and then paste the authorization code back into the terminal
+- After a successful login, the CLI stores the profile with `mode` set to `console-login` and records the `login-session`; token cache files are stored under `~/.volcengine/login/cache/`
+- If the target profile already exists and its mode is not `console-login`, the command fails instead of overwriting an AK/SK or SSO profile
+- If the profile is already bound to a different `login-session`, the CLI prompts before replacing it
+- If `--region` is not explicitly provided and the profile already has a region, the CLI reuses that value automatically
+
+Usage notes:
+- This is useful when you want temporary credentials obtained from your console identity without manually preparing AK/SK
+- If the local session expires and a refresh token is available in cache, the CLI will try to refresh it automatically; if refresh fails, run `ve login` again
+- To isolate different console identities, use separate `--profile` values
+
+
+#### Console Logout (logout)
+
+```shell
+ve logout --profile [profile name]
+# or clear all login credentials
+ve logout --all
+```
+
+This command logs out of a console login session established via `ve login` and removes the locally cached temporary STS credentials. This is a purely local operation — no network requests are made to any server. Parameters:
+
+```shell
+profile: configuration profile name; optional; defaults to default
+all: remove cached login credentials for all console-login profiles; when set, --profile is ignored
+```
+
+Logout behavior:
+- The default mode logs out a single profile: the CLI locates and removes the cached token file under `~/.volcengine/login/cache/` based on the `login-session` recorded in the profile, and clears the `login-session` field in the configuration
+- With `--all`, the CLI iterates all profiles in the configuration, identifies those using `console-login` mode with an active `login-session`, removes the corresponding cache file for each via SHA-1 lookup, and clears the `login-session` field. Failure to clean one profile does not affect the others
+- Only profiles using `console-login` mode can be logged out with this command; the command returns an error for AK or SSO profiles
+- If the profile does not have an active login session (`login-session` is empty), the command prints a message and exits normally
+- After logout, credentials that have already been loaded by other tools may remain valid until they expire (typically within 15 minutes)
+
+Usage notes:
+- On shared devices, it is recommended to run `ve logout` after you finish using the CLI
+- To thoroughly clean all login caches (e.g., for troubleshooting or device handover), use `ve logout --all`
+- After logout, run `ve login` to re-establish a login session when needed
+
 #### Configure Auto-Completion
 
 By executing ve completion --help, users can view the methods for configuring auto-completion in various terminals. Based on the instructions provided, users may choose whether to configure the auto-completion feature.

@@ -1,11 +1,12 @@
-﻿package cmd
+package cmd
 
 import (
 	"fmt"
-	"github.com/volcengine/volcengine-go-sdk/volcengine/endpoints"
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/volcengine/volcengine-go-sdk/volcengine/endpoints"
 
 	"github.com/volcengine/volcengine-go-sdk/volcengine"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/client"
@@ -30,7 +31,7 @@ type SdkClientInfo struct {
 	ContentType string
 }
 
-// NewSimpleClient 鍒涘缓绠€鍗曠殑SDK瀹㈡埛绔?
+// NewSimpleClient creates a simple SDK client with credentials from config or env.
 func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 	var (
 		ak, sk, sessionToken, region, endpoint string
@@ -56,14 +57,16 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 				}
 
 				fallthrough
-			case ModeAK, "": // 使用 AK 模式
+			case ModeAK, "": // 使用 AK 模式（SSO 刷新后也 fallthrough 到这里）
 				ak = currentProfile.AccessKey
 				sk = currentProfile.SecretKey
 				region = currentProfile.Region
 				endpoint = currentProfile.Endpoint
 				endpointResolver = currentProfile.EndpointResolver
 				sessionToken = currentProfile.SessionToken
-				disableSSl = *currentProfile.DisableSSL
+				if currentProfile.DisableSSL != nil {
+					disableSSl = *currentProfile.DisableSSL
+				}
 				if currentProfile.UseDualStack != nil {
 					useDualStack = *currentProfile.UseDualStack
 				}
@@ -74,6 +77,29 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 				if sk == "" {
 					return nil, fmt.Errorf("profile SecretKey not set")
 				}
+				if region == "" {
+					return nil, fmt.Errorf("profile Region not set")
+				}
+
+			case ModeConsoleLogin:
+				// Console Login 模式：从 login cache 中加载/刷新 STS 临时凭证。
+				creds, err := EnsureValidLoginToken(ctx.config, ctx.config.Current)
+				if err != nil {
+					return nil, err
+				}
+				ak = creds.AccessKeyID
+				sk = creds.SecretAccessKey
+				sessionToken = creds.SessionToken
+				region = currentProfile.Region
+				endpoint = currentProfile.Endpoint
+				endpointResolver = currentProfile.EndpointResolver
+				if currentProfile.DisableSSL != nil {
+					disableSSl = *currentProfile.DisableSSL
+				}
+				if currentProfile.UseDualStack != nil {
+					useDualStack = *currentProfile.UseDualStack
+				}
+
 				if region == "" {
 					return nil, fmt.Errorf("profile Region not set")
 				}
