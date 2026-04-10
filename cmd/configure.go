@@ -17,12 +17,13 @@ var configFileMu sync.Mutex
 
 // 定义模式枚举常量
 const (
-	ModeSSO        = "sso"
-	ModeAK         = "ak"
-	ModeStsToken   = "ststoken"
-	ModeRamRoleArn = "ramrolearn"
-	ModeOIDC       = "oidc"
-	ModeEcsRole    = "ecsrole"
+	ModeSSO          = "sso"
+	ModeConsoleLogin = "console-login"
+	ModeAK           = "ak"
+	ModeStsToken     = "ststoken"
+	ModeRamRoleArn   = "ramrolearn"
+	ModeOIDC         = "oidc"
+	ModeEcsRole      = "ecsrole"
 
 	ConfigFile = "config.json"
 )
@@ -51,6 +52,7 @@ type Profile struct {
 	StsExpiration    int64  `json:"sts-expiration"`
 	OidcTokenFile    string `json:"oidc-token-file,omitempty"`
 	RoleTrn          string `json:"role-trn,omitempty"`
+	LoginSession     string `json:"login-session,omitempty"`
 }
 
 type SsoSession struct {
@@ -188,6 +190,9 @@ func setConfigProfile(profile *Profile) error {
 			Profiles: make(map[string]*Profile),
 		}
 	}
+	if cfg.Profiles == nil {
+		cfg.Profiles = make(map[string]*Profile)
+	}
 
 	// check if the target profileFlags already exists
 	// otherwise create a new profileFlags
@@ -200,7 +205,9 @@ func setConfigProfile(profile *Profile) error {
 		}
 		*currentProfile.DisableSSL = false
 		*currentProfile.UseDualStack = false
+	} else {
 	}
+	currentProfile.Mode = ModeAK
 
 	nextProfile := mergeProfile(currentProfile, profile)
 	if err := validateProfileMode(nextProfile); err != nil {

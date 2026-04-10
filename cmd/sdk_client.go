@@ -6,13 +6,14 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/volcengine/volcengine-go-sdk/volcengine/endpoints"
+
 	"github.com/volcengine/volcengine-go-sdk/volcengine"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/client"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/client/metadata"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/credentials"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/credentials/clicreds"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/defaults"
-	"github.com/volcengine/volcengine-go-sdk/volcengine/endpoints"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/request"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/session"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/signer/volc"
@@ -71,6 +72,14 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 				Region:         currentProfile.Region,
 			}
 			if err := sso.EnsureValidStsToken(ctx); err != nil {
+				return nil, err
+			}
+		}
+
+		if strings.ToLower(strings.TrimSpace(currentProfile.Mode)) == ModeConsoleLogin {
+			// Console Login 模式：从 login cache 中加载/刷新 STS 临时凭证。
+			_, err := EnsureValidLoginToken(ctx.config, ctx.config.Current)
+			if err != nil {
 				return nil, err
 			}
 		}
