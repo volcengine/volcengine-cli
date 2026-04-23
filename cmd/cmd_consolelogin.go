@@ -24,14 +24,6 @@ Supports two modes:
   - Local (default): Opens browser on the same device
   - Remote (--remote): For headless environments, displays URL and accepts code input`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// If region not specified, try to load from config.
-			if login.Region == "" {
-				if cfg := LoadConfig(); cfg != nil && cfg.Profiles != nil {
-					if p, ok := cfg.Profiles[login.Profile]; ok && p != nil && p.Region != "" {
-						login.Region = p.Region
-					}
-				}
-			}
 			return login.Login()
 		},
 	}

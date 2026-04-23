@@ -258,7 +258,7 @@ Login behavior:
 - The default mode is local login: the CLI starts a local callback server, tries to open your browser automatically, and waits for the browser redirect after authentication
 - With `--remote`, the CLI uses cross-device login: this is suitable for headless environments or machines that cannot open a browser locally. The CLI prints a login URL, you complete authentication on any device, and then paste the authorization code back into the terminal
 - After a successful login, the CLI stores the profile with `mode` set to `console-login` and records the `login-session`; token cache files are stored under `~/.volcengine/login/cache/`
-- If the target profile already exists and its mode is not `console-login`, the command fails instead of overwriting an AK/SK or SSO profile
+- If the target profile already exists, the command reuses and overwrites that profile, updating its `mode` to `console-login`
 - If the profile is already bound to a different `login-session`, the CLI prompts before replacing it
 - If `--region` is not explicitly provided and the profile already has a region, the CLI reuses that value automatically
 
@@ -409,4 +409,3 @@ The following code examples are provided:
     ```shell
     ve rds_mysql ModifyDBInstanceIPList --body '{"InstanceId":"xxxxxx", "GroupName": "xxxxxx", "IPList": ["10.20.30.40", "50.60.70.80"]}'
     ```
-

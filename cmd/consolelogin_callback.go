@@ -1,11 +1,27 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"html"
 	"net"
 	"net/http"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
 	"time"
+
+	callbackasset "github.com/volcengine/volcengine-cli/asset/consolelogin"
+)
+
+const callbackHTMLPlaceholder = "__CALLBACK_ERROR__"
+
+var (
+	callbackTemplateOnce sync.Once
+	callbackTemplate     []byte
+	callbackTemplateErr  error
 )
 
 // AuthorizationResult holds the result received from the OAuth callback
@@ -22,6 +38,10 @@ type CallbackServer struct {
 	listener net.Listener
 	result   chan *AuthorizationResult
 	port     int
+}
+
+func logCallbackWarning(format string, args ...interface{}) {
+	_, _ = fmt.Fprintf(os.Stderr, "Warning: "+format+"\n", args...)
 }
 
 // NewCallbackServer creates a new local callback server bound to 127.0.0.1
@@ -64,6 +84,7 @@ func (s *CallbackServer) RedirectURI() string {
 func (s *CallbackServer) Start() {
 	go func() {
 		if err := s.server.Serve(s.listener); err != nil && err != http.ErrServerClosed {
+			logCallbackWarning("OAuth callback server stopped unexpectedly: %v", err)
 			s.result <- &AuthorizationResult{
 				Error:            "server_error",
 				ErrorDescription: fmt.Sprintf("callback server error: %v", err),
@@ -90,6 +111,51 @@ func (s *CallbackServer) Shutdown() {
 	_ = s.server.Shutdown(ctx)
 }
 
+func loadCallbackTemplate() ([]byte, error) {
+	callbackTemplateOnce.Do(func() {
+		callbackTemplate, callbackTemplateErr = callbackasset.Asset("callback.html")
+		if callbackTemplateErr != nil {
+			callbackTemplateErr = fmt.Errorf("failed to load callback html template asset: %w", callbackTemplateErr)
+		}
+	})
+
+	if callbackTemplateErr != nil {
+		return nil, callbackTemplateErr
+	}
+	return callbackTemplate, nil
+}
+
+func jsStringLiteral(value string) string {
+	quoted := strconv.Quote(value)
+	// Avoid accidentally terminating the script block when error text contains "</script>".
+	return strings.ReplaceAll(quoted, "</", "<\\/")
+}
+
+func renderCallbackPage(errorMessage string) ([]byte, error) {
+	content, err := loadCallbackTemplate()
+	if err != nil {
+		return nil, err
+	}
+
+	return bytes.Replace(content, []byte(callbackHTMLPlaceholder), []byte(jsStringLiteral(errorMessage)), 1), nil
+}
+
+func writeFallbackCallbackPage(w http.ResponseWriter, errorMessage string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+
+	if errorMessage != "" {
+		_, _ = fmt.Fprintf(
+			w,
+			`<html><body><h2>Authentication failed</h2><p>Please return to the terminal.</p><p>OAuth error: %s</p></body></html>`,
+			html.EscapeString(errorMessage),
+		)
+		return
+	}
+
+	_, _ = fmt.Fprint(w, `<html><body><h2>Authentication successful!</h2><p>You can close this page and return to the terminal.</p></body></html>`)
+}
+
 // handleCallback processes the OAuth callback request from the browser.
 // It extracts the authorization code and state (or error information) from
 // the query parameters, delivers the result to the waiting goroutine, and
@@ -97,6 +163,7 @@ func (s *CallbackServer) Shutdown() {
 // duplicate requests are ignored.
 func (s *CallbackServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
+		logCallbackWarning("received non-GET OAuth callback request: method=%s path=%s", r.Method, r.URL.Path)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -104,14 +171,34 @@ func (s *CallbackServer) handleCallback(w http.ResponseWriter, r *http.Request) 
 	query := r.URL.Query()
 	code := query.Get("code")
 	state := query.Get("state")
-	oauthError := query.Get("error")
+	errorParam := query.Get("error")
+	errorParamUpper := query.Get("Error")
 	errorDescription := query.Get("error_description")
+	oauthError := errorParam
+	if oauthError == "" {
+		oauthError = errorParamUpper
+	}
+	if oauthError == "" {
+		oauthError = errorDescription
+	}
+
+	if oauthError != "" {
+		logCallbackWarning("OAuth callback returned error=%q", oauthError)
+	}
+	if code == "" && oauthError == "" {
+		logCallbackWarning("OAuth callback did not include both code and error; login flow may fail")
+	}
+
+	normalizedErrorDescription := errorDescription
+	if normalizedErrorDescription == oauthError {
+		normalizedErrorDescription = ""
+	}
 
 	result := &AuthorizationResult{
 		Code:             code,
 		State:            state,
 		Error:            oauthError,
-		ErrorDescription: errorDescription,
+		ErrorDescription: normalizedErrorDescription,
 	}
 
 	// Deliver the result only once; ignore duplicate callbacks.
@@ -120,19 +207,24 @@ func (s *CallbackServer) handleCallback(w http.ResponseWriter, r *http.Request) 
 	default:
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
+	errorMessage := ""
 	if oauthError != "" {
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w,
-			`<html><body><h2>Authentication failed</h2><p>Error: %s</p><p>%s</p><p>Please return to the terminal.</p></body></html>`,
-			oauthError, errorDescription,
-		)
+		errorMessage = oauthError
+		if normalizedErrorDescription != "" {
+			errorMessage = fmt.Sprintf("%s: %s", oauthError, errorDescription)
+		}
+	}
+
+	page, err := renderCallbackPage(errorMessage)
+	if err != nil {
+		logCallbackWarning("failed to render OAuth callback page; fallback page is used: %v", err)
+		writeFallbackCallbackPage(w, errorMessage)
 		return
 	}
 
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w,
-		`<html><body><h2>Authentication successful!</h2><p>You can close this page and return to the terminal.</p></body></html>`,
-	)
+	if _, err := w.Write(page); err != nil {
+		logCallbackWarning("failed to write OAuth callback page response: %v", err)
+	}
 }

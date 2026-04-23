@@ -15,6 +15,8 @@ import (
 
 var configFileMu sync.Mutex
 
+var configFileDirFunc = util.GetConfigFileDir
+
 // 定义模式枚举常量
 const (
 	ModeSSO          = "sso"
@@ -60,7 +62,7 @@ func LoadConfig() *Configure {
 	configFileMu.Lock()
 	defer configFileMu.Unlock()
 
-	configFileDir, err := util.GetConfigFileDir()
+	configFileDir, err := configFileDirFunc()
 	if err != nil {
 		return nil
 	}
@@ -93,12 +95,30 @@ func LoadConfig() *Configure {
 	return cfg
 }
 
+// runtimeConfig returns the in-memory config used by the current CLI process.
+// Prefer this over reloading from disk so command handlers operate on a single
+// config object during one invocation.
+func runtimeConfig() *Configure {
+	if ctx != nil && ctx.config != nil {
+		return ctx.config
+	}
+	return config
+}
+
+// setRuntimeConfig keeps the global config references in sync after updates.
+func setRuntimeConfig(cfg *Configure) {
+	if ctx != nil {
+		ctx.config = cfg
+	}
+	config = cfg
+}
+
 // WriteConfigToFile store config
 func WriteConfigToFile(config *Configure) error {
 	configFileMu.Lock()
 	defer configFileMu.Unlock()
 
-	configFileDir, err := util.GetConfigFileDir()
+	configFileDir, err := configFileDirFunc()
 	if err != nil {
 		return err
 	}
@@ -186,9 +206,7 @@ func setConfigProfile(profile *Profile) error {
 		}
 		*currentProfile.DisableSSL = false
 		*currentProfile.UseDualStack = false
-	} else {
 	}
-	currentProfile.Mode = ModeAK
 
 	if profile.AccessKey != "" {
 		currentProfile.AccessKey = profile.AccessKey
