@@ -55,12 +55,13 @@ func (cl *ConsoleLogin) Login() error {
 		cl.EndpointURL = "https://signin.volcengine.com"
 	}
 
-	// Preflight profile compatibility before starting OAuth/browser flow.
-	cfg := LoadConfig()
+	// Load existing profile values from the in-memory runtime config first.
+	cfg := runtimeConfig()
 	if cfg == nil {
 		cfg = &Configure{
 			Profiles: make(map[string]*Profile),
 		}
+		setRuntimeConfig(cfg)
 	}
 	if cfg.Profiles == nil {
 		cfg.Profiles = make(map[string]*Profile)
@@ -85,7 +86,10 @@ func (cl *ConsoleLogin) Login() error {
 	codeChallenge := generateCodeChallenge(codeVerifier)
 
 	// 3. Generate state (UUID v4).
-	state := generateState()
+	state, err := generateState()
+	if err != nil {
+		return fmt.Errorf("generating state: %w", err)
+	}
 
 	// 4. Create the OAuth client.
 	oauthClient := NewConsoleOAuthClient(&ConsoleOAuthClientConfig{
@@ -180,6 +184,7 @@ func (cl *ConsoleLogin) Login() error {
 	if err := WriteConfigToFile(cfg); err != nil {
 		return fmt.Errorf("writing config: %w", err)
 	}
+	setRuntimeConfig(cfg)
 
 	// 12. Print success message.
 	fmt.Println("\nSuccessfully logged in!")
@@ -356,7 +361,7 @@ func (cl *ConsoleLogin) remoteAuthorize(
 // getLoginCacheDir returns the path to ~/.volcengine/login/cache/, creating
 // the directory tree if it does not exist.
 func getLoginCacheDir() (string, error) {
-	configDir, err := util.GetConfigFileDir()
+	configDir, err := configFileDirFunc()
 	if err != nil {
 		return "", fmt.Errorf("getting config directory: %w", err)
 	}

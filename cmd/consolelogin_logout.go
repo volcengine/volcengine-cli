@@ -26,7 +26,7 @@ func (cl *ConsoleLogout) Logout() error {
 // logoutSingleProfile logs out the specified (or current) profile by removing
 // its cached login token file and clearing the login_session in config.
 func (cl *ConsoleLogout) logoutSingleProfile() error {
-	cfg := LoadConfig()
+	cfg := runtimeConfig()
 	if cfg == nil || cfg.Profiles == nil {
 		return fmt.Errorf("no configuration found; nothing to log out")
 	}
@@ -68,6 +68,7 @@ func (cl *ConsoleLogout) logoutSingleProfile() error {
 	if err := WriteConfigToFile(cfg); err != nil {
 		return fmt.Errorf("updating config after logout: %w", err)
 	}
+	setRuntimeConfig(cfg)
 
 	fmt.Printf("Successfully logged out of profile %q.\n", profileName)
 	printPostLogoutHint()
@@ -79,7 +80,7 @@ func (cl *ConsoleLogout) logoutSingleProfile() error {
 // clears the login-session field. This is config-driven rather than
 // filesystem-scanning, ensuring we only touch files that belong to known profiles.
 func (cl *ConsoleLogout) logoutAll() error {
-	cfg := LoadConfig()
+	cfg := runtimeConfig()
 	if cfg == nil || cfg.Profiles == nil {
 		fmt.Println("No configuration found; nothing to log out.")
 		return nil
@@ -112,6 +113,8 @@ func (cl *ConsoleLogout) logoutAll() error {
 	// Persist config changes (even if some removals failed, clear the ones that succeeded).
 	if err := WriteConfigToFile(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to update config after logout: %v\n", err)
+	} else {
+		setRuntimeConfig(cfg)
 	}
 
 	if deletedCount > 0 {

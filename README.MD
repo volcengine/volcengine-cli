@@ -417,7 +417,7 @@ endpoint-url: 可选；登录服务地址覆盖项，默认值为 https://signin
 - 默认模式为本机登录：CLI 会启动本地回调服务，尝试自动打开浏览器，并等待浏览器完成登录后回跳
 - 指定 `--remote` 后为跨设备登录：适用于无图形界面或无法本地打开浏览器的环境，CLI 会打印登录 URL，用户可在任意设备完成登录，再将浏览器展示的授权码粘贴回终端
 - 登录成功后，会将 `mode` 写为 `console-login`，并在 profile 中记录 `login-session`；对应的令牌缓存保存在 `~/.volcengine/login/cache/`
-- 若 profile 已存在且模式不是 `console-login`，为了避免覆盖 AK/SK 或 SSO 配置，命令会直接返回错误，不允许跨模式覆盖
+- 若 profile 已存在，命令会直接复用并覆盖该 profile，并将其更新为 `console-login` 模式
 - 若 profile 已绑定其他 `login-session`，CLI 会提示是否替换，只有确认后才会覆盖
 - 若未显式指定 `--region`，且 profile 中已存在 region，CLI 会自动复用该值
 
@@ -626,7 +626,6 @@ ve ecs DescribeInstances ---region cn-shanghai --InstanceId "i-xxx"
 ## Security and privacy
 This project takes security seriously. 
 For vulnerability reporting and supported versions, see [SECURITY.md](SECURITY.md)    
-
 
 
 
