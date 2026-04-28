@@ -18,6 +18,7 @@ import (
 )
 
 const scopeAllAll = "Console:All:All"
+const loginCacheDirectoryEnv = "VOLCENGINE_LOGIN_CACHE_DIRECTORY"
 
 // ConsoleLogin holds runtime state for the volcengine login flow.
 type ConsoleLogin struct {
@@ -358,9 +359,18 @@ func (cl *ConsoleLogin) remoteAuthorize(
 // Cache management
 // ---------------------------------------------------------------------------
 
-// getLoginCacheDir returns the path to ~/.volcengine/login/cache/, creating
-// the directory tree if it does not exist.
+// getLoginCacheDir returns the login token cache directory, creating the
+// directory tree if it does not exist.
 func getLoginCacheDir() (string, error) {
+	if customCacheDir := os.Getenv(loginCacheDirectoryEnv); customCacheDir != "" {
+		// 允许用户通过环境变量显式指定令牌缓存目录。这里直接使用用户传入的目录，
+		// 避免再追加 login/cache 导致实际路径与文档和用户预期不一致。
+		if err := os.MkdirAll(customCacheDir, 0700); err != nil {
+			return "", fmt.Errorf("creating custom cache directory %s: %w", customCacheDir, err)
+		}
+		return customCacheDir, nil
+	}
+
 	configDir, err := configFileDirFunc()
 	if err != nil {
 		return "", fmt.Errorf("getting config directory: %w", err)
