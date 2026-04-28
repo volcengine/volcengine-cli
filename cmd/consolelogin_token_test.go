@@ -79,6 +79,32 @@ func TestEnsureValidLoginTokenReturnsCachedCredentialsWhenStillValid(t *testing.
 	}
 }
 
+func TestLoginCacheDirUsesCustomDirectoryEnv(t *testing.T) {
+	customDir := filepath.Join(t.TempDir(), "custom-cache")
+	t.Setenv(loginCacheDirectoryEnv, customDir)
+
+	oldFunc := configFileDirFunc
+	configFileDirFunc = func() (string, error) {
+		return "", os.ErrPermission
+	}
+	t.Cleanup(func() {
+		configFileDirFunc = oldFunc
+	})
+
+	cacheDir, err := getLoginCacheDir()
+	if err != nil {
+		t.Fatalf("getLoginCacheDir returned error: %v", err)
+	}
+	if cacheDir != customDir {
+		t.Fatalf("cache dir = %q, want custom dir %q", cacheDir, customDir)
+	}
+	if info, err := os.Stat(customDir); err != nil {
+		t.Fatalf("custom cache dir was not created: %v", err)
+	} else if !info.IsDir() {
+		t.Fatalf("custom cache path %q is not a directory", customDir)
+	}
+}
+
 func TestEnsureValidLoginTokenRefreshesExpiredCredentials(t *testing.T) {
 	configDir := withTestConfigDir(t)
 
