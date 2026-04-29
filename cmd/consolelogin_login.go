@@ -19,6 +19,7 @@ import (
 
 const scopeAllAll = "Console:All:All"
 const loginCacheDirectoryEnv = "VOLCENGINE_LOGIN_CACHE_DIRECTORY"
+const defaultConsoleLoginRegion = "cn-beijing"
 
 // ConsoleLogin holds runtime state for the volcengine login flow.
 type ConsoleLogin struct {
@@ -67,11 +68,11 @@ func (cl *ConsoleLogin) Login() error {
 	if cfg.Profiles == nil {
 		cfg.Profiles = make(map[string]*Profile)
 	}
-	if profile := cfg.Profiles[cl.Profile]; profile != nil {
-		if cl.Region == "" && profile.Region != "" {
-			cl.Region = profile.Region
-		}
+	resolvedRegion, err := resolveConsoleLoginRegion(os.Stdin, os.Stdout, cl.Region)
+	if err != nil {
+		return fmt.Errorf("resolving login region: %w", err)
 	}
+	cl.Region = resolvedRegion
 
 	// 1. Determine client_id based on mode.
 	clientID := ConsoleClientIDSameDevice
@@ -219,6 +220,46 @@ func confirmLoginSessionReplacement(input io.Reader, output io.Writer, profileNa
 
 	answer := strings.ToLower(strings.TrimSpace(response))
 	return answer == "y" || answer == "yes", nil
+}
+
+// resolveConsoleLoginRegion 解析 Console Login 需要写入 profile 的 Region。
+// 命令行显式传入 Region 时直接使用；未传时进入交互提示，并将空输入固定解释为
+// cn-beijing，避免登录成功后 profile 缺少 Region，导致后续发起 SDK 请求报错。
+func resolveConsoleLoginRegion(input io.Reader, output io.Writer, commandRegion string) (string, error) {
+	commandRegion = strings.TrimSpace(commandRegion)
+	if commandRegion != "" {
+		return commandRegion, nil
+	}
+	return promptForConsoleLoginRegion(input, output, defaultConsoleLoginRegion)
+}
+
+// promptForConsoleLoginRegion 引导用户输入 Region，并允许直接回车使用默认值。
+// 当前默认值为 cn-beijing，保证新登录 profile 一定具备可用区域。
+func promptForConsoleLoginRegion(input io.Reader, output io.Writer, defaultRegion string) (string, error) {
+	if input == nil {
+		return "", fmt.Errorf("nil input reader")
+	}
+	if output == nil {
+		output = io.Discard
+	}
+
+	defaultRegion = strings.TrimSpace(defaultRegion)
+	if defaultRegion == "" {
+		defaultRegion = defaultConsoleLoginRegion
+	}
+
+	fmt.Fprintf(output, "Please enter region [%s]: ", defaultRegion)
+	reader := bufio.NewReader(input)
+	line, err := reader.ReadString('\n')
+	if err != nil && err != io.EOF {
+		return "", err
+	}
+
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return defaultRegion, nil
+	}
+	return line, nil
 }
 
 // ---------------------------------------------------------------------------
