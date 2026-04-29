@@ -107,6 +107,60 @@ func TestConfirmLoginSessionReplacementNilInput(t *testing.T) {
 	}
 }
 
+func TestResolveConsoleLoginRegion(t *testing.T) {
+	tests := []struct {
+		name          string
+		input         string
+		commandRegion string
+		wantRegion    string
+		wantPrompt    bool
+		wantDefault   string
+	}{
+		{
+			name:          "command region skips prompt",
+			commandRegion: " cn-shanghai ",
+			wantRegion:    "cn-shanghai",
+			wantPrompt:    false,
+		},
+		{
+			name:        "empty input uses console login default region",
+			input:       "\n",
+			wantRegion:  defaultConsoleLoginRegion,
+			wantPrompt:  true,
+			wantDefault: defaultConsoleLoginRegion,
+		},
+		{
+			name:        "typed region overrides default",
+			input:       "cn-guangzhou\n",
+			wantRegion:  "cn-guangzhou",
+			wantPrompt:  true,
+			wantDefault: defaultConsoleLoginRegion,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var output bytes.Buffer
+
+			gotRegion, err := resolveConsoleLoginRegion(strings.NewReader(tt.input), &output, tt.commandRegion)
+			if err != nil {
+				t.Fatalf("resolveConsoleLoginRegion returned error: %v", err)
+			}
+			if gotRegion != tt.wantRegion {
+				t.Fatalf("region = %q, want %q", gotRegion, tt.wantRegion)
+			}
+
+			gotPrompt := output.Len() > 0
+			if gotPrompt != tt.wantPrompt {
+				t.Fatalf("prompt output present = %v, want %v; output=%q", gotPrompt, tt.wantPrompt, output.String())
+			}
+			if tt.wantPrompt && !strings.Contains(output.String(), tt.wantDefault) {
+				t.Fatalf("prompt output %q does not include default region %q", output.String(), tt.wantDefault)
+			}
+		})
+	}
+}
+
 func TestExtractLoginSessionUsesTRNClaim(t *testing.T) {
 	idToken := mustBuildUnsignedIDToken(t, map[string]string{
 		"sub": "2100123456",

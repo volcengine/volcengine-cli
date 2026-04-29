@@ -32,7 +32,7 @@ Supports two modes:
 
 	// Register flags.
 	cmd.Flags().StringVarP(&login.Profile, "profile", "p", "default", "Configuration profile name")
-	cmd.Flags().StringVarP(&login.Region, "region", "r", "", "Region (defaults to profile config value)")
+	cmd.Flags().StringVarP(&login.Region, "region", "r", "", "Region (prompts when omitted; empty input defaults to cn-beijing)")
 	cmd.Flags().BoolVar(&login.Remote, "remote", false, "Enable cross-device (remote) login mode")
 	cmd.Flags().StringVar(&login.EndpointURL, "endpoint-url", "https://signin.volcengine.com", "Override signin service endpoint URL")
 
