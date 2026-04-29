@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -103,4 +105,40 @@ func TestConfirmLoginSessionReplacementNilInput(t *testing.T) {
 	if confirmed {
 		t.Fatal("expected confirmation to be false")
 	}
+}
+
+func TestExtractLoginSessionUsesTRNClaim(t *testing.T) {
+	idToken := mustBuildUnsignedIDToken(t, map[string]string{
+		"sub": "2100123456",
+		"trn": "trn:volcengine:iam:cn-beijing:2100123456:user/Admin",
+	})
+
+	loginSession, err := extractLoginSession(idToken)
+	if err != nil {
+		t.Fatalf("extractLoginSession returned error: %v", err)
+	}
+
+	want := "trn:volcengine:iam:cn-beijing:2100123456:user/Admin"
+	if loginSession != want {
+		t.Fatalf("loginSession = %q, want %q", loginSession, want)
+	}
+}
+
+func mustBuildUnsignedIDToken(t *testing.T, claims map[string]string) string {
+	t.Helper()
+
+	header, err := json.Marshal(map[string]string{
+		"alg": "none",
+		"typ": "JWT",
+	})
+	if err != nil {
+		t.Fatalf("marshal header: %v", err)
+	}
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatalf("marshal claims: %v", err)
+	}
+
+	return base64.RawURLEncoding.EncodeToString(header) + "." +
+		base64.RawURLEncoding.EncodeToString(payload) + "."
 }

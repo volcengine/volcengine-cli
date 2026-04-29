@@ -460,8 +460,8 @@ func readLoginCache(loginSession string) (*LoginTokenCache, error) {
 	return &cache, nil
 }
 
-// extractLoginSession decodes the JWT payload (second segment) and returns
-// the "sub" claim which serves as the login_session identifier.
+// extractLoginSession decodes the JWT payload (second segment) and returns the
+// "trn" claim which serves as the authoritative login_session identifier.
 // No signature verification is performed because the token is obtained
 // directly from the trusted signin server over TLS.
 func extractLoginSession(idToken string) (string, error) {
@@ -489,15 +489,15 @@ func extractLoginSession(idToken string) (string, error) {
 	}
 
 	var claims struct {
-		Sub string `json:"sub"`
+		TRN string `json:"trn"`
 	}
 	if err := json.Unmarshal(decoded, &claims); err != nil {
 		return "", fmt.Errorf("parsing JWT payload JSON: %w", err)
 	}
-	if claims.Sub == "" {
-		return "", fmt.Errorf("id_token JWT payload does not contain a \"sub\" claim")
+	if claims.TRN == "" {
+		return "", fmt.Errorf("id_token JWT payload does not contain a \"trn\" claim")
 	}
-	return claims.Sub, nil
+	return claims.TRN, nil
 }
 
 // ---------------------------------------------------------------------------
