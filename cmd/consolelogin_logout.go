@@ -144,6 +144,7 @@ func removeLoginCache(loginSession string) error {
 // printPostLogoutHint prints a security reminder after logout.
 func printPostLogoutHint() {
 	fmt.Println()
-	fmt.Println("Note: Any local tools that have already loaded temporary credentials")
-	fmt.Println("may continue to use them until they expire (typically within 15 minutes).")
+	fmt.Println("Note: Local cache has been removed for future CLI sessions.")
+	fmt.Println("Already-running tools that loaded temporary STS credentials before logout")
+	fmt.Println("may continue to use them until those credentials expire.")
 }
