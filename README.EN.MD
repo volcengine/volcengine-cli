@@ -249,7 +249,7 @@ ve sso login --profile [profile name]
 ve sso login --sso-session [session name]
 ```
 
-This command logs in via SSO, obtains an access token, and caches it. Parameters:
+This command performs an explicit SSO login, runs a new authorization flow, obtains an access token, and caches it. In line with AWS SSO login semantics, each execution re-authenticates the current SSO session and does not silently exchange an existing refresh_token for an access_token. Parameters:
 
 ```shell
 profile: the SSO profile to use; must exist, be of sso type, and have sso-session configured
@@ -260,6 +260,8 @@ no-browser: Adding the `--no-browser` parameter to the command line disables the
 Login behavior:
 - If neither profile nor sso-session is provided: error when no sessions are configured; use the only session if one exists; otherwise enter interactive selection with search
 - Only the device code flow is supported; use `--no-browser` to disable auto-opening the browser
+- When running business commands, if the cached SSO access token is expired or close to expiry, the CLI attempts to silently refresh the access token with the cached refresh_token before requesting role credentials
+- If the refresh_token is missing, the client registration has expired, or refresh fails, business commands do not automatically open a browser for re-authorization and will ask you to run `ve sso login` again
 
 ##### SSO Logout (sso logout)
 
