@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"io/ioutil"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -40,4 +43,49 @@ func TestRemoveLoginCache_NonExistent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("removeLoginCache should not error on non-existent file, got: %v", err)
 	}
+}
+
+func TestPrintPostLogoutHintClarifiesFutureSessionsAndLoadedCredentials(t *testing.T) {
+	output := captureStdout(t, printPostLogoutHint)
+
+	expectedParts := []string{
+		"Local cache has been removed for future CLI sessions.",
+		"Already-running tools that loaded temporary STS credentials before logout",
+		"may continue to use them until those credentials expire.",
+	}
+	for _, part := range expectedParts {
+		if !strings.Contains(output, part) {
+			t.Fatalf("printPostLogoutHint output %q does not contain %q", output, part)
+		}
+	}
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+
+	originalStdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("creating stdout pipe: %v", err)
+	}
+
+	os.Stdout = writer
+	defer func() {
+		os.Stdout = originalStdout
+	}()
+
+	fn()
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("closing stdout writer: %v", err)
+	}
+
+	data, err := ioutil.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("reading stdout: %v", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("closing stdout reader: %v", err)
+	}
+	return string(data)
 }
