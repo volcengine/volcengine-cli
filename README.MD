@@ -493,8 +493,11 @@ ve ecs DescribeInstances ---region cn-shanghai --InstanceId "i-xxx"
     export VOLCENGINE_REGION=cn-beijing
     ve ecs DescribeInstances
     ```
-
     
+
+## Security and privacy
+This project takes security seriously. 
+For vulnerability reporting and supported versions, see [SECURITY.md](SECURITY.md)    
 
 
 
