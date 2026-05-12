@@ -247,32 +247,55 @@ sso-session: 指定要退出的 SSO 会话名称
 
 ```shell
 ve login --profile [配置名]
+# 指定地域，避免交互输入
+ve login --profile [配置名] --region cn-beijing
 # 或跨设备登录
-ve login --profile [配置名] --remote
+ve login --profile [配置名] --region cn-beijing --remote
 ```
 
 该命令用于通过火山引擎控制台完成 OAuth 2.0 + PKCE 登录，并将临时 STS 凭证缓存到本地，后续调用接口时可直接复用。支持参数及说明：
 
 ```shell
 profile: 配置名称，可选，默认为 default
-region: 地域，可选；未指定时优先复用当前 profile 中已配置的 region
+region: 地域，可选；未指定时会提示输入，直接回车默认使用 cn-beijing
 remote: 是否启用跨设备登录模式；开启后会输出登录链接，并要求手动输入浏览器中展示的授权码
 endpoint-url: 可选；登录服务地址覆盖项，默认值为 https://signin.volcengine.com
 ```
 
 登录行为说明：
-- 默认模式为本机登录：CLI 会启动本地回调服务，尝试自动打开浏览器，并等待浏览器完成登录后回跳
-- 指定 `--remote` 后为跨设备登录：适用于无图形界面或无法本地打开浏览器的环境，CLI 会打印登录 URL，用户可在任意设备完成登录，再将浏览器展示的授权码粘贴回终端
+- 默认模式为本机登录：CLI 会启动本地回调服务，打印授权 URL，尝试自动打开浏览器，并等待浏览器完成登录后回跳；如果浏览器没有自动打开，请手动访问终端输出的 URL
+- 未指定 `--region` 时，CLI 会提示 `Please enter region [cn-beijing]: `；直接回车使用 `cn-beijing`，脚本或自动化场景建议显式传入 `--region`
+- 指定 `--remote` 后为跨设备登录：适用于无图形界面或无法本地打开浏览器的环境，CLI 会打印登录 URL，用户可在任意设备完成登录，再将浏览器展示的 base64 授权码完整粘贴回终端
 - 登录成功后，会将 `mode` 写为 `console-login`，并在 profile 中记录 `login-session`；对应的令牌缓存保存在 `~/.volcengine/login/cache/`
+- 可通过环境变量 `VOLCENGINE_LOGIN_CACHE_DIRECTORY` 覆盖登录缓存目录，适用于多用户机器或 CI 隔离场景
 - 若 profile 已存在，命令会直接复用并覆盖该 profile，并将其更新为 `console-login` 模式
 - 若 profile 已绑定其他 `login-session`，CLI 会提示是否替换，只有确认后才会覆盖
-- 若未显式指定 `--region`，且 profile 中已存在 region，CLI 会自动复用该值
 
 使用建议：
 - 适合需要通过控制台身份快速换取临时凭证的场景，无需手动准备 AK/SK
 - 若本地会话过期且缓存中存在 refresh token，CLI 会自动尝试刷新；若刷新失败，则需要重新执行 `ve login`
 - 如需隔离不同身份，建议为不同控制台账号使用不同的 `--profile`
 
+完整使用流程示例：
+
+```shell
+# 1. 登录并写入 dev profile
+ve login --profile dev --region cn-beijing
+
+# 2. 如果 dev 不是当前默认 profile，先切换当前使用的配置
+ve configure profile --profile dev
+
+# 3. 执行业务命令时会使用当前 profile 中的 console-login 临时凭证
+ve ecs DescribeInstances
+
+# 4. 使用结束后清理本地登录状态
+ve logout --profile dev
+```
+
+说明：
+- 首次登录且配置文件中的 `current` 为空时，CLI 会自动将登录的 profile 设置为当前默认 profile；如果已经存在其他当前默认 profile，请使用 `ve configure profile --profile [配置名]` 手动切换
+- 后续业务命令使用该 profile 时，CLI 会从本地缓存读取临时 STS 凭证；凭证接近过期且缓存中存在 refresh token 时会自动刷新
+- `ve logout` 仅清理本地缓存和配置中的 `login-session`，不会删除整个 profile
 
 #### Console 登出 (logout)
 
@@ -294,7 +317,8 @@ all: 是否清除所有 console-login 类型 profile 的登录凭证缓存；开
 - 指定 `--all` 后为批量登出：CLI 遍历配置文件中的所有 Profile，筛选出 `console-login` 模式且 `login-session` 非空的条目，逐个通过 SHA-1 定位并删除对应的缓存文件，同时清除配置中的 `login-session` 字段。单个 Profile 清理失败不影响其余 Profile 的处理
 - 仅 `console-login` 模式的 profile 允许执行登出操作；若 profile 使用的是 AK 或 SSO 模式，命令会返回错误
 - 若 profile 不存在活跃的登录会话（`login-session` 为空），命令会提示无操作并正常退出
-- 登出后，已被其他工具加载的临时凭证可能在过期前（通常 15 分钟内）仍然有效
+- `ve logout` 是纯本地清理操作，不会向服务端发起登出请求；登出后，已被其他工具加载的临时凭证可能在过期前（通常 15 分钟内）仍然有效
+- 登出只会清除本地 token 缓存和 profile 中的 `login-session`，不会删除整个 profile，也不会清除该 profile 的 `region` 等其他配置
 
 使用建议：
 - 在共享设备上使用完毕后，建议执行 `ve logout` 清除本地凭证
