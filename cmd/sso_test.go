@@ -173,6 +173,38 @@ func expiredClientSecretExpiry() int64 {
 	return time.Now().Add(-time.Hour).UnixMilli()
 }
 
+func TestClearSsoProfileTemporaryCredentialsPreservesAccountAndRole(t *testing.T) {
+	profile := &Profile{
+		AccessKey:     "sts-ak",
+		SecretKey:     "sts-sk",
+		SessionToken:  "sts-session-token",
+		StsExpiration: time.Now().Add(time.Hour).Unix(),
+		AccountId:     "account-id",
+		RoleName:      "role-name",
+	}
+
+	clearSsoProfileTemporaryCredentials(profile)
+
+	if profile.AccessKey != "" {
+		t.Fatalf("AccessKey = %q, want empty", profile.AccessKey)
+	}
+	if profile.SecretKey != "" {
+		t.Fatalf("SecretKey = %q, want empty", profile.SecretKey)
+	}
+	if profile.SessionToken != "" {
+		t.Fatalf("SessionToken = %q, want empty", profile.SessionToken)
+	}
+	if profile.StsExpiration != 0 {
+		t.Fatalf("StsExpiration = %d, want 0", profile.StsExpiration)
+	}
+	if profile.AccountId != "account-id" {
+		t.Fatalf("AccountId = %q, want account-id", profile.AccountId)
+	}
+	if profile.RoleName != "role-name" {
+		t.Fatalf("RoleName = %q, want role-name", profile.RoleName)
+	}
+}
+
 func TestGetFreshTokenForLoginIgnoresCachedRefreshToken(t *testing.T) {
 	sso := setupSsoTokenTest(t)
 	cacheTokenForTest(t, sso, &SsoTokenCache{
