@@ -1195,12 +1195,7 @@ func (s *Sso) clearProfileStsCredentials(cfg *Configure) error {
 		if profile == nil || profile.Mode != ModeSSO || profile.SsoSessionName != s.SsoSessionName {
 			continue
 		}
-		profile.AccessKey = ""
-		profile.SecretKey = ""
-		profile.SessionToken = ""
-		profile.StsExpiration = 0
-		profile.RoleName = ""
-		profile.AccountId = ""
+		clearSsoProfileTemporaryCredentials(profile)
 		cfg.Profiles[name] = profile
 		updated = true
 	}
@@ -1208,4 +1203,20 @@ func (s *Sso) clearProfileStsCredentials(cfg *Configure) error {
 		return nil
 	}
 	return WriteConfigToFile(cfg)
+}
+
+// clearSsoProfileTemporaryCredentials 仅清理 SSO profile 中可重新换取的 STS 临时凭据。
+//
+// AccountId 与 RoleName 是用户在 configure sso 阶段选择并写入的长期绑定信息，
+// 后续业务命令刷新 STS 时还需要它们调用 GetRoleCredentials。logout 若清掉这两个字段，
+// 再次执行普通业务命令会因缺少 accountId/roleName 无法换取新的 STS。
+func clearSsoProfileTemporaryCredentials(profile *Profile) {
+	if profile == nil {
+		return
+	}
+
+	profile.AccessKey = ""
+	profile.SecretKey = ""
+	profile.SessionToken = ""
+	profile.StsExpiration = 0
 }

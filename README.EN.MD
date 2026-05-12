@@ -95,7 +95,7 @@ To invoke the service, you must provide AK, SK, and region. These parameters can
 #### Other Operations of the configure Command
 
 1.  After configuring a profile using the Volcengine CLI 'configure' command, the CLI will prioritize the authentication information within the profile for API request signing.
-2.  After a profile is added or modified, the default profile used in the current configuration will be switched to the newly added or modified profile.
+2.  After a regular AK profile is added or modified with `ve configure set`, the default profile used in the current configuration will be switched to that profile. `ve configure sso` does not automatically switch the current profile; after creating an SSO profile, run `ve configure profile --profile [profile name]` if you want business commands to use it by default.
 3.  If multiple profiles exist, use 've configure profile --profile [configuration name]' to switch before invoking the interface to ensure correct usage.
 
 ###### Retrieve specified profile configuration information
@@ -157,49 +157,88 @@ When deleting a configuration, the profile field must be specified to indicate t
 
 If the configuration to be deleted is currently in use, then after successful deletion, Volcano Engine CLI will attempt to randomly select one of the remaining configurations as the new current configuration.
 
-#### SSO Session Management
+#### SSO Quick Start
 
-###### Configure SSO Session (configure sso-session)
+SSO uses two layers of configuration: `sso-session` stores the enterprise SSO entry point (Start URL, Region, and Scopes), while an SSO profile stores the selected account and role binding. For first-time setup, follow this order:
+
+```shell
+# 1. Create an SSO session. registration-scopes can be omitted; press Enter at the prompt to use the default
+ve configure sso-session --name my-sso --start-url https://{custom}.volccloudidentity.com/userportal --region cn-beijing
+
+# 2. Create an SSO profile, complete device authorization, and select an account and role
+ve configure sso --profile my-dev --sso-session my-sso
+
+# 3. Switch the current default profile to the SSO profile you just created
+ve configure profile --profile my-dev
+
+# 4. Run business commands normally; the CLI refreshes STS temporary credentials when needed
+ve [service] [action] [params]
+```
+
+Note: `ve configure sso` writes the SSO profile but does not automatically change the current default profile. If you skip step 3, business commands will continue using the previous current profile.
+
+#### SSO Command Relationships
+
+| Command | When to use it | What it does | Switches current profile |
+| --- | --- | --- | --- |
+| `ve configure sso-session` | Usually once per SSO entry point | Stores Start URL, Region, and Scopes; reusable by multiple SSO profiles | No |
+| `ve configure sso` | Once per account + role combination | Links an SSO session, performs first authorization, selects account and role, and writes an SSO profile | No |
+| `ve configure profile --profile [profile name]` | When business commands should use a profile by default | Switches the current default profile | Yes |
+| `ve sso login` | When prompted to log in again, or when you want to refresh the SSO login state explicitly | Runs device authorization again and caches the access token | No |
+| `ve sso logout` | When logging out of one or all SSO sessions | Revokes cached tokens, removes token cache, and clears STS temporary credentials | No |
+
+#### Configure SSO Session (configure sso-session)
 
 ```shell
 ve configure sso-session --name [session name] --start-url [SSO Start URL] --region [region] --registration-scopes [scope1,scope2]
 ```
 
-This command creates or updates an SSO session for later use with `configure sso`. Behaviors and parameters:
+This command creates or updates an SSO session for later use with `ve configure sso`. Parameters:
 
 ```shell
 name: SSO session name; if omitted, enter interactive selection/creation mode
-start-url: SSO Start URL; required. Format: your sign-in URL with the `/userportal` suffix, for example `https://{custom}.volccloudidentity.com/userportal`. If editing an existing session, press Enter to keep the default
-region: SSO region; required; default is cn-beijing, existing session values are used as defaults
-registration-scopes: SSO scope list (comma-separated); allowed values are cloudidentity:account:access, offline_access
+start-url: SSO Start URL; required. Format: your sign-in URL with the /userportal suffix, for example https://{custom}.volccloudidentity.com/userportal. When editing an existing session, press Enter to keep the default
+region: SSO region; default is cn-beijing. When editing an existing session, press Enter to keep the default
+registration-scopes: SSO scope list (comma-separated); optional, default cloudidentity:account:access,offline_access; allowed values are only cloudidentity:account:access and offline_access
 ```
 
 Interactive flow notes:
 - If no sessions exist, you will be prompted to enter a non-empty session name
 - If sessions exist, you get a searchable list with “<Create new session>” to add one
 - When editing, Start URL, Region, and Scopes are pre-filled; press Enter to keep defaults
-- Scopes are deduplicated and validated; empty input falls back to cloudidentity:account:access, offline_access
+- Scopes are trimmed, deduplicated, and validated; empty input falls back to the default scopes
 
-###### Configure SSO Profile (configure sso)
+#### Configure SSO Profile (configure sso)
 
 ```shell
-ve configure sso --profile [profile name] --sso-session [session name]
+ve configure sso --profile [profile name] --sso-session [session name] [--no-browser]
 ```
 
-This command configures an SSO profile, links an SSO session, runs the device authorization flow, and writes the profile to ~/.volcengine/config.json. Behaviors and parameters:
+This command creates or updates an SSO profile. It links an SSO session, runs the device authorization flow, lists accounts and roles for selection, and writes `mode=sso`, `sso-session-name`, `account-id`, `role-name`, and `region` to `~/.volcengine/config.json`.
+
+Parameters:
 
 ```shell
-profile: profile name; empty uses {sso-role-name}-{sso-account-id} as the default
+profile: profile name; if omitted, you can press Enter and the default becomes {sso-role-name}-{sso-account-id}
 sso-session: SSO session name; if omitted, enter interactive selection/creation mode
-no-browser: Adding the `--no-browser` parameter to the command line disables the browser from opening; omitting it will automatically open the browser by default.
+no-browser: add --no-browser to disable automatically opening the browser, useful on servers without a GUI
 ```
 
 Notes:
-- If the profile already exists and is not an SSO profile, the command will refuse to overwrite it
-- If the SSO session does not exist, you will be guided to create it and enter Start URL, Region, and Scopes
+- If the profile already exists and is not an SSO profile, the command refuses to overwrite it
+- If the specified SSO session does not exist, you will be guided to create it and enter Start URL, Region, and Scopes
+- `configure sso` completes first authorization and account/role selection, but does not switch the current default profile; run `ve configure profile --profile [profile name]` when needed
+- To switch accounts or roles, run `ve configure sso --profile [profile name] --sso-session [session name]` again
 
+#### Daily Login, Auto-Refresh, and Logout
 
-#### SSO Login and Logout
+##### Business Command Auto-Refresh
+
+When the current default profile is an SSO profile, business commands automatically check and refresh STS temporary credentials:
+- If the profile's `session-token` has not expired, it is reused
+- If STS credentials are missing or expired, the CLI uses the cached SSO access token plus the profile's `account-id` / `role-name` to request new STS credentials and writes them back to the profile
+- If the SSO access token is expired or close to expiry, the CLI only attempts a silent refresh with refresh_token; business commands do not automatically open a browser
+- If no access token is cached, refresh_token is missing, client registration has expired, or refresh fails, the business command asks you to run `ve sso login`
 
 ##### SSO Login (sso login)
 
@@ -207,37 +246,66 @@ Notes:
 ve sso login --profile [profile name]
 # or
 ve sso login --sso-session [session name]
+# or omit arguments and let the CLI auto-select or prompt from configured sso-sessions
+ve sso login
 ```
 
-This command performs an explicit SSO login, runs a new authorization flow, obtains an access token, and caches it. In line with AWS SSO login semantics, each execution re-authenticates the current SSO session and does not silently exchange an existing refresh_token for an access_token. Parameters:
+`ve sso login` explicitly logs in to SSO again. It runs device authorization and caches a new access token. In line with AWS SSO login semantics, each execution re-authenticates the current SSO session and does not silently exchange an existing refresh_token for an access token.
+
+Parameters:
 
 ```shell
 profile: the SSO profile to use; must exist, be of sso type, and have sso-session configured
 sso-session: the SSO session to use; the session must exist and be valid
-no-browser: Adding the `--no-browser` parameter to the command line disables the browser from opening; omitting it will automatically open the browser by default.
+no-browser: add --no-browser to disable automatically opening the browser
 ```
 
 Login behavior:
 - If neither profile nor sso-session is provided: error when no sessions are configured; use the only session if one exists; otherwise enter interactive selection with search
+- `sso login` does not reselect account/role; account and role come from `account-id` / `role-name` written by `ve configure sso`
 - Only the device code flow is supported; use `--no-browser` to disable auto-opening the browser
-- When running business commands, if the cached SSO access token is expired or close to expiry, the CLI attempts to silently refresh the access token with the cached refresh_token before requesting role credentials
-- If the refresh_token is missing, the client registration has expired, or refresh fails, business commands do not automatically open a browser for re-authorization and will ask you to run `ve sso login` again
 
 ##### SSO Logout (sso logout)
 
 ```shell
 ve sso logout --sso-session [session name]
+# or omit arguments and let the CLI auto-select or prompt from configured sso-sessions
+ve sso logout
 ```
 
-This command logs out from SSO by revoking the cached token and clearing local credentials. Parameters:
+`ve sso logout` logs out of the SSO login state. With `--sso-session`, it logs out of that session. Without it, the command errors when no sessions are configured, logs out of the only session when exactly one exists, or opens a searchable selection list when multiple sessions exist. The selection list also includes “All SSO sessions” for batch logout.
 
-```shell
-sso-session: the SSO session name to log out
-```
+Logout does:
+- Revoke the cached refresh token for the SSO session, if present
+- Delete the SSO session token cache
+- Clear STS temporary credential fields from linked SSO profiles: `access-key`, `secret-key`, `session-token`, `sts-expiration`
 
-Logout behavior:
-- If sso-session is not provided: error when no sessions are configured; logout the only session if one exists; otherwise enter interactive selection that includes “All SSO sessions”
-- Batch logout logs out each session and returns aggregated errors on failure
+Logout does not:
+- Delete SSO profiles
+- Delete sso-session configuration
+- Clear `account-id` / `role-name` from profiles
+
+After logout, run `ve sso login` to keep using the same account and role. Run `ve configure sso` again only when switching accounts or roles.
+
+#### SSO FAQ
+
+- Business commands still use the old account after `ve configure sso`. What should I do?
+  Run `ve configure profile --profile [profile name]` to switch the current default profile. `configure sso` writes a profile but does not automatically change the current profile.
+
+- When do I need to run `ve sso login`?
+  The first `ve configure sso` already completes authorization. Daily business commands reuse or silently refresh credentials. Run `ve sso login` only when the CLI asks you to log in again, or when you want to refresh the SSO login state explicitly.
+
+- Why does `ve sso login` open the authorization flow every time?
+  This is explicit login behavior: each run performs device authorization again and does not silently complete login with an existing refresh_token.
+
+- How do I switch accounts or roles?
+  Run `ve configure sso --profile [profile name] --sso-session [session name]` again, then select the account and role from the interactive lists.
+
+- How do I log in on a machine without a graphical browser?
+  Add `--no-browser` to `ve configure sso` or `ve sso login`, then complete authorization in a browser using the URL printed by the CLI.
+
+- What should I enter for Scopes?
+  Usually nothing. The default is `cloudidentity:account:access,offline_access`. If you enter scopes manually, only `cloudidentity:account:access` and `offline_access` are allowed; the CLI deduplicates and validates them.
 
 #### Configure Auto-Completion
 
