@@ -53,8 +53,8 @@ from the CLI configuration.
 
 Modes:
   - Default: Logs out the specified profile (or "default" if not specified)
-  - --all:   Scans the cache directory and removes all cached login credentials`,
-		Example: `  # Log out current/default profile
+  - --all:   Logs out all configured console-login profiles with active sessions`,
+		Example: `  # Log out the default profile
   ve logout
 
   # Log out a specific profile

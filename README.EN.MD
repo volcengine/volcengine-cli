@@ -240,35 +240,28 @@ Logout behavior:
 #### Console Login (login)
 
 ```shell
-ve login --profile [profile name]
-# Specify a region to avoid the interactive prompt
-ve login --profile [profile name] --region cn-beijing
-# or cross-device login
-ve login --profile [profile name] --region cn-beijing --remote
+# Sign in with the default profile. If region is omitted, the CLI prompts for it
+ve login
+
+# Recommended: specify profile and region; profile/region support -p/-r
+ve login -p dev -r cn-beijing
+
+# Use cross-device login for headless, remote-server, or container environments
+ve login -p dev -r cn-beijing --remote
 ```
 
-This command signs in through the Volcengine Console using OAuth 2.0 + PKCE and caches temporary STS credentials locally for subsequent CLI calls. Parameters:
+This command signs in through the Volcengine Console using OAuth 2.0 + PKCE, caches temporary STS credentials locally, and lets later service commands reuse the temporary credentials from that profile.
 
-```shell
-profile: configuration profile name; optional; defaults to default
-region: optional; when omitted, the CLI prompts for it and defaults to cn-beijing when you press Enter
-remote: enables cross-device login mode; when set, the CLI prints a login URL and prompts for the authorization code shown in the browser
-endpoint-url: optional; overrides the sign-in service endpoint; defaults to https://signin.volcengine.com
-```
+Parameters:
+- `--profile, -p`: configuration profile name; defaults to `default`
+- `--region, -r`: region; when omitted, the CLI prompts for it and uses `cn-beijing` if you press Enter
+- `--remote`: cross-device login; open the URL printed by the CLI in a browser, finish login, and paste the full authorization code shown in the browser back into the terminal
+- `--endpoint-url`: sign-in service endpoint; defaults to `https://signin.volcengine.com` and normally does not need to be changed
 
-Login behavior:
-- The default mode is local login: the CLI starts a local callback server, prints an authorization URL, tries to open your browser automatically, and waits for the browser redirect after authentication. If the browser does not open, visit the URL printed in the terminal manually
-- If `--region` is omitted, the CLI prompts with `Please enter region [cn-beijing]: `. Press Enter to use `cn-beijing`; for scripts and automation, pass `--region` explicitly
-- With `--remote`, the CLI uses cross-device login: this is suitable for headless environments or machines that cannot open a browser locally. The CLI prints a login URL, you complete authentication on any device, and then paste the complete base64 authorization code shown in the browser back into the terminal
-- After a successful login, the CLI stores the profile with `mode` set to `console-login` and records the `login-session`; token cache files are stored under `~/.volcengine/login/cache/`
-- You can override the login cache directory with the `VOLCENGINE_LOGIN_CACHE_DIRECTORY` environment variable, which is useful for multi-user machines or CI isolation
-- If the target profile already exists, the command reuses and overwrites that profile, updating its `mode` to `console-login`
-- If the profile is already bound to a different `login-session`, the CLI prompts before replacing it
-
-Usage notes:
-- This is useful when you want temporary credentials obtained from your console identity without manually preparing AK/SK
-- If the local session expires and a refresh token is available in cache, the CLI will try to refresh it automatically; if refresh fails, run `ve login` again
-- To isolate different console identities, use separate `--profile` values
+Notes:
+- After login, the profile is written with `mode` set to `console-login` and a `login-session`
+- After logging in with a non-`default` profile, service commands do not automatically switch profiles; run `ve configure profile --profile dev` first
+- Use `--remote` when the browser cannot redirect back to the machine running the CLI
 
 End-to-end example:
 
@@ -286,38 +279,29 @@ ve ecs DescribeInstances
 ve logout --profile dev
 ```
 
-Notes:
-- On the first login, if `current` is empty in the configuration file, the CLI sets the logged-in profile as the current default profile automatically. If another current profile already exists, switch manually with `ve configure profile --profile [profile name]`
-- When subsequent service commands use this profile, the CLI reads temporary STS credentials from the local cache. If the credentials are close to expiration and a refresh token exists, the CLI refreshes them automatically
-- `ve logout` only clears the local cache and the `login-session` in the configuration; it does not delete the whole profile
-
 #### Console Logout (logout)
 
 ```shell
-ve logout --profile [profile name]
-# or clear all login credentials
+# Log out the default profile
+ve logout
+
+# Log out a specific profile
+ve logout -p dev
+
+# Log out all Console Login profiles in the current configuration
 ve logout --all
 ```
 
-This command logs out of a console login session established via `ve login` and removes the locally cached temporary STS credentials. This is a purely local operation — no network requests are made to any server. Parameters:
+This command clears the local login state created by `ve login`. It removes locally cached credentials and clears the profile's `login-session`; it does not delete the profile or send a logout request to the server.
 
-```shell
-profile: configuration profile name; optional; defaults to default
-all: remove cached login credentials for all console-login profiles; when set, --profile is ignored
-```
+Parameters:
+- `--profile, -p`: configuration profile name; defaults to `default`
+- `--all`: clear all `console-login` profiles in the current configuration; ignores `--profile`
 
-Logout behavior:
-- The default mode logs out a single profile: the CLI locates and removes the cached token file under `~/.volcengine/login/cache/` based on the `login-session` recorded in the profile, and clears the `login-session` field in the configuration
-- With `--all`, the CLI iterates all profiles in the configuration, identifies those using `console-login` mode with an active `login-session`, removes the corresponding cache file for each via SHA-1 lookup, and clears the `login-session` field. Failure to clean one profile does not affect the others
-- Only profiles using `console-login` mode can be logged out with this command; the command returns an error for AK or SSO profiles
-- If the profile does not have an active login session (`login-session` is empty), the command prints a message and exits normally
-- `ve logout` is a purely local cleanup operation and does not send a logout request to the server. After logout, credentials that have already been loaded by other tools may remain valid until they expire (typically within 15 minutes)
-- Logout only clears the local token cache and the profile's `login-session`; it does not delete the whole profile or clear other fields such as `region`
-
-Usage notes:
-- On shared devices, it is recommended to run `ve logout` after you finish using the CLI
-- To thoroughly clean all login caches (e.g., for troubleshooting or device handover), use `ve logout --all`
-- After logout, run `ve login` to re-establish a login session when needed
+Notes:
+- `ve logout` without `--profile` only handles the `default` profile; it does not automatically log out `current`
+- This command only applies to `console-login` profiles; AK/SSO profiles are not affected
+- Run `ve login` again when you need to use Console Login credentials after logout
 
 #### Configure Auto-Completion
 
