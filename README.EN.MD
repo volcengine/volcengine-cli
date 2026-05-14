@@ -307,6 +307,72 @@ After logout, run `ve sso login` to keep using the same account and role. Run `v
 - What should I enter for Scopes?
   Usually nothing. The default is `cloudidentity:account:access,offline_access`. If you enter scopes manually, only `cloudidentity:account:access` and `offline_access` are allowed; the CLI deduplicates and validates them.
 
+#### Console Login (login)
+
+```shell
+# Sign in with the default profile. If region is omitted, the CLI prompts for it
+ve login
+
+# Recommended: specify profile and region; profile/region support -p/-r
+ve login -p dev -r cn-beijing
+
+# Use cross-device login for headless, remote-server, or container environments
+ve login -p dev -r cn-beijing --remote
+```
+
+This command signs in through the Volcengine Console using OAuth 2.0 + PKCE, caches temporary STS credentials locally, and lets later service commands reuse the temporary credentials from that profile.
+
+Parameters:
+- `--profile, -p`: configuration profile name; defaults to `default`
+- `--region, -r`: region; when omitted, the CLI prompts for it and uses `cn-beijing` if you press Enter
+- `--remote`: cross-device login; open the URL printed by the CLI in a browser, finish login, and paste the full authorization code shown in the browser back into the terminal
+- `--endpoint-url`: sign-in service endpoint; defaults to `https://signin.volcengine.com` and normally does not need to be changed
+
+Notes:
+- After login, the profile is written with `mode` set to `console-login` and a `login-session`
+- After logging in with a non-`default` profile, service commands do not automatically switch profiles; run `ve configure profile --profile dev` first
+- Use `--remote` when the browser cannot redirect back to the machine running the CLI
+
+End-to-end example:
+
+```shell
+# 1. Sign in and write the dev profile
+ve login --profile dev --region cn-beijing
+
+# 2. If dev is not the current default profile, switch the active profile first
+ve configure profile --profile dev
+
+# 3. Service commands use the console-login temporary credentials from the current profile
+ve ecs DescribeInstances
+
+# 4. When finished, clear the local login state
+ve logout --profile dev
+```
+
+#### Console Logout (logout)
+
+```shell
+# Log out the default profile
+ve logout
+
+# Log out a specific profile
+ve logout -p dev
+
+# Log out all Console Login profiles in the current configuration
+ve logout --all
+```
+
+This command clears the local login state created by `ve login`. It removes locally cached credentials and clears the profile's `login-session`; it does not delete the profile or send a logout request to the server.
+
+Parameters:
+- `--profile, -p`: configuration profile name; defaults to `default`
+- `--all`: clear all `console-login` profiles in the current configuration; ignores `--profile`
+
+Notes:
+- `ve logout` without `--profile` only handles the `default` profile; it does not automatically log out `current`
+- This command only applies to `console-login` profiles; AK/SSO profiles are not affected
+- Run `ve login` again when you need to use Console Login credentials after logout
+
 #### Configure Auto-Completion
 
 By executing ve completion --help, users can view the methods for configuring auto-completion in various terminals. Based on the instructions provided, users may choose whether to configure the auto-completion feature.

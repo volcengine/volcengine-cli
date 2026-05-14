@@ -15,12 +15,14 @@ import (
 
 var configFileMu sync.Mutex
 
+var configFileDirFunc = util.GetConfigFileDir
+
 // 定义模式枚举常量
 const (
-	ModeSSO = "sso"
-	ModeAK  = "ak"
-
-	ConfigFile = "config.json"
+	ModeSSO          = "sso"
+	ModeAK           = "ak"
+	ModeConsoleLogin = "console-login"
+	ConfigFile       = "config.json"
 )
 
 type Configure struct {
@@ -45,6 +47,7 @@ type Profile struct {
 	AccountId        string `json:"account-id"`
 	RoleName         string `json:"role-name"`
 	StsExpiration    int64  `json:"sts-expiration"`
+	LoginSession     string `json:"login-session,omitempty"`
 }
 
 type SsoSession struct {
@@ -59,7 +62,7 @@ func LoadConfig() *Configure {
 	configFileMu.Lock()
 	defer configFileMu.Unlock()
 
-	configFileDir, err := util.GetConfigFileDir()
+	configFileDir, err := configFileDirFunc()
 	if err != nil {
 		return nil
 	}
@@ -92,12 +95,30 @@ func LoadConfig() *Configure {
 	return cfg
 }
 
+// runtimeConfig returns the in-memory config used by the current CLI process.
+// Prefer this over reloading from disk so command handlers operate on a single
+// config object during one invocation.
+func runtimeConfig() *Configure {
+	if ctx != nil && ctx.config != nil {
+		return ctx.config
+	}
+	return config
+}
+
+// setRuntimeConfig keeps the global config references in sync after updates.
+func setRuntimeConfig(cfg *Configure) {
+	if ctx != nil {
+		ctx.config = cfg
+	}
+	config = cfg
+}
+
 // WriteConfigToFile store config
 func WriteConfigToFile(config *Configure) error {
 	configFileMu.Lock()
 	defer configFileMu.Unlock()
 
-	configFileDir, err := util.GetConfigFileDir()
+	configFileDir, err := configFileDirFunc()
 	if err != nil {
 		return err
 	}
@@ -169,6 +190,9 @@ func setConfigProfile(profile *Profile) error {
 		cfg = &Configure{
 			Profiles: make(map[string]*Profile),
 		}
+	}
+	if cfg.Profiles == nil {
+		cfg.Profiles = make(map[string]*Profile)
 	}
 
 	// check if the target profileFlags already exists

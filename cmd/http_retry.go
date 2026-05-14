@@ -70,6 +70,11 @@ func shouldRetryError(err error) bool {
 		return isRetryableHTTPStatus(oauthErr.StatusCode)
 	}
 
+	var consoleOAuthErr *ConsoleOAuthAPIError
+	if errors.As(err, &consoleOAuthErr) {
+		return consoleOAuthErr.IsRetryable()
+	}
+
 	var portalErr *PortalAPIError
 	if errors.As(err, &portalErr) {
 		return isRetryableHTTPStatus(portalErr.StatusCode)

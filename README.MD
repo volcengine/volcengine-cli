@@ -313,6 +313,72 @@ ve sso logout
 - Scopes 应该怎么填？
   通常可以省略，默认使用 `cloudidentity:account:access,offline_access`。如果手动填写，只允许 `cloudidentity:account:access` 和 `offline_access`，CLI 会自动去重并校验。
 
+#### Console 登录 (login)
+
+```shell
+# 使用默认 profile 登录，未指定 region 时会提示输入
+ve login
+
+# 推荐：指定 profile 和地域，profile/region 支持 -p/-r 简写
+ve login -p dev -r cn-beijing
+
+# 无浏览器、远程服务器或容器环境使用跨设备登录
+ve login -p dev -r cn-beijing --remote
+```
+
+该命令通过火山引擎控制台完成 OAuth 2.0 + PKCE 登录，并将临时 STS 凭证缓存到本地，后续业务命令可复用该 profile 的临时凭证。
+
+参数说明：
+- `--profile, -p`：配置名称，默认 `default`
+- `--region, -r`：地域；未指定时会提示输入，直接回车使用 `cn-beijing`
+- `--remote`：跨设备登录；按终端输出的 URL 在浏览器完成登录，并将浏览器展示的授权码完整粘贴回终端
+- `--endpoint-url`：登录服务地址，默认 `https://signin.volcengine.com`，通常无需修改
+
+注意事项：
+- 登录成功后，profile 会被写为 `console-login` 模式，并记录 `login-session`
+- 使用非 `default` profile 登录后，业务命令不会自动切换 profile；需要先执行 `ve configure profile --profile dev`
+- 本机浏览器无法回跳 CLI 所在机器时，使用 `--remote`
+
+完整使用流程示例：
+
+```shell
+# 1. 登录并写入 dev profile
+ve login --profile dev --region cn-beijing
+
+# 2. 如果 dev 不是当前默认 profile，先切换当前使用的配置
+ve configure profile --profile dev
+
+# 3. 执行业务命令时会使用当前 profile 中的 console-login 临时凭证
+ve ecs DescribeInstances
+
+# 4. 使用结束后清理本地登录状态
+ve logout --profile dev
+```
+
+#### Console 登出 (logout)
+
+```shell
+# 登出 default profile
+ve logout
+
+# 登出指定 profile
+ve logout -p dev
+
+# 登出当前配置中的所有 Console Login profile
+ve logout --all
+```
+
+该命令用于清理 `ve login` 建立的本地登录状态。它只删除本地缓存凭证并清除 profile 中的 `login-session`，不会删除 profile，也不会向服务端发起请求。
+
+参数说明：
+- `--profile, -p`：配置名称，默认 `default`
+- `--all`：清理当前配置中的所有 `console-login` profile；开启后忽略 `--profile`
+
+注意事项：
+- `ve logout` 不带 `--profile` 时只处理 `default` profile，不会自动按 `current` 登出
+- 只有 `console-login` profile 可使用该命令；AK/SSO profile 不适用
+- 登出后若需继续使用，重新执行 `ve login`
+
 #### 配置自动补全
 
 使用 ve completion --help 可以查看各种终端下配置自动补全的方式，用户可以根据提示信息自己选择是否配置自动补全功能
@@ -444,7 +510,6 @@ ve <service name> <action> [--parameter1 value1 --parameter2 value2 ...]
 ## Security and privacy
 This project takes security seriously. 
 For vulnerability reporting and supported versions, see [SECURITY.md](SECURITY.md)    
-
 
 
 
