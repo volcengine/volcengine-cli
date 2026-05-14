@@ -17,6 +17,24 @@ import (
 	"github.com/volcengine/volcengine-cli/util"
 )
 
+const ssoAccessTokenRefreshWindow = 5 * time.Minute
+
+var (
+	// getSsoConfigFileDir 是 SSO 缓存目录的注入点，生产环境固定使用 util.GetConfigFileDir。
+	// 单测会替换为临时目录，避免读写真实用户目录下的 ~/.volcengine。
+	getSsoConfigFileDir = util.GetConfigFileDir
+	// newOAuthClientForSSO 集中创建 OAuth 客户端，便于业务刷新与登录流程复用同一套构造逻辑。
+	newOAuthClientForSSO = func(region string) OAuthClientAPI {
+		return NewOAuthClient(&OAuthClientConfig{Region: region})
+	}
+	// newPortalClientForSSO 集中创建 Portal 客户端，单测可替换后验证业务路径使用的 access token。
+	newPortalClientForSSO = func(region string) PortalClientAPI {
+		return NewPortalClient(&PortalClientConfig{Region: region})
+	}
+	// deviceAuthorizationSleep 是设备码轮询等待的注入点，测试中会置空以避免真实等待。
+	deviceAuthorizationSleep = time.Sleep
+)
+
 // Sso 持有 SSO 运行时所需的配置与状态。
 type Sso struct {
 	Profile        *Profile
@@ -242,6 +260,19 @@ func tokenExpired(expiresAt string) bool {
 	return time.Now().After(expTime)
 }
 
+// tokenNeedsRefresh 判断 access token 是否需要刷新。
+// 业务命令不会等到完全过期才刷新，而是在过期前窗口内提前静默续期。
+func tokenNeedsRefresh(expiresAt string) bool {
+	if expiresAt == "" {
+		return true
+	}
+	expTime, err := time.Parse(time.RFC3339, expiresAt)
+	if err != nil {
+		return true
+	}
+	return !time.Now().Add(ssoAccessTokenRefreshWindow).Before(expTime)
+}
+
 // clientSecretExpired 判断客户端密钥是否过期（0 表示无过期时间）。
 func clientSecretExpired(expiresAt int64) bool {
 	if expiresAt == 0 {
@@ -353,10 +384,9 @@ func (f *DeviceCodeFetcher) cacheClientRegistration(client *RegisterClientRespon
 
 // newDeviceCodeFetcher 构建 DeviceCodeFetcher，并注入 OAuth 客户端。
 func newDeviceCodeFetcher(s *Sso) *DeviceCodeFetcher {
-	var oauthClient OAuthClientAPI = NewOAuthClient(&OAuthClientConfig{Region: s.Region})
 	return &DeviceCodeFetcher{
 		sso:       s,
-		oauth:     oauthClient,
+		oauth:     newOAuthClientForSSO(s.Region),
 		noBrowser: s.NoBrowser,
 	}
 }
@@ -405,6 +435,70 @@ func (f *DeviceCodeFetcher) registerClient(ctx context.Context, cached *SsoToken
 		return nil, fmt.Errorf("failed to cache client credentials: %w", err)
 	}
 	return resp, nil
+}
+
+// clientFromTokenCache 从 token 缓存中还原 OAuth client 注册信息。
+// 业务静默刷新只能依赖已有注册信息；这里不创建新 client，避免业务命令产生交互式登录副作用。
+func clientFromTokenCache(cached *SsoTokenCache) *RegisterClientResponse {
+	if cached == nil || strings.TrimSpace(cached.ClientId) == "" || strings.TrimSpace(cached.ClientSecret) == "" {
+		return nil
+	}
+	if clientSecretExpired(cached.ClientSecretExpiresAt) {
+		return nil
+	}
+	return &RegisterClientResponse{
+		ClientID:              cached.ClientId,
+		ClientSecret:          cached.ClientSecret,
+		ClientIDIssuedAt:      cached.ClientIdIssuedAt,
+		ClientSecretExpiresAt: cached.ClientSecretExpiresAt,
+	}
+}
+
+// loadReusableClient 优先读取独立 client 注册缓存，缺失或过期时再回退到 token 缓存里的 client 信息。
+func (f *DeviceCodeFetcher) loadReusableClient(cached *SsoTokenCache) (*RegisterClientResponse, error) {
+	client, err := f.loadClientRegistration()
+	if err != nil {
+		return nil, err
+	}
+	if client != nil && client.ClientID != "" && client.ClientSecret != "" && !clientSecretExpired(client.ClientSecretExpiresAt) {
+		return client, nil
+	}
+	if cachedClient := clientFromTokenCache(cached); cachedClient != nil {
+		return cachedClient, nil
+	}
+	return nil, nil
+}
+
+// ensureClientForInteractiveAuth 返回可用于显式授权流程的 OAuth client。
+// 登录/配置命令允许在 client 缺失或过期时重新注册，但不会用 refresh_token 代替用户授权。
+func (f *DeviceCodeFetcher) ensureClientForInteractiveAuth(ctx context.Context, cached *SsoTokenCache) (*RegisterClientResponse, error) {
+	client, err := f.loadReusableClient(cached)
+	if err != nil {
+		return nil, err
+	}
+	if client == nil || client.ClientID == "" || client.ClientSecret == "" || clientSecretExpired(client.ClientSecretExpiresAt) {
+		return f.registerClient(ctx, cached)
+	}
+	if err := f.persistClientCredentials(client, cached); err != nil {
+		return nil, err
+	}
+	return client, nil
+}
+
+// loadClientForRefresh 返回业务静默刷新可用的 OAuth client。
+// 这里故意不自动注册新 client：注册/授权属于登录语义，业务命令只做 refresh，失败则要求用户显式登录。
+func (f *DeviceCodeFetcher) loadClientForRefresh(cached *SsoTokenCache) (*RegisterClientResponse, error) {
+	client, err := f.loadReusableClient(cached)
+	if err != nil {
+		return nil, err
+	}
+	if client == nil || client.ClientID == "" || client.ClientSecret == "" {
+		return nil, fmt.Errorf("SSO access token cannot be refreshed because client credentials are missing; please log in using the `sso login` command")
+	}
+	if clientSecretExpired(client.ClientSecretExpiresAt) {
+		return nil, fmt.Errorf("SSO access token cannot be refreshed because client registration has expired; please log in using the `sso login` command")
+	}
+	return client, nil
 }
 
 // storeToken 将获取的 token 组装为缓存对象并写入磁盘。
@@ -458,7 +552,11 @@ func (f *DeviceCodeFetcher) refreshToken(ctx context.Context, refreshToken strin
 	if err != nil {
 		return nil, err
 	}
-	resp.RefreshToken = refreshToken
+	// 有些 OAuth 服务会在刷新 access token 时轮换 refresh token。
+	// 只有当服务端未返回新的 refresh_token 时，才沿用旧值，避免把新 token 覆盖掉导致下一次静默刷新失败。
+	if resp.RefreshToken == "" {
+		resp.RefreshToken = refreshToken
+	}
 	return f.storeToken(resp, client)
 }
 
@@ -558,7 +656,7 @@ func (f *DeviceCodeFetcher) performDeviceAuthorization(ctx context.Context, clie
 
 	// 轮询直到授权完成或设备码过期。
 	for time.Now().Before(deadline) {
-		time.Sleep(interval)
+		deviceAuthorizationSleep(interval)
 
 		tokenResp, err := f.createToken(ctx, deviceCodeGrantType, "", authResp.DeviceCode, client)
 		if err != nil {
@@ -567,7 +665,7 @@ func (f *DeviceCodeFetcher) performDeviceAuthorization(ctx context.Context, clie
 					continue
 				}
 				if action.Message != "" {
-					return nil, fmt.Errorf(action.Message)
+					return nil, errors.New(action.Message)
 				}
 			}
 			return nil, fmt.Errorf("failed to poll access token: %w", err)
@@ -580,6 +678,7 @@ func (f *DeviceCodeFetcher) performDeviceAuthorization(ctx context.Context, clie
 }
 
 // GetToken 协调设备码流程、refresh token 刷新及缓存复用。
+// 该方法保留给 configure sso 等交互式流程使用：它可以复用缓存、尝试 refresh，并在必要时回退到设备码授权。
 func (f *DeviceCodeFetcher) GetToken() (*SsoTokenCache, error) {
 	ctx := context.Background()
 
@@ -591,25 +690,8 @@ func (f *DeviceCodeFetcher) GetToken() (*SsoTokenCache, error) {
 		return cached, nil
 	}
 
-	client, err := f.loadClientRegistration()
+	client, err := f.ensureClientForInteractiveAuth(ctx, cached)
 	if err != nil {
-		return nil, err
-	}
-	if client == nil && cached != nil && cached.ClientId != "" && cached.ClientSecret != "" {
-		client = &RegisterClientResponse{
-			ClientID:              cached.ClientId,
-			ClientSecret:          cached.ClientSecret,
-			ClientIDIssuedAt:      cached.ClientIdIssuedAt,
-			ClientSecretExpiresAt: cached.ClientSecretExpiresAt,
-		}
-	}
-
-	if client == nil || client.ClientID == "" || client.ClientSecret == "" || clientSecretExpired(client.ClientSecretExpiresAt) {
-		client, err = f.registerClient(ctx, cached)
-		if err != nil {
-			return nil, err
-		}
-	} else if err := f.persistClientCredentials(client, cached); err != nil {
 		return nil, err
 	}
 
@@ -630,13 +712,56 @@ func (f *DeviceCodeFetcher) GetToken() (*SsoTokenCache, error) {
 				return f.performDeviceAuthorization(ctx, client)
 			}
 			if action.Message != "" {
-				return nil, fmt.Errorf(action.Message)
+				return nil, errors.New(action.Message)
 			}
 		}
 		return nil, err
 	}
 
 	return f.performDeviceAuthorization(ctx, client)
+}
+
+// GetFreshTokenForLogin 执行显式登录授权。
+// 无论缓存 access token 是否有效，也不会用 refresh_token 静默完成登录。
+func (f *DeviceCodeFetcher) GetFreshTokenForLogin() (*SsoTokenCache, error) {
+	ctx := context.Background()
+	cached, err := f.loadCachedToken()
+	if err != nil {
+		return nil, err
+	}
+	client, err := f.ensureClientForInteractiveAuth(ctx, cached)
+	if err != nil {
+		return nil, err
+	}
+	return f.performDeviceAuthorization(ctx, client)
+}
+
+// GetValidTokenForBusiness 返回业务命令可用的 access token 缓存。
+// 业务命令只允许静默 refresh，不允许回退到设备码授权，避免普通 API 调用突然打开浏览器或阻塞等待用户授权。
+func (f *DeviceCodeFetcher) GetValidTokenForBusiness() (*SsoTokenCache, error) {
+	ctx := context.Background()
+	cached, err := f.loadCachedToken()
+	if err != nil {
+		return nil, err
+	}
+	if cached == nil || strings.TrimSpace(cached.AccessToken) == "" {
+		return nil, fmt.Errorf("no cached access token found; please log in using the `sso login` command")
+	}
+	if !tokenNeedsRefresh(cached.ExpiresAt) {
+		return cached, nil
+	}
+	if strings.TrimSpace(cached.RefreshToken) == "" {
+		return nil, fmt.Errorf("SSO access token cannot be refreshed because refresh token is missing; please log in using the `sso login` command")
+	}
+	client, err := f.loadClientForRefresh(cached)
+	if err != nil {
+		return nil, err
+	}
+	token, err := f.refreshToken(ctx, cached.RefreshToken, client)
+	if err != nil {
+		return nil, fmt.Errorf("failed to refresh SSO access token; please log in using the `sso login` command: %w", err)
+	}
+	return token, nil
 }
 
 // SetProfile 通过 SSO 登录并写入配置文件。
@@ -741,12 +866,12 @@ func (s *Sso) chooseAccountAndRole(token *SsoTokenCache) (string, string, error)
 
 // GetRoleCredentials 获取当前 profile 对应角色的临时凭证。
 func (s *Sso) GetRoleCredentials() (*RoleCredentials, error) {
-	accessToken, err := s.GetAccessToken()
+	accessToken, err := s.GetValidAccessToken()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get access token: %w", err)
 	}
 
-	var client PortalClientAPI = NewPortalClient(&PortalClientConfig{Region: s.Region})
+	var client PortalClientAPI = newPortalClientForSSO(s.Region)
 	ctx := context.Background()
 	resp, err := client.GetRoleCredentials(ctx, &GetRoleCredentialsRequest{
 		AccessToken: accessToken,
@@ -895,7 +1020,7 @@ Account: {{ .AccountID }}`,
 
 // getSsoCacheDir 返回 SSO 缓存目录。
 func (s *Sso) getSsoCacheDir() (string, error) {
-	configDir, err := util.GetConfigFileDir()
+	configDir, err := getSsoConfigFileDir()
 	if err != nil {
 		return "", err
 	}
@@ -942,6 +1067,17 @@ func (s *Sso) GetAccessToken() (string, error) {
 	return tokenCache.AccessToken, nil
 }
 
+// GetValidAccessToken 获取业务命令可用的 access token。
+// access token 未进入刷新窗口时直接复用；过期或即将过期时仅尝试 refresh_token 静默续期。
+func (s *Sso) GetValidAccessToken() (string, error) {
+	fetcher := newDeviceCodeFetcher(s)
+	tokenCache, err := fetcher.GetValidTokenForBusiness()
+	if err != nil {
+		return "", err
+	}
+	return tokenCache.AccessToken, nil
+}
+
 // Login 执行 SSO 登录并写入缓存。
 func (s *Sso) Login() error {
 	if !s.UseDeviceCode {
@@ -967,7 +1103,7 @@ func (s *Sso) Login() error {
 	}
 
 	fetcher := newDeviceCodeFetcher(s)
-	if _, err := fetcher.GetToken(); err != nil {
+	if _, err := fetcher.GetFreshTokenForLogin(); err != nil {
 		return fmt.Errorf("failed to obtain the access token: %v", err)
 	}
 	return nil
@@ -1059,12 +1195,7 @@ func (s *Sso) clearProfileStsCredentials(cfg *Configure) error {
 		if profile == nil || profile.Mode != ModeSSO || profile.SsoSessionName != s.SsoSessionName {
 			continue
 		}
-		profile.AccessKey = ""
-		profile.SecretKey = ""
-		profile.SessionToken = ""
-		profile.StsExpiration = 0
-		profile.RoleName = ""
-		profile.AccountId = ""
+		clearSsoProfileTemporaryCredentials(profile)
 		cfg.Profiles[name] = profile
 		updated = true
 	}
@@ -1072,4 +1203,20 @@ func (s *Sso) clearProfileStsCredentials(cfg *Configure) error {
 		return nil
 	}
 	return WriteConfigToFile(cfg)
+}
+
+// clearSsoProfileTemporaryCredentials 仅清理 SSO profile 中可重新换取的 STS 临时凭据。
+//
+// AccountId 与 RoleName 是用户在 configure sso 阶段选择并写入的长期绑定信息，
+// 后续业务命令刷新 STS 时还需要它们调用 GetRoleCredentials。logout 若清掉这两个字段，
+// 再次执行普通业务命令会因缺少 accountId/roleName 无法换取新的 STS。
+func clearSsoProfileTemporaryCredentials(profile *Profile) {
+	if profile == nil {
+		return
+	}
+
+	profile.AccessKey = ""
+	profile.SecretKey = ""
+	profile.SessionToken = ""
+	profile.StsExpiration = 0
 }
