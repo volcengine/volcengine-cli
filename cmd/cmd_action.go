@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -87,6 +88,7 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 	method := "GET"
 	contentType := ""
 	apiInfo := rootSupport.GetApiInfo(serviceName, action)
+	apiMeta := rootSupport.GetApiMeta(serviceName, action)
 
 	if apiInfo != nil && apiInfo.Method != "" {
 		method = apiInfo.Method
@@ -100,7 +102,14 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 	for _, f := range ctx.dynamicFlags.flags {
 		// rebuild input
 		if f.Name != "body" {
-			if a, success := util.ParseToJsonArrayOrObject(strings.TrimSpace(f.value)); success {
+			// Skip JSON parsing for parameters whose declared type is "string".
+			// Without this, a value like '{"Statement":[...]}' is deserialized
+			// into a Go map and then flattened into query params, which breaks
+			// APIs that expect a raw JSON string (e.g. IAM CreatePolicy's
+			// PolicyDocument parameter).
+			if isStringParam(apiMeta, f.Name) {
+				input[f.Name] = f.value
+			} else if a, success := util.ParseToJsonArrayOrObject(strings.TrimSpace(f.value)); success {
 				input[f.Name] = a
 			} else {
 				input[f.Name] = f.value
@@ -171,6 +180,69 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 		util.ShowJson(*out, true)
 	}
 	return
+}
+
+// isStringParam reports whether the named parameter should be treated as a
+// literal string when rebuilding request input.
+//
+// This includes both parameters declared as type "string" and indexed
+// elements of repeated string arrays whose metadata key ends with ".N" and is
+// declared as "array[string]" (for example ResourceNames.N -> --ResourceNames.0).
+// In those cases the caller must NOT attempt to parse the value as JSON.
+func isStringParam(apiMeta *ApiMeta, name string) bool {
+	mt, matchedKey, ok := getRequestMetaType(apiMeta, name)
+	if !ok {
+		return false
+	}
+
+	switch mt.TypeName {
+	case "string":
+		return true
+	case "array[string]":
+		return isIndexedStringArrayElement(matchedKey)
+	default:
+		return false
+	}
+}
+
+func isIndexedStringArrayElement(matchedKey string) bool {
+	return strings.HasSuffix(matchedKey, ".N")
+}
+
+func getRequestMetaType(apiMeta *ApiMeta, name string) (*MetaType, string, bool) {
+	if apiMeta == nil || apiMeta.Request == nil || apiMeta.Request.MetaTypes == nil {
+		return nil, "", false
+	}
+
+	if mt, ok := apiMeta.Request.MetaTypes[name]; ok {
+		return mt, name, true
+	}
+
+	normalizedName := normalizeMetaTypeKey(name)
+	if normalizedName == name {
+		return nil, "", false
+	}
+
+	mt, ok := apiMeta.Request.MetaTypes[normalizedName]
+	return mt, normalizedName, ok
+}
+
+func normalizeMetaTypeKey(name string) string {
+	parts := strings.Split(name, ".")
+	changed := false
+
+	for i, part := range parts {
+		if _, err := strconv.Atoi(part); err == nil {
+			parts[i] = "N"
+			changed = true
+		}
+	}
+
+	if !changed {
+		return name
+	}
+
+	return strings.Join(parts, ".")
 }
 
 func actionUsageTemplate(params []string) string {
