@@ -17,7 +17,7 @@ import (
 	"github.com/volcengine/volcengine-cli/util"
 )
 
-const ssoAccessTokenRefreshWindow = 15 * time.Minute
+const ssoAccessTokenRefreshWindow = 5 * time.Minute
 
 var (
 	// getSsoConfigFileDir 是 SSO 缓存目录的注入点，生产环境固定使用 util.GetConfigFileDir。
@@ -261,7 +261,7 @@ func tokenExpired(expiresAt string) bool {
 }
 
 // tokenNeedsRefresh 判断 access token 是否需要刷新。
-// 与 AWS 新式 sso-session 语义保持一致：业务命令不会等到完全过期才刷新，而是在过期前窗口内提前静默续期。
+// 业务命令不会等到完全过期才刷新，而是在过期前窗口内提前静默续期。
 func tokenNeedsRefresh(expiresAt string) bool {
 	if expiresAt == "" {
 		return true
@@ -722,7 +722,7 @@ func (f *DeviceCodeFetcher) GetToken() (*SsoTokenCache, error) {
 }
 
 // GetFreshTokenForLogin 执行显式登录授权。
-// 对齐 AWS sso login：无论缓存 access token 是否有效，也不会用 refresh_token 静默完成登录。
+// 无论缓存 access token 是否有效，也不会用 refresh_token 静默完成登录。
 func (f *DeviceCodeFetcher) GetFreshTokenForLogin() (*SsoTokenCache, error) {
 	ctx := context.Background()
 	cached, err := f.loadCachedToken()
