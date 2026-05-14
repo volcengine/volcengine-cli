@@ -85,15 +85,31 @@ func (f *fakeOAuthClient) StartDeviceAuthorization(ctx context.Context, req *Sta
 
 type fakePortalClient struct {
 	lastAccessToken string
+	accountsResp    *ListAccountsResponse
+	rolesResp       *ListAccountRolesResponse
+	listAccountsErr error
+	listRolesErr    error
 	resp            *GetRoleCredentialsResponse
 	err             error
 }
 
 func (f *fakePortalClient) ListAccounts(ctx context.Context, req *ListAccountsRequest) (*ListAccountsResponse, error) {
+	if f.listAccountsErr != nil {
+		return nil, f.listAccountsErr
+	}
+	if f.accountsResp != nil {
+		return f.accountsResp, nil
+	}
 	return nil, errors.New("ListAccounts should not be called")
 }
 
 func (f *fakePortalClient) ListAccountRoles(ctx context.Context, req *ListAccountRolesRequest) (*ListAccountRolesResponse, error) {
+	if f.listRolesErr != nil {
+		return nil, f.listRolesErr
+	}
+	if f.rolesResp != nil {
+		return f.rolesResp, nil
+	}
 	return nil, errors.New("ListAccountRoles should not be called")
 }
 
@@ -202,6 +218,115 @@ func TestClearSsoProfileTemporaryCredentialsPreservesAccountAndRole(t *testing.T
 	}
 	if profile.RoleName != "role-name" {
 		t.Fatalf("RoleName = %q, want role-name", profile.RoleName)
+	}
+}
+
+func TestSetProfileClearsTemporaryCredentialsWhenReconfiguringExistingProfile(t *testing.T) {
+	withTestConfigDir(t)
+	sso := setupSsoTokenTest(t)
+
+	oldCtx := ctx
+	oldConfig := config
+	cfg := &Configure{
+		Profiles: map[string]*Profile{
+			"dev": {
+				Name:           "dev",
+				Mode:           ModeSSO,
+				AccessKey:      "old-ak",
+				SecretKey:      "old-sk",
+				SessionToken:   "old-session-token",
+				StsExpiration:  time.Now().Add(time.Hour).Unix(),
+				SsoSessionName: "old-session",
+				AccountId:      "old-account",
+				RoleName:       "old-role",
+				Region:         "cn-shanghai",
+			},
+		},
+		SsoSession: map[string]*SsoSession{
+			"test-session": {
+				Name:     "test-session",
+				StartURL: sso.StartURL,
+				Region:   sso.Region,
+				RegistrationScopes: []string{
+					"cloudidentity:account:access",
+					"offline_access",
+				},
+			},
+		},
+	}
+	ctx = NewContext()
+	ctx.SetConfig(cfg)
+	config = cfg
+	t.Cleanup(func() {
+		ctx = oldCtx
+		config = oldConfig
+	})
+
+	cacheTokenForTest(t, sso, &SsoTokenCache{
+		AccessToken:           "cached-access",
+		RefreshToken:          "cached-refresh",
+		ExpiresAt:             time.Now().Add(time.Hour).Format(time.RFC3339),
+		ClientId:              "cached-client",
+		ClientSecret:          "cached-secret",
+		ClientSecretExpiresAt: validClientSecretExpiry(),
+	})
+
+	fakePortal := &fakePortalClient{
+		accountsResp: &ListAccountsResponse{
+			AccountList: []AccountInfo{{AccountID: "new-account", AccountName: "New Account"}},
+		},
+		rolesResp: &ListAccountRolesResponse{
+			RoleList: []RoleInfo{{AccountID: "new-account", RoleName: "new-role"}},
+		},
+	}
+	newPortalClientForSSO = func(region string) PortalClientAPI {
+		return fakePortal
+	}
+
+	oldSelectAccount := selectSsoAccount
+	oldSelectRole := selectSsoRole
+	selectSsoAccount = func(accounts []AccountInfo) (AccountInfo, error) {
+		if len(accounts) != 1 || accounts[0].AccountID != "new-account" {
+			t.Fatalf("accounts = %+v, want only new-account", accounts)
+		}
+		return accounts[0], nil
+	}
+	selectSsoRole = func(roles []RoleInfo) (RoleInfo, error) {
+		if len(roles) != 1 || roles[0].RoleName != "new-role" {
+			t.Fatalf("roles = %+v, want only new-role", roles)
+		}
+		return roles[0], nil
+	}
+	t.Cleanup(func() {
+		selectSsoAccount = oldSelectAccount
+		selectSsoRole = oldSelectRole
+	})
+
+	sso.Profile = cfg.Profiles["dev"]
+	sso.SsoSessionName = "test-session"
+
+	if err := sso.SetProfile(); err != nil {
+		t.Fatalf("SetProfile() error = %v", err)
+	}
+
+	profile := cfg.Profiles["dev"]
+	if profile.AccessKey != "" {
+		t.Fatalf("AccessKey = %q, want empty after reconfigure", profile.AccessKey)
+	}
+	if profile.SecretKey != "" {
+		t.Fatalf("SecretKey = %q, want empty after reconfigure", profile.SecretKey)
+	}
+	if profile.SessionToken != "" {
+		t.Fatalf("SessionToken = %q, want empty after reconfigure", profile.SessionToken)
+	}
+	if profile.StsExpiration != 0 {
+		t.Fatalf("StsExpiration = %d, want 0 after reconfigure", profile.StsExpiration)
+	}
+	if profile.AccountId != "new-account" {
+		t.Fatalf("AccountId = %q, want new-account", profile.AccountId)
+	}
+	if profile.RoleName != "new-role" {
+		t.Fatalf("RoleName = %q, want new-role", profile.RoleName)
 	}
 }
 
