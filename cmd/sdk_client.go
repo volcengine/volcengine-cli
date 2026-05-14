@@ -6,14 +6,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/volcengine/volcengine-go-sdk/volcengine/endpoints"
-
 	"github.com/volcengine/volcengine-go-sdk/volcengine"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/client"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/client/metadata"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/credentials"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/credentials/clicreds"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/defaults"
+	"github.com/volcengine/volcengine-go-sdk/volcengine/endpoints"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/request"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/session"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/signer/volc"

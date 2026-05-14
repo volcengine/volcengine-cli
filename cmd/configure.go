@@ -55,6 +55,8 @@ type Profile struct {
 	OidcTokenFile    string `json:"oidc-token-file,omitempty"`
 	RoleTrn          string `json:"role-trn,omitempty"`
 	LoginSession     string `json:"login-session,omitempty"`
+	OidcTokenFile    string `json:"oidc-token-file,omitempty"`
+	RoleTrn          string `json:"role-trn,omitempty"`
 }
 
 type SsoSession struct {
