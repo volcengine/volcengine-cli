@@ -131,16 +131,6 @@ func validateProfileMode(profile *Profile) error {
 		if profile.SecretKey == "" {
 			return fmt.Errorf("mode %q requires --secret-key", ModeAK)
 		}
-	case ModeStsToken:
-		if profile.AccessKey == "" {
-			return fmt.Errorf("mode %q requires --access-key", ModeStsToken)
-		}
-		if profile.SecretKey == "" {
-			return fmt.Errorf("mode %q requires --secret-key", ModeStsToken)
-		}
-		if profile.SessionToken == "" {
-			return fmt.Errorf("mode %q requires --session-token", ModeStsToken)
-		}
 	case ModeSSO:
 		// sso 模式通过 configure sso 子命令配置，此处不额外校验
 	case ModeRamRoleArn:

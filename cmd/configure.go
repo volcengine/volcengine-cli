@@ -22,7 +22,6 @@ const (
 	ModeSSO          = "sso"
 	ModeConsoleLogin = "console-login"
 	ModeAK           = "ak"
-	ModeStsToken     = "ststoken"
 	ModeRamRoleArn   = "ramrolearn"
 	ModeOIDC         = "oidc"
 	ModeEcsRole      = "ecsrole"
