@@ -25,8 +25,7 @@ const (
 	ModeRamRoleArn   = "ramrolearn"
 	ModeOIDC         = "oidc"
 	ModeEcsRole      = "ecsrole"
-
-	ConfigFile = "config.json"
+	ConfigFile       = "config.json"
 )
 
 type Configure struct {
@@ -54,8 +53,6 @@ type Profile struct {
 	OidcTokenFile    string `json:"oidc-token-file,omitempty"`
 	RoleTrn          string `json:"role-trn,omitempty"`
 	LoginSession     string `json:"login-session,omitempty"`
-	OidcTokenFile    string `json:"oidc-token-file,omitempty"`
-	RoleTrn          string `json:"role-trn,omitempty"`
 }
 
 type SsoSession struct {
