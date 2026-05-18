@@ -35,7 +35,8 @@ type SdkClientInfo struct {
 // NewSimpleClient creates an SDK client with credential resolution:
 //  1. If a profile is configured:
 //     a. SSO mode: CLI refreshes STS credentials (EnsureValidStsToken), then delegates to SDK CliProvider.
-//     b. Other modes: directly delegates to SDK CliProvider for credential resolution.
+//     b. Console Login mode: CLI refreshes the login cache, then delegates to SDK CliProvider.
+//     c. Other modes: directly delegates to SDK CliProvider for credential resolution.
 //  2. If no profile is configured, use the SDK default credential chain (Env → OIDC → CliProvider → EcsRole).
 func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 	var (
@@ -76,8 +77,8 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		}
 
 		if strings.ToLower(strings.TrimSpace(currentProfile.Mode)) == ModeConsoleLogin {
-			// Console Login 模式：从 login cache 中加载/刷新 STS 临时凭证。
-			_, err := EnsureValidLoginToken(ctx.config, ctx.config.Current)
+			// Console Login 模式：CLI 负责刷新 login cache，再交给 SDK CliProvider 读取
+			_, err := EnsureValidLoginToken(ctx.config, profileName)
 			if err != nil {
 				return nil, err
 			}

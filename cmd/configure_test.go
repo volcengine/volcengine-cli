@@ -75,31 +75,6 @@ func TestValidateProfileModeAkValid(t *testing.T) {
 	}
 }
 
-func TestValidateProfileModeStsTokenRequiresSessionToken(t *testing.T) {
-	err := validateProfileMode(&Profile{
-		Name:      "test",
-		Mode:      ModeStsToken,
-		AccessKey: "ak",
-		SecretKey: "sk",
-	})
-	if err == nil {
-		t.Fatal("expected ststoken mode to require session-token")
-	}
-}
-
-func TestValidateProfileModeStsTokenValid(t *testing.T) {
-	err := validateProfileMode(&Profile{
-		Name:         "test",
-		Mode:         ModeStsToken,
-		AccessKey:    "ak",
-		SecretKey:    "sk",
-		SessionToken: "token",
-	})
-	if err != nil {
-		t.Fatalf("expected ststoken mode to be valid, got error: %v", err)
-	}
-}
-
 func TestValidateProfileModeRamRoleArnRequiresAllFields(t *testing.T) {
 	// missing account-id
 	err := validateProfileMode(&Profile{
@@ -189,6 +164,30 @@ func TestValidateProfileModeEcsRoleValid(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("expected ecsrole mode to be valid, got error: %v", err)
+	}
+}
+
+func TestValidateProfileModeConsoleLoginRequiresLoginSession(t *testing.T) {
+	err := validateProfileMode(&Profile{
+		Name: "test",
+		Mode: ModeConsoleLogin,
+	})
+	if err == nil {
+		t.Fatal("expected console-login mode to require login-session")
+	}
+	if !strings.Contains(err.Error(), "login-session") {
+		t.Fatalf("expected error to mention login-session, got: %v", err)
+	}
+}
+
+func TestValidateProfileModeConsoleLoginValid(t *testing.T) {
+	err := validateProfileMode(&Profile{
+		Name:         "test",
+		Mode:         ModeConsoleLogin,
+		LoginSession: "trn:iam::123456789012:login/session/test",
+	})
+	if err != nil {
+		t.Fatalf("expected console-login mode to be valid, got error: %v", err)
 	}
 }
 
@@ -713,34 +712,6 @@ func TestCliProviderContractAkMode(t *testing.T) {
 	}
 	if v.SecretAccessKey != "test-sk" {
 		t.Fatalf("expected SecretAccessKey=test-sk, got %q", v.SecretAccessKey)
-	}
-}
-
-func TestCliProviderContractStsTokenMode(t *testing.T) {
-	configPath := writeTestConfig(t, &Configure{
-		Current: "test",
-		Profiles: map[string]*Profile{
-			"test": {
-				Name:         "test",
-				Mode:         ModeStsToken,
-				AccessKey:    "sts-ak",
-				SecretKey:    "sts-sk",
-				SessionToken: "sts-token",
-				Region:       "cn-beijing",
-			},
-		},
-	})
-
-	creds := clicreds.NewCliCredentials(configPath, "test")
-	v, err := creds.Get()
-	if err != nil {
-		t.Fatalf("expected CliProvider to resolve ststoken mode, got error: %v", err)
-	}
-	if v.AccessKeyID != "sts-ak" {
-		t.Fatalf("expected AccessKeyID=sts-ak, got %q", v.AccessKeyID)
-	}
-	if v.SessionToken != "sts-token" {
-		t.Fatalf("expected SessionToken=sts-token, got %q", v.SessionToken)
 	}
 }
 
