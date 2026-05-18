@@ -65,6 +65,7 @@
 | `ak` | AK/SK 静态凭证（默认） | `access-key`, `secret-key` |
 | `ststoken` | AK/SK + 临时 Session Token | `access-key`, `secret-key`, `session-token` |
 | `sso` | SSO 单点登录 | 通过 `ve configure sso` 配置 |
+| `console-login` | 控制台登录获取临时 STS 凭证 | 通过 `ve login` 配置，写入 `login-session` |
 | `ramrolearn` | 角色扮演（通过 STS AssumeRole） | `access-key`, `secret-key`, `role-name`, `account-id` |
 | `oidc` | OIDC Token 换取临时凭证 | `oidc-token-file`, `role-trn` |
 | `ecsrole` | ECS 实例角色（通过 IMDS 获取） | `role-name` |
@@ -109,7 +110,7 @@ ve configure set --profile test-ecs --mode ecsrole --region cn-beijing \
 
 ```shell
 profile: 配置名称，如果 profile 已存在，则该命令会修改已有配置；否则就会新建配置，并将当前使用的profile指定为新配置
-mode: 凭证模式，可选值：ak, ststoken, sso, ramrolearn, oidc, ecsrole；默认为 ak
+mode: 凭证模式，可选值：ak, ststoken, sso, console-login, ramrolearn, oidc, ecsrole；默认为 ak。其中 console-login 由 ve login 写入，不建议手动配置
 access-key: 您的 AK
 secret-key: 您的 SK
 region: 地域，如 cn-beijing
@@ -227,6 +228,7 @@ ve configure set --profile [配置名] --region [地区] --access-key [用户的
 - account-id
 - oidc-token-file
 - role-trn
+- login-session（console-login 模式字段，由 ve login 写入）
 - disable-ssl
 - endpoint
 - endpoint-resolver

@@ -64,6 +64,7 @@ Credential modes:
 | `ak` | Static AK/SK credentials (default) | `access-key`, `secret-key` |
 | `ststoken` | AK/SK with temporary session token | `access-key`, `secret-key`, `session-token` |
 | `sso` | SSO sign-in | configured through `ve configure sso` |
+| `console-login` | Console Login with temporary STS credentials | configured through `ve login`, which writes `login-session` |
 | `ramrolearn` | AssumeRole via STS | `access-key`, `secret-key`, `role-name`, `account-id` |
 | `oidc` | OIDC token exchange | `oidc-token-file`, `role-trn` |
 | `ecsrole` | ECS instance role via IMDS | `role-name` |
@@ -80,7 +81,7 @@ When you configure a profile with `ve configure set`, all required fields for th
 
     ```shell
 	profile: Configuration name. If the profile already exists, this command will modify the existing configuration; otherwise, it will create a new configuration and set the currently used profile to the new configuration. 
-	mode: Credential mode. Supported values: ak, ststoken, sso, ramrolearn, oidc, ecsrole. Default is ak.
+	mode: Credential mode. Supported values: ak, ststoken, sso, console-login, ramrolearn, oidc, ecsrole. Default is ak. console-login is written by ve login and should not be configured manually.
 	access-key: Your Access Key 
 	secret-key: Your SK 
 	region: Geographic area, such as cn-beijing 
@@ -180,6 +181,7 @@ Other fields that can be specified:
 -   account-id
 -   oidc-token-file
 -   role-trn
+-   login-session (console-login field, written by ve login)
 -   disable-ssl
 -   endpoint
 -   endpoint-resolver
