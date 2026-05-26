@@ -40,6 +40,10 @@ func (p *Parser) ReadArgs(ctx *Context) ([]string, error) {
 func (p *Parser) readArg(ctx *Context) (arg string, flag *Flag, more bool, err error) {
 	//跳出条件
 	if len(p.args) <= p.currentIndex {
+		if p.currentFlag != nil {
+			err = p.currentFlagValueError(ctx)
+			p.currentFlag = nil
+		}
 		more = false
 		return
 	}
@@ -59,13 +63,13 @@ func (p *Parser) readArg(ctx *Context) (arg string, flag *Flag, more bool, err e
 
 	//不允许两个连续的空--
 	if p.currentFlag != nil && flag != nil {
-		err = fmt.Errorf("--%s must set value. ", p.currentFlag.Name)
+		err = p.currentFlagValueError(ctx)
 	}
 
 	if flag == nil { //解析普通参数
 		if p.currentFlag != nil {
 			if value == "" {
-				err = fmt.Errorf("--%s must set value. ", p.currentFlag.Name)
+				err = p.currentFlagValueError(ctx)
 			}
 			p.currentFlag.SetValue(value)
 			p.currentFlag = nil
@@ -76,6 +80,14 @@ func (p *Parser) readArg(ctx *Context) (arg string, flag *Flag, more bool, err e
 		p.currentFlag = flag
 	}
 	return
+}
+
+func (p *Parser) currentFlagValueError(ctx *Context) error {
+	prefix := "--"
+	if ctx != nil && ctx.fixedFlags != nil && ctx.fixedFlags.GetByName(p.currentFlag.Name) == p.currentFlag {
+		prefix = "---"
+	}
+	return fmt.Errorf("%s%s must set value. ", prefix, p.currentFlag.Name)
 }
 
 func (p *Parser) parseArg(arg string, ctx *Context) (flag *Flag, value string, err error) {

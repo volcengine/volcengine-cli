@@ -63,7 +63,6 @@
 | 模式 | 说明 | 必填参数 |
 |------|------|----------|
 | `ak` | AK/SK 静态凭证（默认） | `access-key`, `secret-key` |
-| `ststoken` | AK/SK + 临时 Session Token | `access-key`, `secret-key`, `session-token` |
 | `sso` | SSO 单点登录 | 通过 `ve configure sso` 配置 |
 | `console-login` | 控制台登录获取临时 STS 凭证 | 通过 `ve login` 配置，写入 `login-session` |
 | `ramrolearn` | 角色扮演（通过 STS AssumeRole） | `access-key`, `secret-key`, `role-name`, `account-id` |
@@ -76,13 +75,6 @@
 
 ```shell
 ve configure set --profile test --region cn-beijing --access-key ak --secret-key sk
-```
-
-**STS Token 模式**
-
-```shell
-ve configure set --profile test-sts --mode ststoken --region cn-beijing \
-  --access-key ak --secret-key sk --session-token your-session-token
 ```
 
 **角色扮演模式（RamRoleArn）**
@@ -110,11 +102,11 @@ ve configure set --profile test-ecs --mode ecsrole --region cn-beijing \
 
 ```shell
 profile: 配置名称，如果 profile 已存在，则该命令会修改已有配置；否则就会新建配置，并将当前使用的profile指定为新配置
-mode: 凭证模式，可选值：ak, ststoken, sso, console-login, ramrolearn, oidc, ecsrole；默认为 ak。其中 console-login 由 ve login 写入，不建议手动配置
+mode: 凭证模式，可选值：ak, sso, console-login, ramrolearn, oidc, ecsrole；默认为 ak。其中 console-login 由 ve login 写入，不建议手动配置
 access-key: 您的 AK
 secret-key: 您的 SK
 region: 地域，如 cn-beijing
-session-token: 临时凭证的 Session Token（ststoken 模式必填）
+session-token: 临时凭证的 Session Token（由 SSO、Console Login 等临时凭证流程写入；不支持 ststoken 作为独立 mode）
 role-name: 角色名称（ramrolearn、ecsrole 模式必填）
 account-id: 账户 ID（ramrolearn 模式必填）
 oidc-token-file: OIDC Token 文件路径（oidc 模式必填，也可通过环境变量 VOLCENGINE_OIDC_TOKEN_FILE 设置）
@@ -571,7 +563,7 @@ ve <service name> <action> [--parameter1 value1 --parameter2 value2 ...]
 
 调用 API 时，可以使用 `---`（三横线）前缀指定 CLI 内部参数，覆盖当前 profile 的设置。`---` 参数不会与 API 参数冲突：
 
-- `---profile`：运行时指定使用的 profile（不修改配置文件）
+- `---profile`：运行时指定使用的 profile（不修改配置文件）；必须提供一个已存在的 profile 名称，缺少值或 profile 不存在时会报错
 - `---region`：运行时覆盖 region
 
 ```shell
@@ -636,7 +628,6 @@ ve ecs DescribeInstances ---region cn-shanghai --InstanceId "i-xxx"
 ## Security and privacy
 This project takes security seriously. 
 For vulnerability reporting and supported versions, see [SECURITY.md](SECURITY.md)    
-
 
 
 

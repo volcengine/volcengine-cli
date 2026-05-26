@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
@@ -175,6 +176,47 @@ func TestExtractLoginSessionUsesTRNClaim(t *testing.T) {
 	want := "trn:volcengine:iam:cn-beijing:2100123456:user/Admin"
 	if loginSession != want {
 		t.Fatalf("loginSession = %q, want %q", loginSession, want)
+	}
+}
+
+func TestRemoteAuthorizeAcceptsRawURLEncodedAuthorizationResponse(t *testing.T) {
+	state := "test-state"
+	authCode := "test-code"
+	query := "code=" + authCode + "&state=" + state
+	input := base64.RawURLEncoding.EncodeToString([]byte(query)) + "\n"
+
+	stdin := os.Stdin
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stdin pipe: %v", err)
+	}
+	t.Cleanup(func() {
+		os.Stdin = stdin
+		_ = reader.Close()
+		_ = writer.Close()
+	})
+	if _, err := writer.WriteString(input); err != nil {
+		t.Fatalf("write stdin pipe: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close stdin pipe writer: %v", err)
+	}
+	os.Stdin = reader
+
+	cl := &ConsoleLogin{EndpointURL: "https://signin.volcengine.com"}
+	oauthClient := NewConsoleOAuthClient(&ConsoleOAuthClientConfig{EndpointURL: cl.EndpointURL})
+
+	gotCode, gotRedirectURI, err := cl.remoteAuthorize(oauthClient, ConsoleClientIDCrossDevice, "challenge", state)
+	if err != nil {
+		t.Fatalf("remoteAuthorize returned error: %v", err)
+	}
+	if gotCode != authCode {
+		t.Fatalf("authCode = %q, want %q", gotCode, authCode)
+	}
+
+	wantRedirectURI := "https://signin.volcengine.com/authorize/oauth/authorize"
+	if gotRedirectURI != wantRedirectURI {
+		t.Fatalf("redirectURI = %q, want %q", gotRedirectURI, wantRedirectURI)
 	}
 }
 

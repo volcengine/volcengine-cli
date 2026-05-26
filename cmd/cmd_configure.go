@@ -91,14 +91,14 @@ func newConfigureSetCmd() *cobra.Command {
       1. if profile not exist, add new;
       2. if profile exist, modify target field
 
-  supported modes: ak, ststoken, sso, console-login, ramrolearn, oidc, ecsrole`,
+  supported modes: ak, sso, console-login, ramrolearn, oidc, ecsrole`,
 		DisableFlagsInUseLine: true,
 	}
 
 	cmd.SetUsageTemplate(configureActionUsageTemplate())
 
 	cmd.Flags().StringVar(&profileFlags.Name, "profile", "", "target profile name")
-	cmd.Flags().StringVar(&profileFlags.Mode, "mode", "", "credential mode (ak, ststoken, sso, console-login, ramrolearn, oidc, ecsrole)")
+	cmd.Flags().StringVar(&profileFlags.Mode, "mode", "", "credential mode (ak, sso, console-login, ramrolearn, oidc, ecsrole)")
 	cmd.Flags().StringVar(&profileFlags.AccessKey, "access-key", "", "your access key(AK)")
 	cmd.Flags().StringVar(&profileFlags.SecretKey, "secret-key", "", "your secret key(SK)")
 	cmd.Flags().StringVar(&profileFlags.Region, "region", "", "your region")
@@ -162,7 +162,7 @@ func validateProfileMode(profile *Profile) error {
 			return fmt.Errorf("mode %q requires --role-name", ModeEcsRole)
 		}
 	default:
-		return fmt.Errorf("unsupported mode %q, supported modes: ak, ststoken, sso, console-login, ramrolearn, oidc, ecsrole", mode)
+		return fmt.Errorf("unsupported mode %q, supported modes: ak, sso, console-login, ramrolearn, oidc, ecsrole", mode)
 	}
 	return nil
 }

@@ -62,7 +62,6 @@ Credential modes:
 | Mode | Description | Required fields in profile |
 |------|-------------|----------------------------|
 | `ak` | Static AK/SK credentials (default) | `access-key`, `secret-key` |
-| `ststoken` | AK/SK with temporary session token | `access-key`, `secret-key`, `session-token` |
 | `sso` | SSO sign-in | configured through `ve configure sso` |
 | `console-login` | Console Login with temporary STS credentials | configured through `ve login`, which writes `login-session` |
 | `ramrolearn` | AssumeRole via STS | `access-key`, `secret-key`, `role-name`, `account-id` |
@@ -81,11 +80,11 @@ When you configure a profile with `ve configure set`, all required fields for th
 
     ```shell
 	profile: Configuration name. If the profile already exists, this command will modify the existing configuration; otherwise, it will create a new configuration and set the currently used profile to the new configuration. 
-	mode: Credential mode. Supported values: ak, ststoken, sso, console-login, ramrolearn, oidc, ecsrole. Default is ak. console-login is written by ve login and should not be configured manually.
+	mode: Credential mode. Supported values: ak, sso, console-login, ramrolearn, oidc, ecsrole. Default is ak. console-login is written by ve login and should not be configured manually.
 	access-key: Your Access Key 
 	secret-key: Your SK 
 	region: Geographic area, such as cn-beijing 
-	session-token: Required for ststoken mode.
+	session-token: Temporary credential session token written by flows such as SSO and Console Login. ststoken is not supported as a standalone mode.
 	role-name: Required for ramrolearn and ecsrole modes.
 	account-id: Required for ramrolearn mode.
 	oidc-token-file: Path to the OIDC token file. Required for oidc mode.
@@ -100,7 +99,7 @@ When you configure a profile with `ve configure set`, all required fields for th
     ```shell
 	export VOLCENGINE_ACCESS_KEY=AK
 	export VOLCENGINE_SECRET_KEY=SK 
-	export VOLCENGINE_REGION=cn-bejing 
+	export VOLCENGINE_REGION=cn-beijing 
 
 	# Whether to disable SSL; if not set, the default is false. 
 	export VOLCENGINE_DISABLE_SSL=false 
@@ -503,6 +502,26 @@ ve <service name> <action> [--parameter1 value1 --parameter2 value2 ...]
 You can use ve <service name> <action> --help to view information such as the parameter list and return results for the API you wish to invoke. For example: ve ecs DescribeInstances --help.
 
 For more detailed information, you may also refer to <https://www.volcengine.com/docs>.
+
+<br/>
+
+##### Runtime Override Parameters
+
+When calling APIs, you can use the `---` prefix to pass CLI internal override parameters. These parameters do not conflict with API parameters:
+
+- `---profile`: use a specific profile at runtime without modifying the configuration file. It must be followed by an existing profile name; missing values or unknown profile names return an error.
+- `---region`: override region at runtime.
+
+```shell
+# Call an API with a specific profile
+ve ecs DescribeInstances ---profile prod
+
+# Call an API with a specific profile and region override
+ve ecs DescribeInstances ---profile prod ---region ap-southeast-1
+
+# ---region can also be used by itself to override the current profile region
+ve ecs DescribeInstances ---region cn-shanghai --InstanceId "i-xxx"
+```
 
 <br/>
 
