@@ -84,7 +84,7 @@ When you configure a profile with `ve configure set`, all required fields for th
 	access-key: Your Access Key 
 	secret-key: Your SK 
 	region: Geographic area, such as cn-beijing 
-	session-token: Temporary credential session token written by flows such as SSO and Console Login. ststoken is not supported as a standalone mode.
+	session-token: Temporary credential session token.
 	role-name: Required for ramrolearn and ecsrole modes.
 	account-id: Required for ramrolearn mode.
 	oidc-token-file: Path to the OIDC token file. Required for oidc mode.

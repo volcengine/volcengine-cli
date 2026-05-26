@@ -106,7 +106,7 @@ mode: 凭证模式，可选值：ak, sso, console-login, ramrolearn, oidc, ecsro
 access-key: 您的 AK
 secret-key: 您的 SK
 region: 地域，如 cn-beijing
-session-token: 临时凭证的 Session Token（由 SSO、Console Login 等临时凭证流程写入；不支持 ststoken 作为独立 mode）
+session-token: 临时凭证的 Session Token
 role-name: 角色名称（ramrolearn、ecsrole 模式必填）
 account-id: 账户 ID（ramrolearn 模式必填）
 oidc-token-file: OIDC Token 文件路径（oidc 模式必填，也可通过环境变量 VOLCENGINE_OIDC_TOKEN_FILE 设置）
