@@ -22,6 +22,9 @@ func NewParser(args []string) *Parser {
 }
 
 func (p *Parser) ReadArgs(ctx *Context) ([]string, error) {
+	if ctx == nil || ctx.fixedFlags == nil || ctx.dynamicFlags == nil {
+		return nil, fmt.Errorf("invalid context for parsing arguments")
+	}
 	var r []string
 	for {
 		arg, _, more, err := p.readArg(ctx)

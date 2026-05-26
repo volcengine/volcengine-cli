@@ -83,7 +83,14 @@ func newConfigureSetCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use: "set",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return setConfigProfile(&profileFlags)
+			input := profileFlags
+			if !cmd.Flags().Changed("disable-ssl") {
+				input.DisableSSL = nil
+			}
+			if !cmd.Flags().Changed("use-dual-stack") {
+				input.UseDualStack = nil
+			}
+			return setConfigProfile(&input)
 		},
 		Short: "add new profile, or modify target profile",
 		Long: `Description:

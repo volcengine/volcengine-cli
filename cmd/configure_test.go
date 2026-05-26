@@ -782,3 +782,143 @@ func TestCliProviderContractUnsupportedMode(t *testing.T) {
 		t.Fatal("expected error for unsupported mode")
 	}
 }
+
+// --------------- configure set: DisableSSL / UseDualStack 覆盖语义 ---------------
+//
+// pflag 的 Bool() 始终返回非 nil 指针（默认 false）。如果 RunE 不做处理直接把 profileFlags
+// 传给 mergeProfile，"用户没传 flag" 和 "用户显式传 --disable-ssl=false" 在被调函数侧无法
+// 区分，会把已有 profile 中显式启用的 DisableSSL/UseDualStack 静默重置为 false。
+// 下面三个用例覆盖 set 子命令调用层（newConfigureSetCmd → RunE → setConfigProfile）。
+
+func resetProfileFlagsForTest(t *testing.T) {
+	t.Helper()
+	old := profileFlags
+	t.Cleanup(func() { profileFlags = old })
+	profileFlags = Profile{}
+}
+
+func withTestCtxConfig(t *testing.T, cfg *Configure) {
+	t.Helper()
+	old := ctx.config
+	ctx.config = cfg
+	t.Cleanup(func() { ctx.config = old })
+}
+
+func TestConfigureSetPreservesPointerFlagsWhenNotPassed(t *testing.T) {
+	withTestConfigDir(t)
+	resetProfileFlagsForTest(t)
+
+	trueVal := true
+	withTestCtxConfig(t, &Configure{
+		Current: "p1",
+		Profiles: map[string]*Profile{
+			"p1": {
+				Name:         "p1",
+				Mode:         ModeAK,
+				AccessKey:    "old-ak",
+				SecretKey:    "old-sk",
+				Region:       "cn-beijing",
+				DisableSSL:   &trueVal,
+				UseDualStack: &trueVal,
+			},
+		},
+	})
+
+	setCmd := newConfigureSetCmd()
+	setCmd.SetArgs([]string{"--profile", "p1", "--region", "cn-shanghai"})
+	if err := setCmd.Execute(); err != nil {
+		t.Fatalf("set cmd execute: %v", err)
+	}
+
+	cfg := LoadConfig()
+	if cfg == nil {
+		t.Fatal("LoadConfig returned nil")
+	}
+	p := cfg.Profiles["p1"]
+	if p == nil {
+		t.Fatal("profile p1 missing after set")
+	}
+	if p.Region != "cn-shanghai" {
+		t.Fatalf("region should be updated, got %q", p.Region)
+	}
+	if p.DisableSSL == nil || !*p.DisableSSL {
+		t.Fatalf("DisableSSL should remain true when --disable-ssl not passed, got %v", p.DisableSSL)
+	}
+	if p.UseDualStack == nil || !*p.UseDualStack {
+		t.Fatalf("UseDualStack should remain true when --use-dual-stack not passed, got %v", p.UseDualStack)
+	}
+}
+
+func TestConfigureSetExplicitFalseOverridesPointerFlags(t *testing.T) {
+	withTestConfigDir(t)
+	resetProfileFlagsForTest(t)
+
+	trueVal := true
+	withTestCtxConfig(t, &Configure{
+		Current: "p1",
+		Profiles: map[string]*Profile{
+			"p1": {
+				Name:         "p1",
+				Mode:         ModeAK,
+				AccessKey:    "old-ak",
+				SecretKey:    "old-sk",
+				Region:       "cn-beijing",
+				DisableSSL:   &trueVal,
+				UseDualStack: &trueVal,
+			},
+		},
+	})
+
+	setCmd := newConfigureSetCmd()
+	setCmd.SetArgs([]string{
+		"--profile", "p1",
+		"--disable-ssl=false",
+		"--use-dual-stack=false",
+	})
+	if err := setCmd.Execute(); err != nil {
+		t.Fatalf("set cmd execute: %v", err)
+	}
+
+	cfg := LoadConfig()
+	p := cfg.Profiles["p1"]
+	if p == nil {
+		t.Fatal("profile p1 missing after set")
+	}
+	if p.DisableSSL == nil || *p.DisableSSL {
+		t.Fatalf("DisableSSL should be explicitly false, got %v", p.DisableSSL)
+	}
+	if p.UseDualStack == nil || *p.UseDualStack {
+		t.Fatalf("UseDualStack should be explicitly false, got %v", p.UseDualStack)
+	}
+}
+
+func TestConfigureSetInitializesPointerFlagsForNewProfile(t *testing.T) {
+	withTestConfigDir(t)
+	resetProfileFlagsForTest(t)
+
+	withTestCtxConfig(t, &Configure{
+		Profiles: map[string]*Profile{},
+	})
+
+	setCmd := newConfigureSetCmd()
+	setCmd.SetArgs([]string{
+		"--profile", "fresh",
+		"--access-key", "ak",
+		"--secret-key", "sk",
+	})
+	if err := setCmd.Execute(); err != nil {
+		t.Fatalf("set cmd execute: %v", err)
+	}
+
+	cfg := LoadConfig()
+	p := cfg.Profiles["fresh"]
+	if p == nil {
+		t.Fatal("profile fresh not created")
+	}
+	if p.DisableSSL == nil || *p.DisableSSL {
+		t.Fatalf("new profile DisableSSL should be non-nil false, got %v", p.DisableSSL)
+	}
+	if p.UseDualStack == nil || *p.UseDualStack {
+		t.Fatalf("new profile UseDualStack should be non-nil false, got %v", p.UseDualStack)
+	}
+}
