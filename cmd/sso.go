@@ -31,6 +31,10 @@ var (
 	newPortalClientForSSO = func(region string) PortalClientAPI {
 		return NewPortalClient(&PortalClientConfig{Region: region})
 	}
+	// selectSsoAccount/selectSsoRole 是账号与角色交互选择的注入点，生产环境使用 promptui，
+	// 单测替换为确定性选择，避免测试阻塞在真实终端交互上。
+	selectSsoAccount = promptSelectAccount
+	selectSsoRole    = promptSelectRole
 	// deviceAuthorizationSleep 是设备码轮询等待的注入点，测试中会置空以避免真实等待。
 	deviceAuthorizationSleep = time.Sleep
 )
@@ -786,6 +790,9 @@ func (s *Sso) SetProfile() error {
 	s.Profile.AccountId = accountId
 	s.Profile.RoleName = roleName
 	s.Profile.Region = s.Region
+	// 重新选择 SSO 账号或角色后，旧 STS 临时凭证已经不再可信。
+	// 如果不清空，后续业务命令会在过期前继续复用旧身份，导致配置已变更但调用仍落到旧账号/角色。
+	clearSsoProfileTemporaryCredentials(s.Profile)
 	s.Profile.DisableSSL = new(bool)
 	*s.Profile.DisableSSL = false
 	if s.Profile.Name == "" {
@@ -832,7 +839,7 @@ func (s *Sso) chooseAccountAndRole(token *SsoTokenCache) (string, string, error)
 		return "", "", fmt.Errorf("access token is empty, please login again")
 	}
 
-	var client PortalClientAPI = NewPortalClient(&PortalClientConfig{Region: s.Region})
+	var client PortalClientAPI = newPortalClientForSSO(s.Region)
 	ctx := context.Background()
 
 	accounts, err := s.fetchAllAccounts(ctx, client, token.AccessToken)
@@ -843,7 +850,7 @@ func (s *Sso) chooseAccountAndRole(token *SsoTokenCache) (string, string, error)
 		return "", "", fmt.Errorf("no available accounts found for the current user")
 	}
 
-	account, err := promptSelectAccount(accounts)
+	account, err := selectSsoAccount(accounts)
 	if err != nil {
 		return "", "", err
 	}
@@ -856,7 +863,7 @@ func (s *Sso) chooseAccountAndRole(token *SsoTokenCache) (string, string, error)
 		return "", "", fmt.Errorf("no roles available under account %s", account.AccountID)
 	}
 
-	role, err := promptSelectRole(roles)
+	role, err := selectSsoRole(roles)
 	if err != nil {
 		return "", "", err
 	}
