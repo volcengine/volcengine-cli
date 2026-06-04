@@ -372,7 +372,10 @@ func (cl *ConsoleLogin) remoteAuthorize(
 		// Try URL-safe base64 as a fallback.
 		decoded, err = base64.URLEncoding.DecodeString(rawInput)
 		if err != nil {
-			return "", "", fmt.Errorf("base64 decoding authorization response: %w", err)
+			decoded, err = base64.RawURLEncoding.DecodeString(rawInput)
+			if err != nil {
+				return "", "", fmt.Errorf("base64 decoding authorization response: %w", err)
+			}
 		}
 	}
 

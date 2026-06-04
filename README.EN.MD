@@ -48,7 +48,27 @@ Add the Volcano Engine CLI to the environment variables.
 
 #### Configure Credentials
 
-To invoke the service, you must provide AK, SK, and region. These parameters can be configured using either of the following two methods.
+Volcengine CLI supports multiple credential modes and resolves credentials in the following order:
+
+1. Active profile in the configuration file: if an active profile exists, the CLI uses the credentials stored in that profile.
+2. Default credential chain: if there is no active profile, the CLI tries credentials in this order:
+   - Environment variables (`VOLCENGINE_ACCESS_KEY` / `VOLCENGINE_SECRET_KEY`)
+   - OIDC environment variables (`VOLCENGINE_OIDC_TOKEN_FILE` + `VOLCENGINE_OIDC_ROLE_TRN`)
+   - ECS instance role from IMDS
+3. If all methods fail, the CLI returns an error.
+
+Credential modes:
+
+| Mode | Description | Required fields in profile |
+|------|-------------|----------------------------|
+| `ak` | Static AK/SK credentials (default) | `access-key`, `secret-key` |
+| `sso` | SSO sign-in | configured through `ve configure sso` |
+| `console-login` | Console Login with temporary STS credentials | configured through `ve login`, which writes `login-session` |
+| `ramrolearn` | AssumeRole via STS | `access-key`, `secret-key`, `role-name`, `account-id` |
+| `oidc` | OIDC token exchange | `oidc-token-file`, `role-trn` |
+| `ecsrole` | ECS instance role via IMDS | `role-name` |
+
+When you configure a profile with `ve configure set`, all required fields for that mode must be written into the profile itself. Environment variables are only used by the default credential chain when no profile is active.
 
 1.  Example of configuration using 've configure set'
 
@@ -60,10 +80,15 @@ To invoke the service, you must provide AK, SK, and region. These parameters can
 
     ```shell
 	profile: Configuration name. If the profile already exists, this command will modify the existing configuration; otherwise, it will create a new configuration and set the currently used profile to the new configuration. 
+	mode: Credential mode. Supported values: ak, sso, console-login, ramrolearn, oidc, ecsrole. Default is ak. console-login is written by ve login and should not be configured manually.
 	access-key: Your Access Key 
 	secret-key: Your SK 
 	region: Geographic area, such as cn-beijing 
-	session-token: Required if role-playing is used. 
+	session-token: Temporary credential session token.
+	role-name: Required for ramrolearn and ecsrole modes.
+	account-id: Required for ramrolearn mode.
+	oidc-token-file: Path to the OIDC token file. Required for oidc mode.
+	role-trn: Role TRN. Required for oidc mode.
 	disable-ssl: Specifies whether to disable SSL. The default value is false. 
 	endpoint: Optional; the default value is open.volcengineapi.com. Ignored when endpoint-resolver is standard.
     endpoint-resolver: Optional; set to standard (case-insensitive) to use the standard resolver. Otherwise, the CLI uses endpoint when provided.
@@ -74,7 +99,7 @@ To invoke the service, you must provide AK, SK, and region. These parameters can
     ```shell
 	export VOLCENGINE_ACCESS_KEY=AK
 	export VOLCENGINE_SECRET_KEY=SK 
-	export VOLCENGINE_REGION=cn-bejing 
+	export VOLCENGINE_REGION=cn-beijing 
 
 	# Whether to disable SSL; if not set, the default is false. 
 	export VOLCENGINE_DISABLE_SSL=false 
@@ -88,9 +113,17 @@ To invoke the service, you must provide AK, SK, and region. These parameters can
 	# Optional: enable dual-stack endpoints; accepts true/false.
 	export VOLCENGINE_USE_DUALSTACK=false 
 
-	# If role-playing is employed, the following must be provided 
+	# If role-playing is employed, the following must be provided
 	export VOLCENGINE_SESSION_TOKEN=sessionToken
     ```
+
+    To disable the default credential chain (e.g., for debugging or security-sensitive environments where only explicitly configured profiles should be used):
+
+    ```shell
+    export VOLCENGINE_DISABLE_DEFAULT_CREDENTIALS=true
+    ```
+
+    When set, the CLI will return an error if no active profile is configured, instead of attempting to resolve credentials from environment variables or IMDS.
 
 #### Other Operations of the configure Command
 
@@ -132,14 +165,22 @@ ve configure set --profile [Profile Name] --region [Region] --access-key [User's
 
 After creating or modifying a configuration, the active configuration will switch to the newly created or modified configuration.
 
-When creating a new configuration, the profile field and region field must be specified; when modifying an existing configuration, the profile field must be specified.
+When creating a new configuration, the profile field must be specified; when modifying an existing configuration, the profile field must be specified.
+
+> Note: region is not mandatory during `configure set`, but it must be available at API call time (via profile, `---region` override, or `VOLCENGINE_REGION` environment variable).
 
 Other fields that can be specified:
 
+-   mode
 -   access-key
 -   secret-key
 -   region
 -   session-token
+-   role-name
+-   account-id
+-   oidc-token-file
+-   role-trn
+-   login-session (console-login field, written by ve login)
 -   disable-ssl
 -   endpoint
 -   endpoint-resolver
@@ -461,6 +502,26 @@ ve <service name> <action> [--parameter1 value1 --parameter2 value2 ...]
 You can use ve <service name> <action> --help to view information such as the parameter list and return results for the API you wish to invoke. For example: ve ecs DescribeInstances --help.
 
 For more detailed information, you may also refer to <https://www.volcengine.com/docs>.
+
+<br/>
+
+##### Runtime Override Parameters
+
+When calling APIs, you can use the `---` prefix to pass CLI internal override parameters. These parameters do not conflict with API parameters:
+
+- `---profile`: use a specific profile at runtime without modifying the configuration file. It must be followed by an existing profile name; missing values or unknown profile names return an error.
+- `---region`: override region at runtime.
+
+```shell
+# Call an API with a specific profile
+ve ecs DescribeInstances ---profile prod
+
+# Call an API with a specific profile and region override
+ve ecs DescribeInstances ---profile prod ---region ap-southeast-1
+
+# ---region can also be used by itself to override the current profile region
+ve ecs DescribeInstances ---region cn-shanghai --InstanceId "i-xxx"
+```
 
 <br/>
 

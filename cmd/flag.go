@@ -56,3 +56,8 @@ func (fs *FlagSet) AddByName(name string) (*Flag, error) {
 	fs.AddFlag(f)
 	return f, nil
 }
+
+// GetByName returns the flag with the given name, or nil if not found.
+func (fs *FlagSet) GetByName(name string) *Flag {
+	return fs.index["--"+name]
+}
