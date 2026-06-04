@@ -46,7 +46,9 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		disableSSl       bool
 		useDualStack     bool
 	)
-
+	if ctx == nil || ctx.fixedFlags == nil {
+		return nil, fmt.Errorf("invalid context for creating sdk client")
+	}
 	var currentProfile *Profile
 	profileName := ""
 	if ctx.config != nil {
