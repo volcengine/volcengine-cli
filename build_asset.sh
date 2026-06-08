@@ -28,7 +28,14 @@ then
  git checkout -b "$urlBranch" origin/"$urlBranch"
  cd ..
 fi
-go-bindata -pkg asset  -o asset/asset.go volcengine-sdk-metadata/metadata/...
+if ! go run ./scripts/generate_explorer_descriptions.go --metadata-dir volcengine-sdk-metadata/metadata --out volcengine-sdk-metadata/explorer_descriptions/descriptions.json
+then
+  echo "skip explorer descriptions generation"
+  mkdir -p volcengine-sdk-metadata/explorer_descriptions
+  printf '{}\n' > volcengine-sdk-metadata/explorer_descriptions/descriptions.json
+fi
+
+go-bindata -pkg asset  -o asset/asset.go volcengine-sdk-metadata/metadata/... volcengine-sdk-metadata/explorer_descriptions/...
 go-bindata -pkg typeset  -o typeset/typeset.go volcengine-sdk-metadata/metatype/...
 go-bindata -pkg structset  -o structset/structset.go volcengine-sdk-metadata/structure/...
 

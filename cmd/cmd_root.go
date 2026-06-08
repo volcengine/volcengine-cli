@@ -79,17 +79,30 @@ func rootUsageTemplate() string {
 Examples:
 {{.Example}}{{end}}{{if .HasAvailableSubCommands}}{{$cmds := .Commands}}{{if eq (len .Groups) 0}}
 
-Available Commands:{{range $cmds}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
+Available Commands:
+  Service                 Description
+  -------                 -----------{{range $cmds}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
   {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{else}}{{range $group := .Groups}}
 
 {{.Title}}{{range $cmds}}{{if (and (eq .GroupID $group.ID) (or .IsAvailableCommand (eq .Name "help")))}}
   {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{if not .AllChildCommandsHaveGroup}}
 
-Additional Commands:{{range $cmds}}{{if (and (eq .GroupID "") (or .IsAvailableCommand (eq .Name "help")))}}
+Additional Commands:
+  Service                 Description
+  -------                 -----------{{range $cmds}}{{if (and (eq .GroupID "") (or .IsAvailableCommand (eq .Name "help")))}}
   {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
 
 Flags:
 {{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableSubCommands}}
+
+Fixed Flags:
+  ---profile string    Use a configured profile only for this invocation.
+  ---region string     Override the region only for this invocation.
+  ---endpoint string   Override the endpoint only for this invocation.
+
+Examples:
+  ve sts GetCallerIdentity ---profile default ---region cn-beijing
+  ve sts GetCallerIdentity ---region cn-beijing ---endpoint sts.volcengineapi.com
 
 Use "{{.CommandPath}} [service] --help" for more information about a service.{{end}}
 `

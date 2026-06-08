@@ -1,10 +1,11 @@
 package cmd
 
+// Copyright 2023 Beijing Volcanoengine Technology Ltd.  All Rights Reserved.
+
 import (
+	"sort"
 	"strings"
 )
-
-// Copyright 2023 Beijing Volcanoengine Technology Ltd.  All Rights Reserved.
 
 type MetaType struct {
 	TypeName string `json:"TypeName,omitempty"`
@@ -137,4 +138,46 @@ func (m *ApiMeta) GetReqRequired(pattern string) bool {
 		}
 	}
 	return result
+}
+
+func (m *ApiMeta) GetRequestParams() (params []param) {
+	if m == nil || m.Request == nil || m.Request.MetaTypes == nil {
+		return nil
+	}
+
+	var traverse func(prefix string, meta *Meta)
+	traverse = func(prefix string, meta *Meta) {
+		if meta == nil || meta.MetaTypes == nil {
+			return
+		}
+		var keys []string
+		for k := range meta.MetaTypes {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			mt := meta.MetaTypes[key]
+			paramKey := key
+			if prefix != "" {
+				paramKey = prefix + "." + key
+			}
+			switch mt.TypeName {
+			case "object":
+				if meta.ChildMetas != nil {
+					if child := meta.ChildMetas[key]; child != nil {
+						traverse(paramKey, child)
+						continue
+					}
+				}
+			}
+			params = append(params, param{
+				key:      paramKey,
+				typeName: m.GetReqTypeName(paramKey),
+				required: m.GetReqRequired(paramKey),
+			})
+		}
+	}
+
+	traverse("", m.Request)
+	return params
 }

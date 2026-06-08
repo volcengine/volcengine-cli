@@ -43,6 +43,8 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		creds            *credentials.Credentials
 		region, endpoint string
 		endpointResolver string
+		httpProxy        string
+		httpsProxy       string
 		disableSSl       bool
 		useDualStack     bool
 	)
@@ -52,8 +54,10 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 	var currentProfile *Profile
 	profileName := ""
 	if ctx.config != nil {
-		// ---profile 运行时覆盖当前 profile
-		profileName = ctx.config.Current
+		// profile selection priority: ---profile > Current > env.
+		// Empty Current with no env does NOT fall back to a default profile;
+		// it goes to the default credential chain instead.
+		profileName = defaultProfileName(ctx.config)
 		overrideProfile := false
 		if f := ctx.fixedFlags.GetByName("profile"); f != nil && f.GetValue() != "" {
 			profileName = f.GetValue()
@@ -90,8 +94,19 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		creds = clicreds.NewCliCredentials("", profileName)
 
 		region = currentProfile.Region
+		if region == "" {
+			region = os.Getenv("VOLCENGINE_REGION")
+		}
 		endpoint = currentProfile.Endpoint
+		if endpoint == "" {
+			endpoint = os.Getenv("VOLCENGINE_ENDPOINT")
+		}
 		endpointResolver = currentProfile.EndpointResolver
+		if endpointResolver == "" {
+			endpointResolver = os.Getenv("VOLCENGINE_ENDPOINT_RESOLVER")
+		}
+		httpProxy = currentProfile.HTTPProxy
+		httpsProxy = currentProfile.HTTPSProxy
 		if currentProfile.DisableSSL != nil {
 			disableSSl = *currentProfile.DisableSSL
 		}
@@ -125,7 +140,16 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		region = f.GetValue()
 	}
 
+	// ---endpoint 运行时覆盖 endpoint
+	if f := ctx.fixedFlags.GetByName("endpoint"); f != nil && f.GetValue() != "" {
+		endpoint = f.GetValue()
+		endpointResolver = ""
+	}
+
 	if region == "" {
+		if currentProfile == nil && !hasLocalCredentialSignal() {
+			return nil, fmt.Errorf("credentials not configured, please run 've login' or 've configure set', or set VOLCENGINE_ACCESS_KEY and VOLCENGINE_SECRET_KEY environment variables")
+		}
 		return nil, fmt.Errorf("region not set, please set it via profile, ---region flag, or VOLCENGINE_REGION environment variable")
 	}
 
@@ -151,6 +175,12 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 	if useDualStack {
 		config.WithUseDualStack(true)
 	}
+	if httpProxy != "" {
+		config.WithHTTPProxy(httpProxy)
+	}
+	if httpsProxy != "" {
+		config.WithHTTPSProxy(httpsProxy)
+	}
 
 	sess, _ := session.NewSession(config)
 
@@ -158,6 +188,38 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		Config:  config,
 		Session: sess,
 	}, nil
+}
+
+func hasLocalCredentialSignal() bool {
+	if os.Getenv("VOLCENGINE_ACCESS_KEY") != "" || os.Getenv("VOLCSTACK_ACCESS_KEY_ID") != "" || os.Getenv("VOLCSTACK_ACCESS_KEY") != "" {
+		return true
+	}
+	if os.Getenv("VOLCENGINE_OIDC_TOKEN_FILE") != "" || os.Getenv("VOLCENGINE_OIDC_ROLE_TRN") != "" {
+		return true
+	}
+	if os.Getenv("VOLCENGINE_PROFILE") != "" || os.Getenv("VOLCSTACK_PROFILE") != "" {
+		return true
+	}
+	if os.Getenv("VOLCENGINE_ECS_METADATA") != "" {
+		return true
+	}
+	if os.Getenv("VOLCSTACK_CONTAINER_CREDENTIALS_FULL_URI") != "" {
+		return true
+	}
+	return false
+}
+
+func defaultProfileName(cfg *Configure) string {
+	if cfg != nil && cfg.Current != "" {
+		return cfg.Current
+	}
+	if profile := os.Getenv("VOLCENGINE_PROFILE"); profile != "" {
+		return profile
+	}
+	if profile := os.Getenv("VOLCSTACK_PROFILE"); profile != "" {
+		return profile
+	}
+	return ""
 }
 
 func (s *SdkClient) initClient(svc string, version string) *client.Client {

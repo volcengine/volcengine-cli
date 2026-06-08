@@ -16,7 +16,7 @@ type paramValue struct {
 	value string
 }
 
-func generateActionCmd(actionMeta map[string]*VolcengineMeta, apiMetas map[string]*ApiMeta) (actionCmds []*cobra.Command) {
+func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta, apiMetas map[string]*ApiMeta) (actionCmds []*cobra.Command) {
 	for action, meta := range actionMeta {
 		var apiMeta *ApiMeta
 		if len(apiMetas) > 0 {
@@ -24,6 +24,8 @@ func generateActionCmd(actionMeta map[string]*VolcengineMeta, apiMetas map[strin
 		}
 		actionCmd := &cobra.Command{
 			Use:                action,
+			Short:              formatActionShort(serviceName, action),
+			Long:               formatActionLong(serviceName, action),
 			DisableFlagParsing: true,
 			RunE: func(cmd *cobra.Command, args []string) error {
 				if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
@@ -50,16 +52,18 @@ func generateActionCmd(actionMeta map[string]*VolcengineMeta, apiMetas map[strin
 				actionCmd.Flags().StringVar(&paramValues[i].value, paramValues[i].param, "", "")
 			}
 
-			actionCmd.SetUsageTemplate(actionUsageTemplate(formatParamsHelpUsage(params)))
+			actionCmd.SetUsageTemplate(actionUsageTemplate(actionCmd.Long, formatParamsHelpUsage(params)))
 		} else {
 			var paramBody string
 			actionCmd.Flags().StringVar(&paramBody, "body", "", "")
 			var bodyStr []byte
+			params := []string{fmt.Sprintf(`body '%s'`, string(bodyStr))}
 			if apiMeta != nil && apiMeta.Request != nil {
 				bodyMap := apiMeta.Request.GetReqBody()
 				bodyStr, _ = json.MarshalIndent(bodyMap, "", "    ")
+				params = append([]string{fmt.Sprintf(`body '%s'`, string(bodyStr))}, formatParamsHelpUsage(apiMeta.GetRequestParams())...)
 			}
-			actionCmd.SetUsageTemplate(actionUsageTemplate([]string{fmt.Sprintf(`body '%s'`, string(bodyStr))}))
+			actionCmd.SetUsageTemplate(actionUsageTemplate(actionCmd.Long, params))
 		}
 
 		actionCmd.Flags().BoolP("help", "h", false, "")
@@ -98,26 +102,9 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 		contentType = apiInfo.ContentType
 	}
 
-	input := make(map[string]interface{})
-	for _, f := range ctx.dynamicFlags.flags {
-		// rebuild input
-		if f.Name != "body" {
-			// Skip JSON parsing for parameters whose declared type is "string".
-			// Without this, a value like '{"Statement":[...]}' is deserialized
-			// into a Go map and then flattened into query params, which breaks
-			// APIs that expect a raw JSON string (e.g. IAM CreatePolicy's
-			// PolicyDocument parameter).
-			if isStringParam(apiMeta, f.Name) {
-				input[f.Name] = f.value
-			} else if a, success := util.ParseToJsonArrayOrObject(strings.TrimSpace(f.value)); success {
-				input[f.Name] = a
-			} else {
-				input[f.Name] = f.value
-			}
-		} else {
-			// origin
-			input[f.Name] = f.value
-		}
+	input, inputFromBody, err := buildActionInput(ctx.dynamicFlags.flags, apiMeta)
+	if err != nil {
+		return
 	}
 
 	version := rootSupport.GetVersion(serviceName)
@@ -127,51 +114,29 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 	}
 
 	if strings.ToLower(contentType) != "application/json" {
+		inputMap, _ := input.(map[string]interface{})
 		out, err = sdk.CallSdk(SdkClientInfo{
 			ServiceName: serviceName,
 			Action:      action,
 			Version:     version,
 			Method:      method,
 			ContentType: contentType,
-		}, &input)
+		}, &inputMap)
 	} else {
-		if jsonStr, ok := input["body"]; ok {
-			var (
-				a []interface{}
-			)
-			m := make(map[string]interface{})
-			err = json.Unmarshal([]byte(jsonStr.(string)), &m)
-			if err != nil {
-				err = json.Unmarshal([]byte(jsonStr.(string)), &a)
-				if err != nil {
-					fmt.Println("json format error")
-					return
-				}
-				out, err = sdk.CallSdk(SdkClientInfo{
-					ServiceName: serviceName,
-					Action:      action,
-					Version:     version,
-					Method:      method,
-					ContentType: contentType,
-				}, &a)
-			} else {
-				out, err = sdk.CallSdk(SdkClientInfo{
-					ServiceName: serviceName,
-					Action:      action,
-					Version:     version,
-					Method:      method,
-					ContentType: contentType,
-				}, &m)
-			}
-		} else {
-			out, err = sdk.CallSdk(SdkClientInfo{
-				ServiceName: serviceName,
-				Action:      action,
-				Version:     version,
-				Method:      method,
-				ContentType: contentType,
-			}, &input)
+		if !inputFromBody {
+			inputMap, _ := input.(map[string]interface{})
+			input = &inputMap
 		}
+		out, err = sdk.CallSdk(SdkClientInfo{
+			ServiceName: serviceName,
+			Action:      action,
+			Version:     version,
+			Method:      method,
+			ContentType: contentType,
+		}, input)
+	}
+	if err != nil {
+		return formatActionError(err)
 	}
 
 	if config == nil || !config.EnableColor {
@@ -180,6 +145,16 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 		util.ShowJson(*out, true)
 	}
 	return
+}
+
+func formatActionError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Error(), "NoCredentialProviders") || strings.Contains(err.Error(), "no valid providers in chain") {
+		return fmt.Errorf("credentials not configured, please run 've login' or 've configure set', or set VOLCENGINE_ACCESS_KEY and VOLCENGINE_SECRET_KEY environment variables")
+	}
+	return err
 }
 
 // isStringParam reports whether the named parameter should be treated as a
@@ -245,14 +220,19 @@ func normalizeMetaTypeKey(name string) string {
 	return strings.Join(parts, ".")
 }
 
-func actionUsageTemplate(params []string) string {
+func actionUsageTemplate(description string, params []string) string {
 	sort.Strings(params)
 
 	for i := 0; i < len(params); i++ {
 		params[i] = "  --" + params[i]
 	}
 
-	return fmt.Sprintf(`Usage:{{if .Runnable}}
+	description = strings.TrimSpace(description)
+	if description != "" {
+		description += "\n\n"
+	}
+
+	return fmt.Sprintf(`%sUsage:{{if .Runnable}}
   {{.CommandPath}} [params]{{end}}{{if .HasExample}}
 
 Examples:
@@ -261,5 +241,10 @@ Examples:
 Available Parameters:
 %s
 
-`, strings.Join(params, "\n"))
+Fixed Flags:
+  ---profile string    Use a configured profile only for this invocation.
+  ---region string     Override the region only for this invocation.
+  ---endpoint string   Override the endpoint only for this invocation.
+
+`, description, strings.Join(params, "\n"))
 }
