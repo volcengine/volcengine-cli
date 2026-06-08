@@ -3,20 +3,19 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"html"
 	"net"
 	"net/http"
 	"os"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	callbackasset "github.com/volcengine/volcengine-cli/asset/consolelogin"
 )
 
-const callbackHTMLPlaceholder = "__CALLBACK_ERROR__"
+const callbackHTMLPlaceholder = "__CALLBACK_PAGE_DATA__"
 
 var (
 	callbackTemplateOnce sync.Once
@@ -125,35 +124,49 @@ func loadCallbackTemplate() ([]byte, error) {
 	return callbackTemplate, nil
 }
 
-func jsStringLiteral(value string) string {
-	quoted := strconv.Quote(value)
-	// Avoid accidentally terminating the script block when error text contains "</script>".
-	return strings.ReplaceAll(quoted, "</", "<\\/")
-}
-
-func renderCallbackPage(errorMessage string) ([]byte, error) {
+func renderCallbackPage(errorMessage, lang string) ([]byte, error) {
 	content, err := loadCallbackTemplate()
 	if err != nil {
 		return nil, err
 	}
 
-	return bytes.Replace(content, []byte(callbackHTMLPlaceholder), []byte(jsStringLiteral(errorMessage)), 1), nil
+	pageData, err := json.Marshal(newCallbackPageData(errorMessage, lang))
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal callback page data: %w", err)
+	}
+
+	return bytes.Replace(content, []byte(callbackHTMLPlaceholder), pageData, 1), nil
 }
 
-func writeFallbackCallbackPage(w http.ResponseWriter, errorMessage string) {
+func writeFallbackCallbackPage(w http.ResponseWriter, errorMessage, lang string) {
+	pageData := newCallbackPageData(errorMessage, lang)
+	messages := pageData.Messages
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 
 	if errorMessage != "" {
 		_, _ = fmt.Fprintf(
 			w,
-			`<html><body><h2>Authentication failed</h2><p>Please return to the terminal.</p><p>OAuth error: %s</p></body></html>`,
+			`<!doctype html><html lang="%s"><head><meta charset="utf-8"><title>%s</title></head><body><h2>%s</h2><p>%s</p><p>%s: %s</p></body></html>`,
+			html.EscapeString(pageData.Lang),
+			html.EscapeString(messages.DocumentTitleFailure),
+			html.EscapeString(messages.FailureTitle),
+			html.EscapeString(messages.FailureCopy),
+			html.EscapeString(messages.OAuthErrorLabel),
 			html.EscapeString(errorMessage),
 		)
 		return
 	}
 
-	_, _ = fmt.Fprint(w, `<html><body><h2>Authentication successful!</h2><p>You can close this page and return to the terminal.</p></body></html>`)
+	_, _ = fmt.Fprintf(
+		w,
+		`<!doctype html><html lang="%s"><head><meta charset="utf-8"><title>%s</title></head><body><h2>%s</h2><p>%s</p></body></html>`,
+		html.EscapeString(pageData.Lang),
+		html.EscapeString(messages.DocumentTitleSuccess),
+		html.EscapeString(messages.SuccessTitle),
+		html.EscapeString(messages.SuccessCopy),
+	)
 }
 
 // handleCallback processes the OAuth callback request from the browser.
@@ -169,6 +182,7 @@ func (s *CallbackServer) handleCallback(w http.ResponseWriter, r *http.Request) 
 	}
 
 	query := r.URL.Query()
+	lang := query.Get("lang")
 	code := query.Get("code")
 	state := query.Get("state")
 	errorParam := query.Get("error")
@@ -215,10 +229,10 @@ func (s *CallbackServer) handleCallback(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	page, err := renderCallbackPage(errorMessage)
+	page, err := renderCallbackPage(errorMessage, lang)
 	if err != nil {
 		logCallbackWarning("failed to render OAuth callback page; fallback page is used: %v", err)
-		writeFallbackCallbackPage(w, errorMessage)
+		writeFallbackCallbackPage(w, errorMessage, lang)
 		return
 	}
 
