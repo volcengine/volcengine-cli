@@ -5,7 +5,7 @@ const https = require("https");
 const fs = require("fs");
 const path = require("path");
 
-const VERSION = "1.0.46";
+const VERSION = require("./package.json").version;
 const DEFAULT_DOWNLOAD_BASE_URL = "https://vecli-demo.tos-cn-beijing.volces.com/ve";
 const DOWNLOAD_BASE_URL = normalizeBaseURL(
   process.env.VOLCENGINE_CLI_DOWNLOAD_BASE_URL || DEFAULT_DOWNLOAD_BASE_URL
@@ -191,4 +191,5 @@ module.exports = {
   createWindowsVeShim,
   normalizeBaseURL,
   targetForPlatform,
+  version: VERSION,
 };

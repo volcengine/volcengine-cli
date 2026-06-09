@@ -13,6 +13,7 @@ const {
   createWindowsVeShim,
   normalizeBaseURL,
   targetForPlatform,
+  version,
 } = require("./install");
 const pkg = require("./package.json");
 
@@ -30,7 +31,8 @@ function withTempDir(fn) {
 
 assert.strictEqual(pkg.bin.ve, "bin/ve");
 assert.strictEqual(pkg.name, "@sdk-liuzhaoliang/cli");
-assert.strictEqual(pkg.repository.url, "https://github.com/sdk-liuzhaoliang/volcengine-cli");
+assert.strictEqual(version, pkg.version);
+assert.strictEqual(pkg.repository.url, "https://github.com/volcengine/volcengine-cli");
 assert.strictEqual(binaryNameForPlatform("win32"), "ve.exe");
 assert.strictEqual(binaryNameForPlatform("linux"), "ve");
 assert.strictEqual(binaryNameForPlatform("darwin"), "ve");

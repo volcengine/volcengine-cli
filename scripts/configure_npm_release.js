@@ -34,12 +34,6 @@ fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
 let install = fs.readFileSync(installPath, "utf8");
 install = replaceOne(
   install,
-  /const VERSION = "([^"]+)";/,
-  `const VERSION = "${version}";`,
-  "install.js VERSION"
-);
-install = replaceOne(
-  install,
   /const DEFAULT_DOWNLOAD_BASE_URL = "([^"]+)";/,
   `const DEFAULT_DOWNLOAD_BASE_URL = "${downloadBaseURL}";`,
   "install.js DEFAULT_DOWNLOAD_BASE_URL"
