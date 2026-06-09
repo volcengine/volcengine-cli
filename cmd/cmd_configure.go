@@ -45,8 +45,9 @@ func init() {
 
 func newConfigureRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:  "configure",
-		Args: cobra.MatchAll(cobra.OnlyValidArgs),
+		Use:   "configure",
+		Short: "Manage CLI profiles and credentials",
+		Args:  cobra.MatchAll(cobra.OnlyValidArgs),
 		Run: func(cmd *cobra.Command, args []string) {
 			cmd.Usage()
 		},
