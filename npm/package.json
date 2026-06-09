@@ -1,12 +1,12 @@
 {
   "name": "@sdk-liuzhaoliang/cli",
   "version": "1.0.46",
-  "description": "Volcengine CLI test package for sdk-liuzhaoliang",
+  "description": "Volcengine CLI npm installer",
   "bin": {
     "ve": "bin/ve"
   },
   "scripts": {
-    "prepack": "node -e \"const fs=require('fs');fs.mkdirSync('bin',{recursive:true});fs.writeFileSync('bin/ve','#!/usr/bin/env node\\nconsole.error(\\\"ve not installed. Run npm rebuild @sdk-liuzhaoliang/cli\\\");\\nprocess.exit(1);\\n');fs.chmodSync('bin/ve',0o755)\"",
+    "prepack": "node -e \"const fs=require('fs');fs.mkdirSync('bin',{recursive:true});fs.writeFileSync('bin/ve','#!/usr/bin/env node\\nconsole.error(\\\"ve not installed. Run npm rebuild for this package\\\");\\nprocess.exit(1);\\n');fs.chmodSync('bin/ve',0o755)\"",
     "postinstall": "node install.js",
     "test": "node install_test.js"
   },
