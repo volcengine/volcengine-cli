@@ -35,9 +35,11 @@ builds:
         goarch: arm
     binary: ve
 archives:
-  - format: zip
+  - id: zip
+    format: zip
     name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
-  - format: tar.gz
+  - id: targz
+    format: tar.gz
     name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
 checksum:
   name_template: '{{ .ProjectName }}_{{ .Version }}_SHA256SUMS'
