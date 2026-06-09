@@ -68,6 +68,7 @@ jobs:
           TOS_PREFIX: ${{ vars.TOS_PREFIX }}
           TOS_REGION: ${{ vars.TOS_REGION }}
           TOS_S3_ENDPOINT: ${{ vars.TOS_S3_ENDPOINT }}
+          TOS_UPLOAD_CONCURRENCY: ${{ vars.TOS_UPLOAD_CONCURRENCY }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           : "${AWS_ACCESS_KEY_ID:?missing secret TOS_ACCESS_KEY_ID}"
@@ -77,16 +78,35 @@ jobs:
           bucket="${TOS_BUCKET:-vecli-demo}"
           prefix="${TOS_PREFIX:-ve}"
           endpoint="${TOS_S3_ENDPOINT:-https://tos-s3-cn-beijing.volces.com}"
+          concurrency="${TOS_UPLOAD_CONCURRENCY:-4}"
           destination="s3://${bucket}/${prefix}/v${VERSION}/"
+
+          if ! [[ "$concurrency" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Invalid TOS_UPLOAD_CONCURRENCY: $concurrency" >&2
+            exit 1
+          fi
 
           aws configure set default.s3.addressing_style virtual
           find dist -maxdepth 1 -type f \( -name '*.zip' -o -name '*SHA256SUMS' \) -print
           aws --endpoint-url "$endpoint" s3 ls "s3://${bucket}/${prefix}/" || true
 
+          pids=()
           while IFS= read -r file; do
             echo "Uploading ${file}"
-            aws --endpoint-url "$endpoint" s3 cp "$file" "$destination"
+            aws --endpoint-url "$endpoint" s3 cp "$file" "$destination" &
+            pids+=("$!")
+
+            if [ "${#pids[@]}" -ge "$concurrency" ]; then
+              for pid in "${pids[@]}"; do
+                wait "$pid"
+              done
+              pids=()
+            fi
           done < <(find dist -maxdepth 1 -type f \( -name '*.zip' -o -name '*SHA256SUMS' \) -print | sort)
+
+          for pid in "${pids[@]}"; do
+            wait "$pid"
+          done
 
           aws --endpoint-url "$endpoint" s3 ls "$destination" --recursive
 
