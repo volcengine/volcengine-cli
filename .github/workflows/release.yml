@@ -3,7 +3,10 @@ name: release
 on:
   push:
     tags:
-      - 'v*'
+      - '[0-9]+.[0-9]+.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+-*'
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
 
 permissions:
   contents: read
@@ -70,8 +73,8 @@ jobs:
           : "${AWS_SECRET_ACCESS_KEY:?missing secret TOS_SECRET_ACCESS_KEY}"
 
           export AWS_DEFAULT_REGION="${TOS_REGION:-cn-beijing}"
-          bucket="${TOS_BUCKET:-sdk-liuzhaoliang}"
-          prefix="${TOS_PREFIX:-volcengine-cli}"
+          bucket="${TOS_BUCKET:-vecli-demo}"
+          prefix="${TOS_PREFIX:-ve}"
           endpoint="${TOS_S3_ENDPOINT:-https://tos-s3-cn-beijing.volces.com}"
           destination="s3://${bucket}/${prefix}/v${VERSION}/"
 
@@ -90,8 +93,8 @@ jobs:
           TOS_PUBLIC_BASE_URL: ${{ vars.TOS_PUBLIC_BASE_URL }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          prefix="${TOS_PREFIX:-volcengine-cli}"
-          public_base="${TOS_PUBLIC_BASE_URL:-https://sdk-liuzhaoliang.tos-cn-beijing.volces.com}"
+          prefix="${TOS_PREFIX:-ve}"
+          public_base="${TOS_PUBLIC_BASE_URL:-https://vecli-demo.tos-cn-beijing.volces.com}"
           download_base="${public_base%/}/${prefix}"
           node scripts/configure_npm_release.js "$VERSION" "$download_base"
 
@@ -101,8 +104,8 @@ jobs:
           TOS_PUBLIC_BASE_URL: ${{ vars.TOS_PUBLIC_BASE_URL }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          prefix="${TOS_PREFIX:-volcengine-cli}"
-          public_base="${TOS_PUBLIC_BASE_URL:-https://sdk-liuzhaoliang.tos-cn-beijing.volces.com}"
+          prefix="${TOS_PREFIX:-ve}"
+          public_base="${TOS_PUBLIC_BASE_URL:-https://vecli-demo.tos-cn-beijing.volces.com}"
           download_base="${public_base%/}/${prefix}"
           archive="volcengine-cli_${VERSION}_linux_amd64.zip"
           curl --fail --location --head "${download_base}/v${VERSION}/${archive}"

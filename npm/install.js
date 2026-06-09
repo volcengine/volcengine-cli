@@ -6,7 +6,7 @@ const fs = require("fs");
 const path = require("path");
 
 const VERSION = "1.0.46";
-const DEFAULT_DOWNLOAD_BASE_URL = "https://sdk-liuzhaoliang.tos-cn-beijing.volces.com/volcengine-cli";
+const DEFAULT_DOWNLOAD_BASE_URL = "https://vecli-demo.tos-cn-beijing.volces.com/ve";
 const DOWNLOAD_BASE_URL = normalizeBaseURL(
   process.env.VOLCENGINE_CLI_DOWNLOAD_BASE_URL || DEFAULT_DOWNLOAD_BASE_URL
 );
