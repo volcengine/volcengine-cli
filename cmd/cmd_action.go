@@ -102,7 +102,8 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 		contentType = apiInfo.ContentType
 	}
 
-	input, inputFromBody, err := buildActionInput(ctx.dynamicFlags.flags, apiMeta)
+	jsonBody := strings.ToLower(contentType) == "application/json"
+	input, inputFromBody, err := buildActionInput(ctx.dynamicFlags.flags, apiMeta, jsonBody)
 	if err != nil {
 		return
 	}

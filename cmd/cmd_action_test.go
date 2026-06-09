@@ -8,7 +8,7 @@ func TestBuildActionInputRejectsBodyWithFlattenedParams(t *testing.T) {
 	instanceID := &Flag{Name: "InstanceId"}
 	instanceID.SetValue("mysql-1")
 
-	_, _, err := buildActionInput([]*Flag{body, instanceID}, nil)
+	_, _, err := buildActionInput([]*Flag{body, instanceID}, nil, true)
 	if err == nil {
 		t.Fatal("expected --body and flattened params conflict")
 	}
@@ -18,7 +18,7 @@ func TestBuildActionInputParsesJsonBody(t *testing.T) {
 	body := &Flag{Name: "body"}
 	body.SetValue(`{"InstanceId":"mysql-1","IPList":["10.20.30.40"]}`)
 
-	input, fromBody, err := buildActionInput([]*Flag{body}, nil)
+	input, fromBody, err := buildActionInput([]*Flag{body}, nil, true)
 	if err != nil {
 		t.Fatalf("buildActionInput returned error: %v", err)
 	}
@@ -35,6 +35,12 @@ func TestBuildActionInputParsesJsonBody(t *testing.T) {
 }
 
 func TestBuildActionInputSupportsFlattenedJsonBodyParams(t *testing.T) {
+	apiMeta := &ApiMeta{Request: &Meta{MetaTypes: map[string]*MetaType{
+		"InstanceId": {TypeName: "string"},
+		"GroupName":  {TypeName: "string"},
+		"IPList":     {TypeName: "array[string]"},
+	}}}
+
 	instanceID := &Flag{Name: "InstanceId"}
 	instanceID.SetValue("mysql-1")
 	groupName := &Flag{Name: "GroupName"}
@@ -42,14 +48,17 @@ func TestBuildActionInputSupportsFlattenedJsonBodyParams(t *testing.T) {
 	ipList := &Flag{Name: "IPList"}
 	ipList.SetValue(`["10.20.30.40","50.60.70.80"]`)
 
-	input, fromBody, err := buildActionInput([]*Flag{instanceID, groupName, ipList}, nil)
+	input, fromBody, err := buildActionInput([]*Flag{instanceID, groupName, ipList}, apiMeta, true)
 	if err != nil {
 		t.Fatalf("buildActionInput returned error: %v", err)
 	}
 	if fromBody {
 		t.Fatal("flattened params should not be marked from body")
 	}
-	m := input.(map[string]interface{})
+	m, ok := input.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map input, got %T", input)
+	}
 	if m["InstanceId"] != "mysql-1" || m["GroupName"] != "group-a" {
 		t.Fatalf("unexpected scalar params: %#v", m)
 	}
