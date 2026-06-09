@@ -61,6 +61,9 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.TOS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.TOS_SECRET_ACCESS_KEY }}
+          AWS_MAX_ATTEMPTS: "2"
+          AWS_CLI_CONNECT_TIMEOUT: "10"
+          AWS_CLI_READ_TIMEOUT: "60"
           TOS_BUCKET: ${{ vars.TOS_BUCKET }}
           TOS_PREFIX: ${{ vars.TOS_PREFIX }}
           TOS_REGION: ${{ vars.TOS_REGION }}
@@ -77,11 +80,13 @@ jobs:
           destination="s3://${bucket}/${prefix}/v${VERSION}/"
 
           aws configure set default.s3.addressing_style virtual
-          aws --endpoint-url "$endpoint" s3 cp dist/ "$destination" \
-            --recursive \
-            --exclude "*" \
-            --include "*.zip" \
-            --include "*SHA256SUMS"
+          find dist -maxdepth 1 -type f \( -name '*.zip' -o -name '*SHA256SUMS' \) -print
+          aws --endpoint-url "$endpoint" s3 ls "s3://${bucket}/${prefix}/" || true
+
+          while IFS= read -r file; do
+            echo "Uploading ${file}"
+            aws --endpoint-url "$endpoint" s3 cp "$file" "$destination"
+          done < <(find dist -maxdepth 1 -type f \( -name '*.zip' -o -name '*SHA256SUMS' \) -print | sort)
 
           aws --endpoint-url "$endpoint" s3 ls "$destination" --recursive
 
