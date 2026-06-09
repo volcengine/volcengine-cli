@@ -7,7 +7,7 @@ on:
       - 'v*.*.*'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   release:
@@ -48,7 +48,7 @@ jobs:
         uses: goreleaser/goreleaser-action@v3.0.0
         with:
           version: v1.26.2
-          args: release --clean --skip=publish
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
