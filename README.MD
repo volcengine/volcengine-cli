@@ -19,15 +19,22 @@
 
 1. 使用build.sh编译客户端
     ```shell
+    # 全自动：按当前机器的 OS 和架构编译（最常用）
+    sh build.sh
+
+    # 也可显式指定 OS（架构仍自动探测），下面三选一
     # 如果是mac 
     sh build.sh darwin
-    mv ve-darwin ve
     # 如果是windows
     sh build.sh windows
-    mv ve-windows ve
     # 如果是linux
     sh build.sh linux
-    mv ve-linux ve
+
+    # 如需交叉编译，可选传第二参数指定架构：amd64 / arm64 / 386 / arm
+    sh build.sh linux amd64
+
+    # 查看用法说明
+    sh build.sh -h
     ```
 
 

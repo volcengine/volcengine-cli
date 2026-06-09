@@ -22,15 +22,22 @@ To make it easier for users, starting from version v1.0.20, the command prefix f
 
 1.  Compile the client using build.sh.
 ```shell
+# Fully automatic: build for the current machine's OS and arch (most common)
+sh build.sh
+
+# Or specify the OS explicitly (arch is still auto-detected); pick one
 # If using a Mac 
 sh build.sh darwin
-mv ve-darwin ve
 # If Using Windows
 sh build.sh windows
-mv ve-windows ve
 # If using Linux
 sh build.sh linux
-mv ve-linux ve
+
+# For cross-compiling, optionally pass the arch as the 2nd arg: amd64 / arm64 / 386 / arm
+sh build.sh linux amd64
+
+# Show usage
+sh build.sh -h
 ```
 
 
