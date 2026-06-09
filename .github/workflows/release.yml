@@ -78,7 +78,7 @@ jobs:
           bucket="${TOS_BUCKET:-vecli-demo}"
           prefix="${TOS_PREFIX:-ve}"
           endpoint="${TOS_S3_ENDPOINT:-https://tos-s3-cn-beijing.volces.com}"
-          concurrency="${TOS_UPLOAD_CONCURRENCY:-4}"
+          concurrency="${TOS_UPLOAD_CONCURRENCY:-20}"
           destination="s3://${bucket}/${prefix}/v${VERSION}/"
 
           if ! [[ "$concurrency" =~ ^[1-9][0-9]*$ ]]; then
