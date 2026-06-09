@@ -1,42 +1,127 @@
-# This GitHub action can publish assets for release when a tag is created.
-# Currently its setup to run on any tag that matches the pattern "v*" (ie. v0.1.0).
-#
-# This uses an action (hashicorp/ghaction-import-gpg) that assumes you set your
-# private key in the `GPG_PRIVATE_KEY` secret and passphrase in the `PASSPHRASE`
-# secret. If you would rather own your own GPG handling, please fork this action
-# or use an alternative one for key handling.
-#
-# You will need to pass the `--batch` flag to `gpg` in your signing step
-# in `goreleaser` to indicate this is being used in a non-interactive mode.
-#
 name: release
+
 on:
   push:
     tags:
       - 'v*'
+
 permissions:
-  contents: write
+  contents: read
+
 jobs:
-  goreleaser:
+  release:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+
     steps:
-      -
-        name: Checkout
-        uses: actions/checkout@v3
-      -
-        name: Unshallow
-        run: git fetch --prune --unshallow
-      -
-        name: Set up Go
-        uses: actions/setup-go@v3
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
           go-version: 1.17
-      -
-        name: Run GoReleaser
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Extract version
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release tag: $tag" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v3.0.0
         with:
           version: v1.26.2
-          args: release --rm-dist
+          args: release --clean --skip=publish
         env:
-          # GitHub sets this automatically
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install AWS CLI
+        run: |
+          python3 -m pip install --user --upgrade awscli
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Upload release assets to TOS
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.TOS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.TOS_SECRET_ACCESS_KEY }}
+          TOS_BUCKET: ${{ vars.TOS_BUCKET }}
+          TOS_PREFIX: ${{ vars.TOS_PREFIX }}
+          TOS_REGION: ${{ vars.TOS_REGION }}
+          TOS_S3_ENDPOINT: ${{ vars.TOS_S3_ENDPOINT }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          : "${AWS_ACCESS_KEY_ID:?missing secret TOS_ACCESS_KEY_ID}"
+          : "${AWS_SECRET_ACCESS_KEY:?missing secret TOS_SECRET_ACCESS_KEY}"
+
+          export AWS_DEFAULT_REGION="${TOS_REGION:-cn-beijing}"
+          bucket="${TOS_BUCKET:-sdk-liuzhaoliang}"
+          prefix="${TOS_PREFIX:-volcengine-cli}"
+          endpoint="${TOS_S3_ENDPOINT:-https://tos-s3-cn-beijing.volces.com}"
+          destination="s3://${bucket}/${prefix}/v${VERSION}/"
+
+          aws configure set default.s3.addressing_style virtual
+          aws --endpoint-url "$endpoint" s3 cp dist/ "$destination" \
+            --recursive \
+            --exclude "*" \
+            --include "*.zip" \
+            --include "*SHA256SUMS"
+
+          aws --endpoint-url "$endpoint" s3 ls "$destination" --recursive
+
+      - name: Configure npm package for TOS
+        env:
+          TOS_PREFIX: ${{ vars.TOS_PREFIX }}
+          TOS_PUBLIC_BASE_URL: ${{ vars.TOS_PUBLIC_BASE_URL }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          prefix="${TOS_PREFIX:-volcengine-cli}"
+          public_base="${TOS_PUBLIC_BASE_URL:-https://sdk-liuzhaoliang.tos-cn-beijing.volces.com}"
+          download_base="${public_base%/}/${prefix}"
+          node scripts/configure_npm_release.js "$VERSION" "$download_base"
+
+      - name: Verify public TOS download
+        env:
+          TOS_PREFIX: ${{ vars.TOS_PREFIX }}
+          TOS_PUBLIC_BASE_URL: ${{ vars.TOS_PUBLIC_BASE_URL }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          prefix="${TOS_PREFIX:-volcengine-cli}"
+          public_base="${TOS_PUBLIC_BASE_URL:-https://sdk-liuzhaoliang.tos-cn-beijing.volces.com}"
+          download_base="${public_base%/}/${prefix}"
+          archive="volcengine-cli_${VERSION}_linux_amd64.zip"
+          curl --fail --location --head "${download_base}/v${VERSION}/${archive}"
+
+      - name: Test npm package
+        working-directory: npm
+        run: |
+          npm test
+          npm pack --dry-run
+
+      - name: Publish npm package
+        working-directory: npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          : "${NODE_AUTH_TOKEN:?missing secret NPM_TOKEN}"
+          npm_tag="latest"
+          if [[ "$VERSION" == *-* ]]; then
+            npm_tag="next"
+          fi
+          npm publish --access public --tag "$npm_tag"

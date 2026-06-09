@@ -1,0 +1,3 @@
+#!/usr/bin/env node
+console.error("ve not installed. Run npm rebuild @sdk-liuzhaoliang/cli");
+process.exit(1);

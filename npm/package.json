@@ -1,0 +1,37 @@
+{
+  "name": "@sdk-liuzhaoliang/cli",
+  "version": "1.0.46",
+  "description": "Volcengine CLI test package for sdk-liuzhaoliang",
+  "bin": {
+    "ve": "bin/ve"
+  },
+  "scripts": {
+    "prepack": "node -e \"const fs=require('fs');fs.mkdirSync('bin',{recursive:true});fs.writeFileSync('bin/ve','#!/usr/bin/env node\\nconsole.error(\\\"ve not installed. Run npm rebuild @sdk-liuzhaoliang/cli\\\");\\nprocess.exit(1);\\n');fs.chmodSync('bin/ve',0o755)\"",
+    "postinstall": "node install.js",
+    "test": "node install_test.js"
+  },
+  "files": [
+    "bin/",
+    "install.js"
+  ],
+  "keywords": [
+    "volcengine",
+    "cli",
+    "cloud",
+    "火山引擎"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sdk-liuzhaoliang/volcengine-cli"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32",
+    "freebsd"
+  ],
+  "engines": {
+    "node": ">=14"
+  }
+}
