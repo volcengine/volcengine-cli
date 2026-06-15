@@ -53,14 +53,16 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 	}
 	var currentProfile *Profile
 	profileName := ""
+	profileSource := "default-chain"
 	if ctx.config != nil {
 		// profile selection priority: ---profile > Current > env.
 		// Empty Current with no env does NOT fall back to a default profile;
 		// it goes to the default credential chain instead.
-		profileName = defaultProfileName(ctx.config)
+		profileName, profileSource = defaultProfileNameWithSource(ctx.config)
 		overrideProfile := false
 		if f := ctx.fixedFlags.GetByName("profile"); f != nil && f.GetValue() != "" {
 			profileName = f.GetValue()
+			profileSource = "flag"
 			overrideProfile = true
 		}
 		currentProfile = ctx.config.Profiles[profileName]
@@ -182,6 +184,19 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		config.WithHTTPSProxy(httpsProxy)
 	}
 
+	debugLogClientConfig(ctx, debugClientConfig{
+		ProfileName:          profileName,
+		ProfileSource:        profileSource,
+		CredentialMode:       debugCredentialMode(currentProfile),
+		Region:               region,
+		Endpoint:             endpoint,
+		EndpointResolver:     endpointResolver,
+		DisableSSL:           disableSSl,
+		UseDualStack:         useDualStack,
+		HTTPProxyConfigured:  httpProxy != "",
+		HTTPSProxyConfigured: httpsProxy != "",
+	})
+
 	sess, _ := session.NewSession(config)
 
 	return &SdkClient{
@@ -210,16 +225,64 @@ func hasLocalCredentialSignal() bool {
 }
 
 func defaultProfileName(cfg *Configure) string {
+	name, _ := defaultProfileNameWithSource(cfg)
+	return name
+}
+
+func defaultProfileNameWithSource(cfg *Configure) (string, string) {
 	if cfg != nil && cfg.Current != "" {
-		return cfg.Current
+		return cfg.Current, "current"
 	}
 	if profile := os.Getenv("VOLCENGINE_PROFILE"); profile != "" {
-		return profile
+		return profile, "env:VOLCENGINE_PROFILE"
 	}
 	if profile := os.Getenv("VOLCSTACK_PROFILE"); profile != "" {
-		return profile
+		return profile, "env:VOLCSTACK_PROFILE"
 	}
-	return ""
+	return "", "default-chain"
+}
+
+type debugClientConfig struct {
+	ProfileName          string
+	ProfileSource        string
+	CredentialMode       string
+	Region               string
+	Endpoint             string
+	EndpointResolver     string
+	DisableSSL           bool
+	UseDualStack         bool
+	HTTPProxyConfigured  bool
+	HTTPSProxyConfigured bool
+}
+
+func debugCredentialMode(profile *Profile) string {
+	if profile == nil {
+		return "default-chain"
+	}
+	mode := strings.ToLower(strings.TrimSpace(profile.Mode))
+	if mode == "" {
+		return ModeAK
+	}
+	return mode
+}
+
+func debugLogClientConfig(ctx *Context, info debugClientConfig) {
+	logger := debugLoggerFromContext(ctx)
+	if !logger.Enabled() {
+		return
+	}
+	logger.Printf("client_config profile_source=%s profile=%s credential_mode=%s region=%s endpoint=%s endpoint_resolver=%s disable_ssl=%t use_dual_stack=%t http_proxy_configured=%t https_proxy_configured=%t",
+		info.ProfileSource,
+		info.ProfileName,
+		info.CredentialMode,
+		info.Region,
+		info.Endpoint,
+		info.EndpointResolver,
+		info.DisableSSL,
+		info.UseDualStack,
+		info.HTTPProxyConfigured,
+		info.HTTPSProxyConfigured,
+	)
 }
 
 func (s *SdkClient) initClient(svc string, version string) *client.Client {

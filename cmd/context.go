@@ -6,6 +6,7 @@ type Context struct {
 	fixedFlags   *FlagSet
 	dynamicFlags *FlagSet
 	config       *Configure
+	debugLogger  *DebugLogger
 }
 
 func NewContext() *Context {

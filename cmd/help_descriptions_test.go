@@ -19,7 +19,7 @@ func TestRootHelpIncludesFixedFlags(t *testing.T) {
 		t.Fatalf("Usage returned error: %v", err)
 	}
 	out := b.String()
-	for _, want := range []string{"---profile", "---region", "---endpoint"} {
+	for _, want := range expectedFixedFlagsForTest() {
 		if !strings.Contains(out, want) {
 			t.Fatalf("root help missing %q:\n%s", want, out)
 		}
@@ -132,7 +132,7 @@ func stubExplorerDescriptionsAsset(data string) func() {
 
 func TestServiceUsageIncludesFixedFlags(t *testing.T) {
 	out := serviceUsageTemplate()
-	for _, want := range []string{"---profile", "---region", "---endpoint"} {
+	for _, want := range expectedFixedFlagsForTest() {
 		if !strings.Contains(out, want) {
 			t.Fatalf("service usage missing %q:\n%s", want, out)
 		}
@@ -141,9 +141,13 @@ func TestServiceUsageIncludesFixedFlags(t *testing.T) {
 
 func TestActionUsageIncludesFixedFlags(t *testing.T) {
 	out := actionUsageTemplate("", []string{"InstanceId string"})
-	for _, want := range []string{"---profile", "---region", "---endpoint"} {
+	for _, want := range expectedFixedFlagsForTest() {
 		if !strings.Contains(out, want) {
 			t.Fatalf("action usage missing %q:\n%s", want, out)
 		}
 	}
+}
+
+func expectedFixedFlagsForTest() []string {
+	return []string{"---profile", "---region", "---endpoint", "---debug", "---debug-log-file"}
 }

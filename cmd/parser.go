@@ -8,10 +8,14 @@ import (
 )
 
 var allowedFixedFlags = map[string]struct{}{
-	"profile":  {},
-	"region":   {},
-	"endpoint": {},
+	"profile":        {},
+	"region":         {},
+	"endpoint":       {},
+	"debug":          {},
+	"debug-log-file": {},
 }
+
+const supportedFixedFlagsMessage = "---profile, ---region, ---endpoint, ---debug, ---debug-log-file"
 
 type Parser struct {
 	currentIndex int
@@ -108,7 +112,7 @@ func (p *Parser) parseArg(arg string, ctx *Context) (flag *Flag, value string, e
 			return
 		}
 		if _, ok := allowedFixedFlags[name]; !ok {
-			err = fmt.Errorf("---%s is not supported, supported fixed flags: ---profile, ---region, ---endpoint", name)
+			err = fmt.Errorf("---%s is not supported, supported fixed flags: %s", name, supportedFixedFlagsMessage)
 			return
 		}
 		flag, err = ctx.fixedFlags.AddByName(name)

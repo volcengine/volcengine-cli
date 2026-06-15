@@ -3,9 +3,11 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/volcengine/volcengine-cli/util"
@@ -80,14 +82,20 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 		return
 	}
 
+	debugLog, closeDebugLog, err := prepareDebugLogger(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := closeDebugLog(); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
+
 	var (
 		sdk *SdkClient
 		out *map[string]interface{}
 	)
-	sdk, err = NewSimpleClient(ctx)
-	if err != nil {
-		return
-	}
 
 	method := "GET"
 	contentType := ""
@@ -102,18 +110,28 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 		contentType = apiInfo.ContentType
 	}
 
-	jsonBody := strings.ToLower(contentType) == "application/json"
-	input, inputFromBody, err := buildActionInput(ctx.dynamicFlags.flags, apiMeta, jsonBody)
+	version := rootSupport.GetVersion(serviceName)
+	debugLogActionStart(debugLog, serviceName, action, version, method, contentType)
+
+	sdk, err = NewSimpleClient(ctx)
 	if err != nil {
+		debugLogError(debugLog, "client_init_error", err)
 		return
 	}
 
-	version := rootSupport.GetVersion(serviceName)
+	jsonBody := strings.ToLower(contentType) == "application/json"
+	input, inputFromBody, err := buildActionInput(ctx.dynamicFlags.flags, apiMeta, jsonBody)
+	if err != nil {
+		debugLogError(debugLog, "input_build_error", err)
+		return
+	}
+	debugLogInput(debugLog, ctx.dynamicFlags.flags, input, inputFromBody)
 
 	if svc, ok := GetServiceMapping(serviceName); ok {
 		serviceName = svc
 	}
 
+	start := time.Now()
 	if strings.ToLower(contentType) != "application/json" {
 		inputMap, _ := input.(map[string]interface{})
 		out, err = sdk.CallSdk(SdkClientInfo{
@@ -137,8 +155,10 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 		}, input)
 	}
 	if err != nil {
+		debugLogSdkEnd(debugLog, start, err)
 		return formatActionError(err)
 	}
+	debugLogSdkEnd(debugLog, start, nil)
 
 	if config == nil || !config.EnableColor {
 		util.ShowJson(*out, false)
@@ -146,6 +166,73 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 		util.ShowJson(*out, true)
 	}
 	return
+}
+
+func prepareDebugLogger(ctx *Context) (*DebugLogger, func() error, error) {
+	if ctx != nil && ctx.debugLogger != nil {
+		return ctx.debugLogger, func() error { return nil }, nil
+	}
+
+	opts, err := resolveDebugOptions(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	logger, err := newDebugLogger(opts, os.Stderr)
+	if err != nil {
+		return nil, nil, err
+	}
+	if ctx != nil {
+		ctx.debugLogger = logger
+	}
+	return logger, func() error {
+		closeErr := logger.Close()
+		if ctx != nil && ctx.debugLogger == logger {
+			ctx.debugLogger = nil
+		}
+		return closeErr
+	}, nil
+}
+
+func debugLogActionStart(logger *DebugLogger, serviceName, action, version, method, contentType string) {
+	if !logger.Enabled() {
+		return
+	}
+	logger.Printf("action_start service=%s action=%s version=%s method=%s content_type=%s",
+		serviceName, action, version, method, contentType)
+}
+
+func debugLogInput(logger *DebugLogger, flags []*Flag, input interface{}, inputFromBody bool) {
+	if !logger.Enabled() {
+		return
+	}
+	names := make([]string, 0, len(flags))
+	for _, f := range flags {
+		if f != nil {
+			names = append(names, f.Name)
+		}
+	}
+	sort.Strings(names)
+	logger.Printf("action_input input_from_body=%t dynamic_params=%s input=%s",
+		inputFromBody, strings.Join(names, ","), formatDebugValue(input, defaultDebugValueLimit))
+}
+
+func debugLogSdkEnd(logger *DebugLogger, start time.Time, callErr error) {
+	if !logger.Enabled() {
+		return
+	}
+	duration := time.Since(start)
+	if callErr != nil {
+		logger.Printf("sdk_call_error duration_ms=%d error=%s", duration/time.Millisecond, callErr.Error())
+		return
+	}
+	logger.Printf("sdk_call_success duration_ms=%d", duration/time.Millisecond)
+}
+
+func debugLogError(logger *DebugLogger, stage string, stageErr error) {
+	if !logger.Enabled() || stageErr == nil {
+		return
+	}
+	logger.Printf("%s error=%s", stage, stageErr.Error())
 }
 
 func formatActionError(err error) error {
@@ -246,6 +333,9 @@ Fixed Flags:
   ---profile string    Use a configured profile only for this invocation.
   ---region string     Override the region only for this invocation.
   ---endpoint string   Override the endpoint only for this invocation.
+  ---debug bool        Print CLI debug logs for this invocation.
+  ---debug-log-file string
+                       Append CLI debug logs to the specified file.
 
 `, description, strings.Join(params, "\n"))
 }

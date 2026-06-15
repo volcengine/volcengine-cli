@@ -96,5 +96,8 @@ Fixed Flags:
   ---profile string    Use a configured profile only for this invocation.
   ---region string     Override the region only for this invocation.
   ---endpoint string   Override the endpoint only for this invocation.
+  ---debug bool        Print CLI debug logs for this invocation.
+  ---debug-log-file string
+                       Append CLI debug logs to the specified file.
 `
 }
