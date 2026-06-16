@@ -128,6 +128,39 @@ func TestDebugLoggerRejectsSymlinkLogFile(t *testing.T) {
 	}
 }
 
+func TestDebugLoggerRejectsHardLinkedLogFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("hard link metadata is not checked on Windows")
+	}
+
+	dir := tempDirForTest(t)
+	defer cleanupDirForTest(dir)()
+	targetPath := filepath.Join(dir, "target.log")
+	linkPath := filepath.Join(dir, "link.log")
+
+	if err := ioutil.WriteFile(targetPath, []byte("existing"), 0600); err != nil {
+		t.Fatalf("write target log file: %v", err)
+	}
+	if err := os.Link(targetPath, linkPath); err != nil {
+		t.Skipf("create hard link: %v", err)
+	}
+	info, err := os.Lstat(linkPath)
+	if err != nil {
+		t.Fatalf("stat hard link: %v", err)
+	}
+	if hardLinkCount(info) == 0 {
+		t.Skip("hard link count is not available on this platform")
+	}
+
+	_, err = newDebugLogger(debugOptions{Enabled: true, LogFile: linkPath}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected hard-linked log path to be rejected")
+	}
+	if !strings.Contains(err.Error(), "multiple hard links") {
+		t.Fatalf("expected hard-link error, got %v", err)
+	}
+}
+
 func TestDebugLoggerCloseRunsCloseAfterFlushError(t *testing.T) {
 	closeCalled := false
 	logger := &DebugLogger{

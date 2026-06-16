@@ -268,7 +268,7 @@ func debugCredentialMode(profile *Profile) string {
 
 func debugLogClientConfig(ctx *Context, info debugClientConfig) {
 	logger := debugLoggerFromContext(ctx)
-	if !logger.Enabled() {
+	if logger == nil || !logger.Enabled() {
 		return
 	}
 	logger.Printf("client_config profile_source=%s profile=%s credential_mode=%s region=%s endpoint=%s endpoint_resolver=%s disable_ssl=%t use_dual_stack=%t http_proxy_configured=%t https_proxy_configured=%t",

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"reflect"
 	"strings"
 	"unicode/utf8"
 )
@@ -92,9 +93,9 @@ func newDebugLogger(opts debugOptions, stderr io.Writer) (*DebugLogger, error) {
 	}, nil
 }
 
-// openDebugLogFile 在真正写入前后都校验路径，避免 debug 内容被追加到 symlink 指向的非预期文件。
+// openDebugLogFile 在真正写入前后都校验路径，避免 debug 内容被追加到 symlink/hardlink 指向的非预期文件。
 func openDebugLogFile(path string) (*os.File, error) {
-	if err := rejectDebugLogSymlink(path); err != nil {
+	if err := rejectUnsafeDebugLogPath(path); err != nil {
 		return nil, err
 	}
 
@@ -113,7 +114,7 @@ func openDebugLogFile(path string) (*os.File, error) {
 	return file, nil
 }
 
-func rejectDebugLogSymlink(path string) error {
+func rejectUnsafeDebugLogPath(path string) error {
 	info, err := os.Lstat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -121,10 +122,7 @@ func rejectDebugLogSymlink(path string) error {
 		}
 		return err
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("debug log file must not be a symbolic link: %s", path)
-	}
-	return nil
+	return validateDebugLogFileInfo(path, info)
 }
 
 func verifyOpenedDebugLogFile(path string, file *os.File) error {
@@ -132,8 +130,8 @@ func verifyOpenedDebugLogFile(path string, file *os.File) error {
 	if err != nil {
 		return err
 	}
-	if pathInfo.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("debug log file must not be a symbolic link: %s", path)
+	if err := validateDebugLogFileInfo(path, pathInfo); err != nil {
+		return err
 	}
 	fileInfo, err := file.Stat()
 	if err != nil {
@@ -143,6 +141,42 @@ func verifyOpenedDebugLogFile(path string, file *os.File) error {
 		return fmt.Errorf("debug log file changed while opening: %s", path)
 	}
 	return nil
+}
+
+func validateDebugLogFileInfo(path string, info os.FileInfo) error {
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("debug log file must not be a symbolic link: %s", path)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("debug log file must be a regular file: %s", path)
+	}
+	if count := hardLinkCount(info); count > 1 {
+		return fmt.Errorf("debug log file must not have multiple hard links: %s", path)
+	}
+	return nil
+}
+
+func hardLinkCount(info os.FileInfo) uint64 {
+	if info == nil || info.Sys() == nil {
+		return 0
+	}
+	value := reflect.Indirect(reflect.ValueOf(info.Sys()))
+	if !value.IsValid() {
+		return 0
+	}
+	field := value.FieldByName("Nlink")
+	if !field.IsValid() {
+		return 0
+	}
+	switch field.Kind() {
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return field.Uint()
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if field.Int() > 0 {
+			return uint64(field.Int())
+		}
+	}
+	return 0
 }
 
 func resolveDebugOptions(ctx *Context) (debugOptions, error) {
