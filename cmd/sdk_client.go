@@ -20,8 +20,9 @@ import (
 )
 
 type SdkClient struct {
-	Config  *volcengine.Config
-	Session *session.Session
+	Config      *volcengine.Config
+	Session     *session.Session
+	DebugLogger *DebugLogger
 }
 
 type SdkClientInfo struct {
@@ -200,8 +201,9 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 	sess, _ := session.NewSession(config)
 
 	return &SdkClient{
-		Config:  config,
-		Session: sess,
+		Config:      config,
+		Session:     sess,
+		DebugLogger: debugLoggerFromContext(ctx),
 	}, nil
 }
 
@@ -306,6 +308,7 @@ func (s *SdkClient) initClient(svc string, version string) *client.Client {
 	c.Handlers.Unmarshal.PushBackNamed(volcenginequery.UnmarshalHandler)
 	c.Handlers.UnmarshalMeta.PushBackNamed(volcenginequery.UnmarshalMetaHandler)
 	c.Handlers.UnmarshalError.PushBackNamed(volcenginequery.UnmarshalErrorHandler)
+	s.addDebugRequestAttemptHandler(c)
 
 	return c
 }
