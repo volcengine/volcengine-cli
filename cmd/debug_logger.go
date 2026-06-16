@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -31,6 +32,7 @@ type DebugLogger struct {
 	out     io.Writer
 	flush   func() error
 	close   func() error
+	err     error
 }
 
 func (l *DebugLogger) Enabled() bool {
@@ -41,22 +43,27 @@ func (l *DebugLogger) Printf(format string, args ...interface{}) {
 	if !l.Enabled() || l.out == nil {
 		return
 	}
-	fmt.Fprintf(l.out, "[debug] "+format+"\n", args...)
+	if _, err := fmt.Fprintf(l.out, "[debug] "+format+"\n", args...); err != nil && l.err == nil {
+		l.err = err
+	}
 }
 
 func (l *DebugLogger) Close() error {
 	if l == nil {
 		return nil
 	}
+	closeErr := l.err
 	if l.flush != nil {
-		if err := l.flush(); err != nil {
-			return err
+		if err := l.flush(); closeErr == nil && err != nil {
+			closeErr = err
 		}
 	}
 	if l.close != nil {
-		return l.close()
+		if err := l.close(); closeErr == nil && err != nil {
+			closeErr = err
+		}
 	}
-	return nil
+	return closeErr
 }
 
 func newDebugLogger(opts debugOptions, stderr io.Writer) (*DebugLogger, error) {
@@ -71,12 +78,8 @@ func newDebugLogger(opts debugOptions, stderr io.Writer) (*DebugLogger, error) {
 		return &DebugLogger{enabled: true, out: stderr}, nil
 	}
 
-	file, err := os.OpenFile(opts.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	file, err := openDebugLogFile(opts.LogFile)
 	if err != nil {
-		return nil, err
-	}
-	if err := file.Chmod(0600); err != nil {
-		_ = file.Close()
 		return nil, err
 	}
 
@@ -87,6 +90,59 @@ func newDebugLogger(opts debugOptions, stderr io.Writer) (*DebugLogger, error) {
 		flush:   writer.Flush,
 		close:   file.Close,
 	}, nil
+}
+
+// openDebugLogFile 在真正写入前后都校验路径，避免 debug 内容被追加到 symlink 指向的非预期文件。
+func openDebugLogFile(path string) (*os.File, error) {
+	if err := rejectDebugLogSymlink(path); err != nil {
+		return nil, err
+	}
+
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return nil, err
+	}
+	if err := verifyOpenedDebugLogFile(path, file); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	if err := file.Chmod(0600); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return file, nil
+}
+
+func rejectDebugLogSymlink(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("debug log file must not be a symbolic link: %s", path)
+	}
+	return nil
+}
+
+func verifyOpenedDebugLogFile(path string, file *os.File) error {
+	pathInfo, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if pathInfo.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("debug log file must not be a symbolic link: %s", path)
+	}
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(pathInfo, fileInfo) {
+		return fmt.Errorf("debug log file changed while opening: %s", path)
+	}
+	return nil
 }
 
 func resolveDebugOptions(ctx *Context) (debugOptions, error) {
@@ -135,7 +191,7 @@ func formatDebugValue(value interface{}, limit int) string {
 		limit = defaultDebugValueLimit
 	}
 
-	sanitized := sanitizeDebugValue(value)
+	sanitized := sanitizeDebugValue(normalizeDebugValue(value))
 	if s, ok := sanitized.(string); ok {
 		return truncateDebugString(s, limit)
 	}
@@ -147,11 +203,32 @@ func formatDebugValue(value interface{}, limit int) string {
 	return truncateDebugString(string(data), limit)
 }
 
+// normalizeDebugValue 先把 typed slice/map 归一成通用 JSON 结构，确保嵌套字段也能走统一脱敏逻辑。
+func normalizeDebugValue(value interface{}) interface{} {
+	if value == nil {
+		return nil
+	}
+
+	data, err := json.Marshal(value)
+	if err != nil {
+		return value
+	}
+	var normalized interface{}
+	if err := json.Unmarshal(data, &normalized); err != nil {
+		return value
+	}
+	return normalized
+}
+
 func truncateDebugString(value string, limit int) string {
 	if len(value) <= limit {
 		return value
 	}
-	return fmt.Sprintf("%s... [truncated, %d bytes omitted]", value[:limit], len(value)-limit)
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(value[cut]) {
+		cut--
+	}
+	return fmt.Sprintf("%s... [truncated, %d bytes omitted]", value[:cut], len(value)-cut)
 }
 
 func sanitizeDebugValue(value interface{}) interface{} {
@@ -209,14 +286,28 @@ func sanitizeDebugMap(input map[string]interface{}) map[string]interface{} {
 func isSensitiveDebugKey(key string) bool {
 	normalized := strings.ToLower(strings.ReplaceAll(key, "-", "_"))
 	compact := strings.ReplaceAll(normalized, "_", "")
+
+	// ak/sk/pwd/sign 等短词只做精确匹配，避免误伤 TaskId、DiskId 这类普通字段。
+	for _, token := range []string{"ak", "sk", "pwd", "sts", "sign"} {
+		if normalized == token || compact == token {
+			return true
+		}
+	}
 	for _, token := range []string{
 		"access_key",
 		"accesskey",
+		"api_key",
+		"apikey",
 		"secret",
 		"token",
 		"authorization",
+		"bearer",
 		"credential",
 		"password",
+		"passwd",
+		"private_key",
+		"privatekey",
+		"signature",
 		"cookie",
 	} {
 		if strings.Contains(normalized, token) || strings.Contains(compact, token) {

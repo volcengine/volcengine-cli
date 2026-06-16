@@ -2,12 +2,14 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestResolveDebugOptionsFlagOverridesEnv(t *testing.T) {
@@ -100,6 +102,54 @@ func TestDebugLoggerWritesExplicitFile(t *testing.T) {
 	}
 }
 
+func TestDebugLoggerRejectsSymlinkLogFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires extra privileges on Windows")
+	}
+
+	dir := tempDirForTest(t)
+	defer cleanupDirForTest(dir)()
+	targetPath := filepath.Join(dir, "target.log")
+	linkPath := filepath.Join(dir, "link.log")
+
+	if err := ioutil.WriteFile(targetPath, []byte("existing"), 0600); err != nil {
+		t.Fatalf("write target log file: %v", err)
+	}
+	if err := os.Symlink(targetPath, linkPath); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+
+	_, err := newDebugLogger(debugOptions{Enabled: true, LogFile: linkPath}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected symlink log path to be rejected")
+	}
+	if !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("expected symlink error, got %v", err)
+	}
+}
+
+func TestDebugLoggerCloseRunsCloseAfterFlushError(t *testing.T) {
+	closeCalled := false
+	logger := &DebugLogger{
+		enabled: true,
+		flush: func() error {
+			return errors.New("flush failed")
+		},
+		close: func() error {
+			closeCalled = true
+			return nil
+		},
+	}
+
+	err := logger.Close()
+	if err == nil || !strings.Contains(err.Error(), "flush failed") {
+		t.Fatalf("expected flush error, got %v", err)
+	}
+	if !closeCalled {
+		t.Fatal("expected Close to run close callback even after flush error")
+	}
+}
+
 func TestDebugLoggerDisabledDoesNotCreateFile(t *testing.T) {
 	dir := tempDirForTest(t)
 	defer cleanupDirForTest(dir)()
@@ -135,6 +185,58 @@ func TestDebugSanitizeMasksSensitiveFields(t *testing.T) {
 	}
 }
 
+func TestDebugSanitizeMasksCommonSensitiveFieldNames(t *testing.T) {
+	input := map[string]interface{}{
+		"AK":         "ak-value",
+		"SK":         "sk-value",
+		"ApiKey":     "api-key-value",
+		"PrivateKey": "private-key-value",
+		"Pwd":        "pwd-value",
+		"Passwd":     "passwd-value",
+		"Signature":  "signature-value",
+		"Bearer":     "bearer-value",
+		"TaskId":     "task-123",
+	}
+
+	got := formatDebugValue(input, 2048)
+	for _, secret := range []string{
+		"ak-value",
+		"sk-value",
+		"api-key-value",
+		"private-key-value",
+		"pwd-value",
+		"passwd-value",
+		"signature-value",
+		"bearer-value",
+	} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("expected sensitive value %q to be masked, got %s", secret, got)
+		}
+	}
+	if !strings.Contains(got, "task-123") {
+		t.Fatalf("expected non-sensitive TaskId value to remain, got %s", got)
+	}
+}
+
+func TestDebugSanitizeMasksTypedNestedValues(t *testing.T) {
+	input := map[string]interface{}{
+		"Tags": []map[string]interface{}{
+			{
+				"password": "nested-password",
+				"Name":     "safe-name",
+			},
+		},
+	}
+
+	got := formatDebugValue(input, 2048)
+	if strings.Contains(got, "nested-password") {
+		t.Fatalf("expected nested typed sensitive value to be masked, got %s", got)
+	}
+	if !strings.Contains(got, "safe-name") {
+		t.Fatalf("expected non-sensitive nested value to remain, got %s", got)
+	}
+}
+
 func TestDebugValueTruncatesLongContent(t *testing.T) {
 	got := formatDebugValue(strings.Repeat("a", 20), 8)
 	if !strings.Contains(got, "truncated") {
@@ -142,5 +244,15 @@ func TestDebugValueTruncatesLongContent(t *testing.T) {
 	}
 	if strings.HasPrefix(got, strings.Repeat("a", 9)) {
 		t.Fatalf("expected content to be truncated, got %q", got)
+	}
+}
+
+func TestDebugValueTruncatesOnUTF8Boundary(t *testing.T) {
+	got := formatDebugValue("火山引擎-debug", 5)
+	if !strings.Contains(got, "truncated") {
+		t.Fatalf("expected truncated marker, got %q", got)
+	}
+	if !utf8.ValidString(got) {
+		t.Fatalf("expected truncated debug string to remain valid UTF-8, got %q", got)
 	}
 }
