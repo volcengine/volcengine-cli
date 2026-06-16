@@ -129,10 +129,6 @@ func TestDebugLoggerRejectsSymlinkLogFile(t *testing.T) {
 }
 
 func TestDebugLoggerRejectsHardLinkedLogFile(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("hard link metadata is not checked on Windows")
-	}
-
 	dir := tempDirForTest(t)
 	defer cleanupDirForTest(dir)()
 	targetPath := filepath.Join(dir, "target.log")
@@ -144,15 +140,8 @@ func TestDebugLoggerRejectsHardLinkedLogFile(t *testing.T) {
 	if err := os.Link(targetPath, linkPath); err != nil {
 		t.Skipf("create hard link: %v", err)
 	}
-	info, err := os.Lstat(linkPath)
-	if err != nil {
-		t.Fatalf("stat hard link: %v", err)
-	}
-	if hardLinkCount(info) == 0 {
-		t.Skip("hard link count is not available on this platform")
-	}
 
-	_, err = newDebugLogger(debugOptions{Enabled: true, LogFile: linkPath}, &bytes.Buffer{})
+	_, err := newDebugLogger(debugOptions{Enabled: true, LogFile: linkPath}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected hard-linked log path to be rejected")
 	}

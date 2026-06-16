@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"reflect"
 	"strings"
 	"unicode/utf8"
 )
@@ -122,7 +121,7 @@ func rejectUnsafeDebugLogPath(path string) error {
 		}
 		return err
 	}
-	return validateDebugLogFileInfo(path, info)
+	return validateDebugLogFileInfo(path, info, nil)
 }
 
 func verifyOpenedDebugLogFile(path string, file *os.File) error {
@@ -130,7 +129,7 @@ func verifyOpenedDebugLogFile(path string, file *os.File) error {
 	if err != nil {
 		return err
 	}
-	if err := validateDebugLogFileInfo(path, pathInfo); err != nil {
+	if err := validateDebugLogFileInfo(path, pathInfo, nil); err != nil {
 		return err
 	}
 	fileInfo, err := file.Stat()
@@ -140,43 +139,27 @@ func verifyOpenedDebugLogFile(path string, file *os.File) error {
 	if !os.SameFile(pathInfo, fileInfo) {
 		return fmt.Errorf("debug log file changed while opening: %s", path)
 	}
+	if err := validateDebugLogFileInfo(path, fileInfo, file); err != nil {
+		return err
+	}
 	return nil
 }
 
-func validateDebugLogFileInfo(path string, info os.FileInfo) error {
+func validateDebugLogFileInfo(path string, info os.FileInfo, file *os.File) error {
 	if info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("debug log file must not be a symbolic link: %s", path)
 	}
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("debug log file must be a regular file: %s", path)
 	}
-	if count := hardLinkCount(info); count > 1 {
+	count, err := hardLinkCount(info, file)
+	if err != nil {
+		return fmt.Errorf("inspect debug log hard links: %w", err)
+	}
+	if count > 1 {
 		return fmt.Errorf("debug log file must not have multiple hard links: %s", path)
 	}
 	return nil
-}
-
-func hardLinkCount(info os.FileInfo) uint64 {
-	if info == nil || info.Sys() == nil {
-		return 0
-	}
-	value := reflect.Indirect(reflect.ValueOf(info.Sys()))
-	if !value.IsValid() {
-		return 0
-	}
-	field := value.FieldByName("Nlink")
-	if !field.IsValid() {
-		return 0
-	}
-	switch field.Kind() {
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		return field.Uint()
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		if field.Int() > 0 {
-			return uint64(field.Int())
-		}
-	}
-	return 0
 }
 
 func resolveDebugOptions(ctx *Context) (debugOptions, error) {
