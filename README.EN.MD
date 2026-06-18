@@ -519,8 +519,6 @@ When calling APIs, you can use the `---` prefix to pass CLI internal override pa
 - `---profile`: use a specific profile at runtime without modifying the configuration file. It must be followed by an existing profile name; missing values or unknown profile names return an error.
 - `---region`: override region at runtime.
 - `---endpoint`: override endpoint at runtime.
-- `---debug`: enable or disable CLI debug logs for this invocation. Accepted boolean values include `true/false`, `1/0`, `yes/no`, and `on/off`.
-- `---debug-log-file`: append CLI debug logs to the specified file. When omitted, debug logs are written to stderr and no default log file is created.
 
 ```shell
 # Call an API with a specific profile
@@ -531,22 +529,15 @@ ve ecs DescribeInstances ---profile prod ---region ap-southeast-1
 
 # ---region can also be used by itself to override the current profile region
 ve ecs DescribeInstances ---region cn-shanghai --InstanceId "i-xxx"
-
-# Print CLI debug logs to stderr. Normal API JSON output still goes to stdout.
-ve ecs DescribeInstances ---debug true
-
-# Append CLI debug logs to an explicit file.
-ve ecs DescribeInstances ---debug true ---debug-log-file ./ve-debug.log
 ```
 
-You can also enable debug logs with environment variables:
+You can enable CLI debug logs with an environment variable:
 
 ```shell
 VOLCENGINE_CLI_DEBUG=true ve ecs DescribeInstances
-VOLCENGINE_CLI_DEBUG=true VOLCENGINE_CLI_DEBUG_LOG_FILE=./ve-debug.log ve ecs DescribeInstances
 ```
 
-Command-line flags take precedence over environment variables: `---debug` overrides `VOLCENGINE_CLI_DEBUG`, and `---debug-log-file` overrides `VOLCENGINE_CLI_DEBUG_LOG_FILE`. When debug is disabled, no logs are written and no log file is created.
+`VOLCENGINE_CLI_DEBUG` disables debug when set to `false`, `0`, `off`, `no`, or an empty value. Any other non-empty value enables debug. When enabled, logs are appended to the hourly log file under the configuration directory: `~/.volcengine/logs/YYYYMMDDHH.log`. When debug is disabled, no logs are written and no log file is created.
 
 <br/>
 

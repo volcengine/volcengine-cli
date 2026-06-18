@@ -573,8 +573,6 @@ ve <service name> <action> [--parameter1 value1 --parameter2 value2 ...]
 - `---profile`：运行时指定使用的 profile（不修改配置文件）；必须提供一个已存在的 profile 名称，缺少值或 profile 不存在时会报错
 - `---region`：运行时覆盖 region
 - `---endpoint`：运行时覆盖 endpoint
-- `---debug`：运行时开启或关闭 CLI debug 日志，支持 `true/false`、`1/0`、`yes/no`、`on/off`
-- `---debug-log-file`：将 CLI debug 日志追加写入指定文件；未指定时 debug 日志输出到 stderr，不会默认落盘
 
 ```shell
 # 使用指定 profile 调用 API
@@ -585,24 +583,17 @@ ve ecs DescribeInstances ---profile prod ---region ap-southeast-1
 
 # ---region 也可以单独使用，覆盖当前 profile 的 region
 ve ecs DescribeInstances ---region cn-shanghai --InstanceId "i-xxx"
-
-# 打印 CLI debug 日志到 stderr，正常 API JSON 结果仍输出到 stdout
-ve ecs DescribeInstances ---debug true
-
-# 将 CLI debug 日志追加写入指定文件
-ve ecs DescribeInstances ---debug true ---debug-log-file ./ve-debug.log
 ```
 
 > 注意：`--`（双横线）是 API 参数，`---`（三横线）是 CLI 内部参数，两者互不干扰。
 
-也可以通过环境变量开启 debug：
+可以通过环境变量开启 CLI debug 日志：
 
 ```shell
 VOLCENGINE_CLI_DEBUG=true ve ecs DescribeInstances
-VOLCENGINE_CLI_DEBUG=true VOLCENGINE_CLI_DEBUG_LOG_FILE=./ve-debug.log ve ecs DescribeInstances
 ```
 
-命令行参数优先级高于环境变量：`---debug` 覆盖 `VOLCENGINE_CLI_DEBUG`，`---debug-log-file` 覆盖 `VOLCENGINE_CLI_DEBUG_LOG_FILE`。未开启 debug 时不会输出日志，也不会创建日志文件。
+`VOLCENGINE_CLI_DEBUG` 设置为 `false`、`0`、`off`、`no` 或空值时关闭 debug；其它非空值均开启 debug。开启后日志默认追加写入配置目录下的小时日志文件，如：`~/.volcengine/logs/YYYYMMDDHH.log`。未开启 debug 时不会输出日志，也不会创建日志文件。
 
 <br/>
 
@@ -653,7 +644,6 @@ VOLCENGINE_CLI_DEBUG=true VOLCENGINE_CLI_DEBUG_LOG_FILE=./ve-debug.log ve ecs De
 ## Security and privacy
 This project takes security seriously. 
 For vulnerability reporting and supported versions, see [SECURITY.md](SECURITY.md)    
-
 
 
 

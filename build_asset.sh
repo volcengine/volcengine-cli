@@ -8,9 +8,6 @@ then
   exit
 fi
 
-
-
-
 #clean git cache before build
 rm -rf volcengine-sdk-metadata
 rm -rf .git/modules/volcengine-sdk-metadata

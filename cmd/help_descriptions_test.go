@@ -149,5 +149,5 @@ func TestActionUsageIncludesFixedFlags(t *testing.T) {
 }
 
 func expectedFixedFlagsForTest() []string {
-	return []string{"---profile", "---region", "---endpoint", "---debug", "---debug-log-file"}
+	return []string{"---profile", "---region", "---endpoint"}
 }

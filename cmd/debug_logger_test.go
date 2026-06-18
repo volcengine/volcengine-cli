@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bytes"
 	"errors"
 	"io/ioutil"
 	"os"
@@ -12,78 +11,75 @@ import (
 	"unicode/utf8"
 )
 
-func TestResolveDebugOptionsFlagOverridesEnv(t *testing.T) {
-	defer setenvForTest(t, envCLIDebug, "true")()
-	defer setenvForTest(t, envCLIDebugLogFile, "env-debug.log")()
-
-	ctx := NewContext()
-	debugFlag, _ := ctx.fixedFlags.AddByName("debug")
-	debugFlag.SetValue("false")
-	logFileFlag, _ := ctx.fixedFlags.AddByName("debug-log-file")
-	logFileFlag.SetValue("flag-debug.log")
-
-	opts, err := resolveDebugOptions(ctx)
-	if err != nil {
-		t.Fatalf("resolveDebugOptions returned error: %v", err)
+func TestResolveDebugOptionsUsesDebugEnvOnly(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		enabled bool
+	}{
+		{name: "true", value: "TRUE", enabled: true},
+		{name: "one", value: "1", enabled: true},
+		{name: "custom", value: "enabled", enabled: true},
+		{name: "false", value: "false", enabled: false},
+		{name: "zero", value: "0", enabled: false},
+		{name: "off", value: "off", enabled: false},
+		{name: "no", value: "no", enabled: false},
+		{name: "empty", value: "", enabled: false},
 	}
-	if opts.Enabled {
-		t.Fatal("expected ---debug false to override enabled env debug")
-	}
-	if opts.LogFile != "flag-debug.log" {
-		t.Fatalf("expected flag log file, got %q", opts.LogFile)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer setenvForTest(t, envCLIDebug, tt.value)()
+
+			opts, err := resolveDebugOptions(NewContext())
+			if err != nil {
+				t.Fatalf("resolveDebugOptions returned error: %v", err)
+			}
+			if opts.Enabled != tt.enabled {
+				t.Fatalf("Enabled = %v, want %v", opts.Enabled, tt.enabled)
+			}
+		})
 	}
 }
 
-func TestResolveDebugOptionsAcceptsTruthyEnvValues(t *testing.T) {
-	defer setenvForTest(t, envCLIDebug, "TRUE")()
+func TestResolveDebugOptionsDisabledWhenEnvUnset(t *testing.T) {
+	defer unsetenvForTest(t, envCLIDebug)()
 
 	opts, err := resolveDebugOptions(NewContext())
 	if err != nil {
 		t.Fatalf("resolveDebugOptions returned error: %v", err)
 	}
-	if !opts.Enabled {
-		t.Fatal("expected TRUE env value to enable debug")
+	if opts.Enabled {
+		t.Fatal("expected debug to be disabled when env is unset")
 	}
 }
 
-func TestResolveDebugOptionsRejectsInvalidBool(t *testing.T) {
-	defer setenvForTest(t, envCLIDebug, "maybe")()
+func TestDebugLoggerWritesDefaultHourlyFile(t *testing.T) {
+	configDir := tempDirForTest(t)
+	defer cleanupDirForTest(configDir)()
+	defer withConfigDirForTest(configDir)()
 
-	_, err := resolveDebugOptions(NewContext())
-	if err == nil {
-		t.Fatal("expected invalid debug env value to return error")
-	}
-	if !strings.Contains(err.Error(), envCLIDebug) {
-		t.Fatalf("expected error to mention env name, got %v", err)
-	}
-}
-
-func TestDebugLoggerDefaultsToStderrWriter(t *testing.T) {
-	var stderr bytes.Buffer
-	logger, err := newDebugLogger(debugOptions{Enabled: true}, &stderr)
+	logger, err := newDebugLogger(debugOptions{Enabled: true})
 	if err != nil {
 		t.Fatalf("newDebugLogger returned error: %v", err)
 	}
-	defer logger.Close()
 
-	logger.Printf("region=%s", "cn-beijing")
-	if got := stderr.String(); !strings.Contains(got, "region=cn-beijing") {
-		t.Fatalf("expected debug output in stderr writer, got %q", got)
-	}
-}
-
-func TestDebugLoggerWritesExplicitFile(t *testing.T) {
-	dir := tempDirForTest(t)
-	defer cleanupDirForTest(dir)()
-	logPath := filepath.Join(dir, "ve-debug.log")
-
-	logger, err := newDebugLogger(debugOptions{Enabled: true, LogFile: logPath}, &bytes.Buffer{})
-	if err != nil {
-		t.Fatalf("newDebugLogger returned error: %v", err)
-	}
 	logger.Printf("debug line")
 	if err := logger.Close(); err != nil {
 		t.Fatalf("close debug logger: %v", err)
+	}
+
+	logsDir := filepath.Join(configDir, "logs")
+	entries, err := ioutil.ReadDir(logsDir)
+	if err != nil {
+		t.Fatalf("read logs dir: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected one debug log file, got %d", len(entries))
+	}
+	logPath := filepath.Join(logsDir, entries[0].Name())
+	if len(entries[0].Name()) != len("2006010215.log") || !strings.HasSuffix(entries[0].Name(), ".log") {
+		t.Fatalf("unexpected debug log file name %q", entries[0].Name())
 	}
 
 	data, err := ioutil.ReadFile(logPath)
@@ -99,6 +95,13 @@ func TestDebugLoggerWritesExplicitFile(t *testing.T) {
 	}
 	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 		t.Fatalf("expected log file perm 0600, got %v", info.Mode().Perm())
+	}
+	dirInfo, err := os.Stat(logsDir)
+	if err != nil {
+		t.Fatalf("stat logs dir: %v", err)
+	}
+	if runtime.GOOS != "windows" && dirInfo.Mode().Perm() != 0700 {
+		t.Fatalf("expected logs dir perm 0700, got %v", dirInfo.Mode().Perm())
 	}
 }
 
@@ -119,7 +122,7 @@ func TestDebugLoggerRejectsSymlinkLogFile(t *testing.T) {
 		t.Skipf("create symlink: %v", err)
 	}
 
-	_, err := newDebugLogger(debugOptions{Enabled: true, LogFile: linkPath}, &bytes.Buffer{})
+	_, err := openDebugLogFile(linkPath)
 	if err == nil {
 		t.Fatal("expected symlink log path to be rejected")
 	}
@@ -141,7 +144,7 @@ func TestDebugLoggerRejectsHardLinkedLogFile(t *testing.T) {
 		t.Skipf("create hard link: %v", err)
 	}
 
-	_, err := newDebugLogger(debugOptions{Enabled: true, LogFile: linkPath}, &bytes.Buffer{})
+	_, err := openDebugLogFile(linkPath)
 	if err == nil {
 		t.Fatal("expected hard-linked log path to be rejected")
 	}
@@ -173,11 +176,11 @@ func TestDebugLoggerCloseRunsCloseAfterFlushError(t *testing.T) {
 }
 
 func TestDebugLoggerDisabledDoesNotCreateFile(t *testing.T) {
-	dir := tempDirForTest(t)
-	defer cleanupDirForTest(dir)()
-	logPath := filepath.Join(dir, "ve-debug.log")
+	configDir := tempDirForTest(t)
+	defer cleanupDirForTest(configDir)()
+	defer withConfigDirForTest(configDir)()
 
-	logger, err := newDebugLogger(debugOptions{Enabled: false, LogFile: logPath}, &bytes.Buffer{})
+	logger, err := newDebugLogger(debugOptions{Enabled: false})
 	if err != nil {
 		t.Fatalf("newDebugLogger returned error: %v", err)
 	}
@@ -186,8 +189,9 @@ func TestDebugLoggerDisabledDoesNotCreateFile(t *testing.T) {
 		t.Fatalf("close debug logger: %v", err)
 	}
 
-	if _, err := os.Stat(logPath); !os.IsNotExist(err) {
-		t.Fatalf("expected disabled debug not to create log file, stat err=%v", err)
+	logsDir := filepath.Join(configDir, "logs")
+	if _, err := os.Stat(logsDir); !os.IsNotExist(err) {
+		t.Fatalf("expected disabled debug not to create logs dir, stat err=%v", err)
 	}
 }
 

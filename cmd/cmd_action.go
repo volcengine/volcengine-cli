@@ -3,7 +3,6 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -177,7 +176,7 @@ func prepareDebugLogger(ctx *Context) (*DebugLogger, func() error, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	logger, err := newDebugLogger(opts, os.Stderr)
+	logger, err := newDebugLogger(opts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -333,9 +332,6 @@ Fixed Flags:
   ---profile string    Use a configured profile only for this invocation.
   ---region string     Override the region only for this invocation.
   ---endpoint string   Override the endpoint only for this invocation.
-  ---debug bool        Print CLI debug logs for this invocation.
-  ---debug-log-file string
-                       Append CLI debug logs to the specified file.
 
 `, description, strings.Join(params, "\n"))
 }

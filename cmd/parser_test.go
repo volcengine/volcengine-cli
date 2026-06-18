@@ -64,6 +64,16 @@ func TestParserRejectsUnsupportedFixedFlags(t *testing.T) {
 			args: []string{"---rgeioin", "cn-beijing"},
 			want: "---rgeioin is not supported",
 		},
+		{
+			name: "removed debug flag",
+			args: []string{"---debug", "true"},
+			want: "---debug is not supported",
+		},
+		{
+			name: "removed debug log file flag",
+			args: []string{"---debug-log-file", "./ve-debug.log"},
+			want: "---debug-log-file is not supported",
+		},
 	}
 
 	for _, tt := range tests {
@@ -89,8 +99,6 @@ func TestParserAcceptsOnlySupportedFixedFlags(t *testing.T) {
 		"---profile", "test",
 		"---region", "cn-beijing",
 		"---endpoint", "sts.volcengineapi.com",
-		"---debug", "true",
-		"---debug-log-file", "./ve-debug.log",
 	})
 	ctx := NewContext()
 
@@ -98,7 +106,7 @@ func TestParserAcceptsOnlySupportedFixedFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadArgs returned error: %v", err)
 	}
-	for _, name := range []string{"profile", "region", "endpoint", "debug", "debug-log-file"} {
+	for _, name := range []string{"profile", "region", "endpoint"} {
 		if ctx.fixedFlags.GetByName(name) == nil {
 			t.Fatalf("expected fixed flag %q to be accepted", name)
 		}

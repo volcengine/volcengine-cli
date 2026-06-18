@@ -7,16 +7,14 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
 const (
-	envCLIDebug        = "VOLCENGINE_CLI_DEBUG"
-	envCLIDebugLogFile = "VOLCENGINE_CLI_DEBUG_LOG_FILE"
-
-	fixedFlagDebug        = "debug"
-	fixedFlagDebugLogFile = "debug-log-file"
+	envCLIDebug = "VOLCENGINE_CLI_DEBUG"
 
 	defaultDebugValueLimit = 64 * 1024
 	maskedDebugValue       = "***MASKED***"
@@ -24,7 +22,6 @@ const (
 
 type debugOptions struct {
 	Enabled bool
-	LogFile string
 }
 
 type DebugLogger struct {
@@ -66,19 +63,16 @@ func (l *DebugLogger) Close() error {
 	return closeErr
 }
 
-func newDebugLogger(opts debugOptions, stderr io.Writer) (*DebugLogger, error) {
+func newDebugLogger(opts debugOptions) (*DebugLogger, error) {
 	if !opts.Enabled {
 		return &DebugLogger{enabled: false}, nil
 	}
 
-	if strings.TrimSpace(opts.LogFile) == "" {
-		if stderr == nil {
-			stderr = os.Stderr
-		}
-		return &DebugLogger{enabled: true, out: stderr}, nil
+	logFile, err := defaultDebugLogFile()
+	if err != nil {
+		return nil, err
 	}
-
-	file, err := openDebugLogFile(opts.LogFile)
+	file, err := openDebugLogFile(logFile)
 	if err != nil {
 		return nil, err
 	}
@@ -90,6 +84,19 @@ func newDebugLogger(opts debugOptions, stderr io.Writer) (*DebugLogger, error) {
 		flush:   writer.Flush,
 		close:   file.Close,
 	}, nil
+}
+
+func defaultDebugLogFile() (string, error) {
+	configDir, err := configFileDirFunc()
+	if err != nil {
+		return "", err
+	}
+	logsDir := filepath.Join(configDir, "logs")
+	if err := os.MkdirAll(logsDir, 0700); err != nil {
+		return "", err
+	}
+	_ = os.Chmod(logsDir, 0700)
+	return filepath.Join(logsDir, time.Now().Format("2006010215")+".log"), nil
 }
 
 // openDebugLogFile 在真正写入前后都校验路径，避免 debug 内容被追加到 symlink/hardlink 指向的非预期文件。
@@ -166,40 +173,18 @@ func resolveDebugOptions(ctx *Context) (debugOptions, error) {
 	var opts debugOptions
 
 	if raw, ok := os.LookupEnv(envCLIDebug); ok {
-		enabled, err := parseDebugBool(raw, envCLIDebug)
-		if err != nil {
-			return opts, err
-		}
-		opts.Enabled = enabled
-	}
-	if raw, ok := os.LookupEnv(envCLIDebugLogFile); ok {
-		opts.LogFile = strings.TrimSpace(raw)
-	}
-
-	if ctx != nil && ctx.fixedFlags != nil {
-		if f := ctx.fixedFlags.GetByName(fixedFlagDebug); f != nil {
-			enabled, err := parseDebugBool(f.GetValue(), "---"+fixedFlagDebug)
-			if err != nil {
-				return opts, err
-			}
-			opts.Enabled = enabled
-		}
-		if f := ctx.fixedFlags.GetByName(fixedFlagDebugLogFile); f != nil {
-			opts.LogFile = strings.TrimSpace(f.GetValue())
-		}
+		opts.Enabled = parseDebugEnv(raw)
 	}
 
 	return opts, nil
 }
 
-func parseDebugBool(raw string, name string) (bool, error) {
+func parseDebugEnv(raw string) bool {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "true", "1", "t", "yes", "y", "on":
-		return true, nil
-	case "false", "0", "f", "no", "n", "off":
-		return false, nil
+	case "", "false", "0", "f", "no", "n", "off":
+		return false
 	default:
-		return false, fmt.Errorf("%s must be a boolean value: true/false, 1/0, yes/no, or on/off", name)
+		return true
 	}
 }
 
