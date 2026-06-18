@@ -1,0 +1,236 @@
+[← Configuration](3-Configuration.md) | Usage[(中文)](4-Usage-zh.md) | [Advanced Usage →](5-Advanced.md)
+
+---
+
+## Usage
+
+Basic command format:
+
+```shell
+ve <service> <action> [--Param value ...] [---profile name] [---region region] [---endpoint endpoint]
+```
+
+`--Param value` is an API parameter. `---profile`, `---region`, and `---endpoint` are CLI fixed flags.
+
+## Discover Services and Actions
+
+List supported services:
+
+```shell
+ve --help
+```
+
+List actions under a service:
+
+```shell
+ve ecs --help
+```
+
+Show action parameters:
+
+```shell
+ve ecs DescribeInstances --help
+```
+
+Show version:
+
+```shell
+ve version
+ve -v
+```
+
+## Call APIs
+
+Call without parameters:
+
+```shell
+ve sts GetCallerIdentity
+```
+
+Call with parameters:
+
+```shell
+ve ecs DescribeInstances --InstanceIds.1 i-1234567890abcdef0
+```
+
+Multiple parameters:
+
+```shell
+ve rds_mysql ListDBInstanceIPLists --InstanceId mysql-xxxxxx --GroupName default
+```
+
+Parameter names and values are separated by spaces. The supported syntax is:
+
+```shell
+--Param value
+---region cn-beijing
+```
+
+Do not use `--Param=value` or `---region=cn-beijing`.
+
+## CLI Fixed Flags
+
+Fixed flags use three hyphens `---` and do not conflict with API parameters:
+
+| Flag | Purpose |
+| --- | --- |
+| `---profile` | Use a specific profile for this invocation without changing current |
+| `---region` | Override region for this invocation |
+| `---endpoint` | Override endpoint for this invocation and clear endpoint resolver |
+
+Examples:
+
+```shell
+# Use a specific profile
+ve ecs DescribeInstances ---profile prod
+
+# Use a specific profile and override region
+ve ecs DescribeInstances ---profile prod ---region ap-southeast-1
+
+# Override only region
+ve ecs DescribeInstances ---region cn-shanghai
+
+# Specify endpoint for an STS call
+ve sts GetCallerIdentity ---region cn-beijing ---endpoint sts.volcengineapi.com
+```
+
+If `---profile` references a profile that does not exist, the command returns an error.
+
+## JSON Parameters
+
+For query/form APIs, if a parameter value is a JSON object or JSON array, the CLI attempts to parse it as JSON:
+
+```shell
+ve rds_mysql ModifyDBInstanceIPList \
+  --InstanceId mysql-xxxxxx \
+  --GroupName default \
+  --IPList '["10.20.30.40","50.60.70.80"]'
+```
+
+String parameters are kept as strings and are not forcibly parsed just because they look like JSON.
+
+## application/json Requests
+
+For APIs whose `ContentType` is `application/json`, pass a JSON body directly:
+
+```shell
+ve rds_mysql ModifyDBInstanceIPList \
+  --body '{"InstanceId":"mysql-xxxxxx","GroupName":"default","IPList":["10.20.30.40","50.60.70.80"]}'
+```
+
+`--body` must be a JSON object or JSON array. It cannot be mixed with flattened parameters:
+
+```shell
+# Wrong: --body cannot be used together with other API parameters
+ve rds_mysql ModifyDBInstanceIPList --body '{"InstanceId":"mysql-xxxxxx"}' --GroupName default
+```
+
+application/json APIs also support dotted keys. The CLI expands them into nested JSON using metadata:
+
+```shell
+ve some_service SomeJsonAction \
+  --Name demo \
+  --Ports.1 80 \
+  --Ports.2 443 \
+  --Tags.1.Key env \
+  --Tags.1.Value prod
+```
+
+Array indices are 1-based and must be contiguous. `0`, negative indices, and skipped indices are errors.
+
+## Arrays and Nested Parameters
+
+Common array syntax:
+
+```shell
+ve ecs DescribeInstances --InstanceIds.1 i-123 --InstanceIds.2 i-456
+```
+
+Array of objects:
+
+```shell
+ve some_service SomeAction \
+  --Filters.1.Key InstanceType \
+  --Filters.1.Values.1 ecs.g1.large \
+  --Filters.1.Values.2 ecs.g2.large
+```
+
+For application/json APIs, dotted keys are restored to nested objects and arrays. For non-JSON APIs, dotted keys are preserved and handled by the service/API layer.
+
+## Unknown Parameters
+
+The CLI allows unknown API parameters to pass through to the service/API layer. Unless the parameter path itself is invalid, the CLI does not reject a parameter only because it is absent from metadata.
+
+Example:
+
+```shell
+ve ecs DescribeInstances --NewServerSideParam value
+```
+
+This is useful when the service has added a parameter but local metadata has not been updated yet.
+
+## Common Scenarios
+
+Use current profile:
+
+```shell
+ve ecs DescribeInstances
+```
+
+Use a non-current profile:
+
+```shell
+ve ecs DescribeInstances ---profile prod
+```
+
+Use environment-based default credential chain:
+
+```shell
+export VOLCENGINE_ACCESS_KEY=AK
+export VOLCENGINE_SECRET_KEY=SK
+export VOLCENGINE_REGION=cn-beijing
+ve ecs DescribeInstances
+```
+
+Use an OIDC profile:
+
+```shell
+ve configure set --profile ci-oidc --mode oidc --region cn-beijing \
+  --oidc-token-file /var/run/secrets/oidc-token \
+  --role-trn trn:iam::2100000000:role/CIRole
+
+ve ecs DescribeInstances ---profile ci-oidc
+```
+
+Use an ECS instance role profile:
+
+```shell
+ve configure set --profile ecs-role --mode ecsrole --region cn-beijing --role-name MyRole
+ve ecs DescribeInstances ---profile ecs-role
+```
+
+## Common Errors
+
+Missing credentials:
+
+```text
+credentials not configured, please run 've login' or 've configure set', or set VOLCENGINE_ACCESS_KEY and VOLCENGINE_SECRET_KEY environment variables
+```
+
+Missing region:
+
+```text
+region not set, please set it via profile, ---region flag, or VOLCENGINE_REGION environment variable
+```
+
+Unsupported fixed flag:
+
+```text
+---debug is not supported, supported fixed flags: ---profile, ---region, ---endpoint
+```
+
+The only supported fixed flags are `---profile`, `---region`, and `---endpoint`.
+
+---
+
+[← Configuration](3-Configuration.md) | Usage[(中文)](4-Usage-zh.md) | [Advanced Usage →](5-Advanced.md)
