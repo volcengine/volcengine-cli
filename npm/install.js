@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 
 const { execSync } = require("child_process");
+const crypto = require("crypto");
 const https = require("https");
 const fs = require("fs");
 const path = require("path");
 
 const VERSION = require("./package.json").version;
-const DEFAULT_DOWNLOAD_BASE_URL = "https://vecli-demo.tos-cn-beijing.volces.com/ve";
+const DEFAULT_DOWNLOAD_BASE_URL = "https://volecneing-cli.tos-cn-beijing.volces.com/ve";
+const CHECKSUM_PATH = path.join(__dirname, "checksum");
+const OFFICIAL_RELEASES_URL = "https://github.com/volcengine/volcengine-cli/releases";
 const DOWNLOAD_BASE_URL = normalizeBaseURL(
   process.env.VOLCENGINE_CLI_DOWNLOAD_BASE_URL || DEFAULT_DOWNLOAD_BASE_URL
 );
@@ -68,6 +71,81 @@ function archiveURLForTarget(target, version, downloadBaseURL) {
   return `${baseURL}/v${version}/${archiveNameForTarget(target, version)}`;
 }
 
+function sha256(data) {
+  return crypto.createHash("sha256").update(data).digest("hex");
+}
+
+function archiveBasename(filename) {
+  return String(filename || "").split(/[\\/]/).pop();
+}
+
+function parseChecksum(content) {
+  const entries = [];
+  String(content || "")
+    .split(/\r?\n/)
+    .forEach((line, index) => {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        return;
+      }
+
+      const match = trimmed.match(/^([a-fA-F0-9]{64})\s+\*?(.+)$/);
+      if (!match) {
+        throw new Error(`Invalid checksum line ${index + 1}`);
+      }
+
+      entries.push({
+        hash: match[1].toLowerCase(),
+        filename: match[2],
+      });
+    });
+  return entries;
+}
+
+function checksumForArchive(content, archiveName) {
+  const match = parseChecksum(content).find(
+    (entry) => entry.filename === archiveName || archiveBasename(entry.filename) === archiveName
+  );
+
+  if (!match) {
+    throw new Error(`Checksum entry not found for ${archiveName}`);
+  }
+
+  return match.hash;
+}
+
+function verifyArchiveChecksum(data, archiveName, checksumPath = CHECKSUM_PATH) {
+  let checksumContent;
+  try {
+    checksumContent = fs.readFileSync(checksumPath, "utf8");
+  } catch (err) {
+    if (err && err.code === "ENOENT") {
+      throw new Error(`Checksum file not found: ${checksumPath}`);
+    }
+    throw err;
+  }
+
+  const expected = checksumForArchive(checksumContent, archiveName);
+  const actual = sha256(data);
+
+  if (actual !== expected) {
+    throw new Error(
+      `Checksum mismatch for ${archiveName}: expected ${expected}, got ${actual}. ` +
+        `The downloaded archive may have been tampered with. ` +
+        `Please download Volcengine CLI from the official releases page: ${OFFICIAL_RELEASES_URL}`
+    );
+  }
+
+  return actual;
+}
+
+function downloadErrorMessage(statusCode, url) {
+  return (
+    `Download failed: HTTP ${statusCode} for ${url}. ` +
+    `\nPlease download Volcengine CLI from the official releases page: ${OFFICIAL_RELEASES_URL}`
+  );
+}
+
 function createWindowsVeShim(binDir) {
   const shimPath = path.join(binDir, "ve");
   const shim = `#!/usr/bin/env node
@@ -99,7 +177,7 @@ function download(url) {
           return;
         }
         if (res.statusCode !== 200) {
-          reject(new Error(`Download failed: HTTP ${res.statusCode} for ${url}`));
+          reject(new Error(downloadErrorMessage(res.statusCode, url)));
           return;
         }
         const chunks = [];
@@ -131,6 +209,8 @@ async function install() {
   console.log(`Downloading ${zipName}...`);
 
   const data = await download(url);
+  verifyArchiveChecksum(data, zipName);
+
   const tmpDir = path.join(__dirname, ".tmp");
   const zipPath = path.join(tmpDir, zipName);
 
@@ -188,8 +268,13 @@ module.exports = {
   archiveNameForTarget,
   archiveURLForTarget,
   binaryNameForPlatform,
+  checksumForArchive,
   createWindowsVeShim,
+  downloadErrorMessage,
   normalizeBaseURL,
+  parseChecksum,
+  sha256,
   targetForPlatform,
+  verifyArchiveChecksum,
   version: VERSION,
 };

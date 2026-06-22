@@ -1,6 +1,6 @@
 {
-  "name": "@sdk-liuzhaoliang/cli",
-  "version": "1.0.46",
+  "name": "@volcengine/cli",
+  "version": "1.0.48",
   "description": "Volcengine CLI npm installer",
   "bin": {
     "ve": "bin/ve"
@@ -12,6 +12,7 @@
   },
   "files": [
     "bin/",
+    "checksum",
     "install.js"
   ],
   "keywords": [

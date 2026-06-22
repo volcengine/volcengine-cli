@@ -26,6 +26,8 @@ try {
 const root = path.resolve(__dirname, "..");
 const packagePath = path.join(root, "npm", "package.json");
 const installPath = path.join(root, "npm", "install.js");
+const checksumSourcePath = path.join(root, "dist", `volcengine-cli_${version}_SHA256SUMS`);
+const checksumPackagePath = path.join(root, "npm", "checksum");
 
 const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
 pkg.version = version;
@@ -39,6 +41,11 @@ install = replaceOne(
   "install.js DEFAULT_DOWNLOAD_BASE_URL"
 );
 fs.writeFileSync(installPath, install);
+
+if (!fs.existsSync(checksumSourcePath)) {
+  throw new Error(`missing checksum file: ${checksumSourcePath}`);
+}
+fs.copyFileSync(checksumSourcePath, checksumPackagePath);
 
 function normalizeBaseURL(url) {
   return String(url || "").replace(/\/+$/, "");

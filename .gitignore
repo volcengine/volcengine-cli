@@ -8,6 +8,8 @@ volcengine-cli
 /ve.exe
 /bin/ve
 /bin/ve.exe
+/npm/checksum
+/node_modules
 
 # OS
 .DS_Store

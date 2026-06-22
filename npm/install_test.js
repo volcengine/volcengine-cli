@@ -10,9 +10,14 @@ const {
   archiveNameForTarget,
   archiveURLForTarget,
   binaryNameForPlatform,
+  checksumForArchive,
   createWindowsVeShim,
+  downloadErrorMessage,
   normalizeBaseURL,
+  parseChecksum,
+  sha256,
   targetForPlatform,
+  verifyArchiveChecksum,
   version,
 } = require("./install");
 const pkg = require("./package.json");
@@ -30,7 +35,7 @@ function withTempDir(fn) {
 }
 
 assert.strictEqual(pkg.bin.ve, "bin/ve");
-assert.strictEqual(pkg.name, "@sdk-liuzhaoliang/cli");
+assert.strictEqual(pkg.name, "@volcengine/cli");
 assert.strictEqual(version, pkg.version);
 assert.strictEqual(pkg.repository.url, "https://github.com/volcengine/volcengine-cli");
 assert.strictEqual(binaryNameForPlatform("win32"), "ve.exe");
@@ -62,6 +67,57 @@ assert.strictEqual(
   ),
   "https://bucket.example.com/releases/v1.2.3/volcengine-cli_1.2.3_linux_amd64.zip"
 );
+assert.match(
+  downloadErrorMessage(404, "https://example.com/missing.zip"),
+  /\nPlease download Volcengine CLI from the official releases page: https:\/\/github\.com\/volcengine\/volcengine-cli\/releases/
+);
+
+const checksumContent = `
+696221f4d866a9f194806057b234a9d1609aeaec347b4a6b315cbaa8592640eb  volcengine-cli_1.0.47_darwin_amd64.zip
+fe04ac6269206520c97197601e8174917e66eaea34ddafdbd1565e81de62e54a  ./volcengine-cli_1.0.47_darwin_arm64.zip
+`;
+const checksumEntries = parseChecksum(checksumContent);
+assert.strictEqual(checksumEntries.length, 2);
+assert.deepStrictEqual(checksumEntries[0], {
+  hash: "696221f4d866a9f194806057b234a9d1609aeaec347b4a6b315cbaa8592640eb",
+  filename: "volcengine-cli_1.0.47_darwin_amd64.zip",
+});
+assert.strictEqual(
+  checksumForArchive(checksumContent, "volcengine-cli_1.0.47_darwin_amd64.zip"),
+  "696221f4d866a9f194806057b234a9d1609aeaec347b4a6b315cbaa8592640eb"
+);
+assert.strictEqual(
+  checksumForArchive(checksumContent, "volcengine-cli_1.0.47_darwin_arm64.zip"),
+  "fe04ac6269206520c97197601e8174917e66eaea34ddafdbd1565e81de62e54a"
+);
+assert.throws(
+  () => parseChecksum("not-a-checksum  volcengine-cli_1.0.47_linux_amd64.zip"),
+  /Invalid checksum line 1/
+);
+assert.throws(
+  () => checksumForArchive(checksumContent, "volcengine-cli_1.0.47_linux_amd64.zip"),
+  /Checksum entry not found/
+);
+assert.strictEqual(
+  sha256(Buffer.from("abc")),
+  "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+);
+
+withTempDir((dir) => {
+  const checksumPath = path.join(dir, "checksum");
+  const archiveData = Buffer.from("archive-data");
+  const archiveName = "volcengine-cli_1.2.3_linux_amd64.zip";
+  const expected = sha256(archiveData);
+
+  fs.writeFileSync(checksumPath, `${expected}  ${archiveName}\n`);
+  assert.strictEqual(verifyArchiveChecksum(archiveData, archiveName, checksumPath), expected);
+
+  fs.writeFileSync(checksumPath, `${"0".repeat(64)}  ${archiveName}\n`);
+  assert.throws(
+    () => verifyArchiveChecksum(archiveData, archiveName, checksumPath),
+    /official releases page: https:\/\/github\.com\/volcengine\/volcengine-cli\/releases/
+  );
+});
 
 withTempDir((dir) => {
   const binDir = path.join(dir, "bin");
