@@ -23,7 +23,7 @@ func expandFlatToJSON(flat map[string]string, apiMeta *ApiMeta) (map[string]inte
 	sort.Strings(keys)
 
 	for _, key := range keys {
-		segs := strings.Split(key, ".")
+		segs := flatJSONKeySegments(apiMeta, key)
 		if err := validateIndexSegments(key, segs); err != nil {
 			return nil, err
 		}
@@ -43,6 +43,16 @@ func expandFlatToJSON(flat map[string]string, apiMeta *ApiMeta) (map[string]inte
 	}
 	m, _ := out.(map[string]interface{})
 	return m, nil
+}
+
+func flatJSONKeySegments(apiMeta *ApiMeta, key string) []string {
+	if !strings.Contains(key, ".") {
+		return []string{key}
+	}
+	if _, _, ok := resolveRequestMetaType(apiMeta, key); !ok {
+		return []string{key}
+	}
+	return strings.Split(key, ".")
 }
 
 // validateIndexSegments rejects malformed array indices early so they cannot be

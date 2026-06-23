@@ -129,6 +129,19 @@ func TestExpandFlatToJSONChildMetas(t *testing.T) {
 	}
 }
 
+func TestExpandFlatToJSONPreservesDottedKeyWhenMetadataPathDoesNotExist(t *testing.T) {
+	got, err := expandFlatToJSON(map[string]string{
+		"Limit.q": "1",
+	}, testReqMeta())
+	if err != nil {
+		t.Fatalf("expandFlatToJSON returned error: %v", err)
+	}
+	want := map[string]interface{}{"Limit.q": "1"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expandFlatToJSON()\n got = %#v\nwant = %#v", got, want)
+	}
+}
+
 func TestExpandFlatToJSONErrors(t *testing.T) {
 	tests := []struct {
 		name string
@@ -141,7 +154,6 @@ func TestExpandFlatToJSONErrors(t *testing.T) {
 		{name: "negative index", flat: map[string]string{"ResourceNames.-1": "a"}},
 		{name: "plus-signed index", flat: map[string]string{"ResourceNames.+1": "a"}},
 		{name: "leaf vs branch conflict", flat: map[string]string{"Filters": "x", "Filters.1.Key": "y"}},
-		{name: "object/array mix", flat: map[string]string{"Filters.1.Key": "a", "Filters.Other": "b"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
