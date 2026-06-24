@@ -12,6 +12,7 @@ const {
   binaryNameForPlatform,
   checksumForArchive,
   createWindowsVeShim,
+  defaultDownloadBaseURL,
   downloadErrorMessage,
   normalizeBaseURL,
   parseChecksum,
@@ -38,6 +39,7 @@ assert.strictEqual(pkg.bin.ve, "bin/ve");
 assert.strictEqual(pkg.name, "@volcengine/cli");
 assert.strictEqual(version, pkg.version);
 assert.strictEqual(pkg.repository.url, "https://github.com/volcengine/volcengine-cli");
+assert.strictEqual(defaultDownloadBaseURL, "https://cloudcache.volccdn.com/ve");
 assert.strictEqual(binaryNameForPlatform("win32"), "ve.exe");
 assert.strictEqual(binaryNameForPlatform("linux"), "ve");
 assert.strictEqual(binaryNameForPlatform("darwin"), "ve");

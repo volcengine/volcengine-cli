@@ -14,7 +14,7 @@ name: release
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - 'v*'
 
 permissions:
   contents: write
@@ -85,7 +85,7 @@ jobs:
           : "${AWS_SECRET_ACCESS_KEY:?missing secret TOS_SECRET_ACCESS_KEY}"
 
           export AWS_DEFAULT_REGION="${TOS_REGION:-cn-beijing}"
-          bucket="${TOS_BUCKET:-vecli-demo}"
+          bucket="${TOS_BUCKET:-eps-common-public}"
           prefix="${TOS_PREFIX:-ve}"
           endpoint="${TOS_S3_ENDPOINT:-https://tos-s3-cn-beijing.volces.com}"
           concurrency="${TOS_UPLOAD_CONCURRENCY:-20}"
@@ -127,7 +127,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           prefix="${TOS_PREFIX:-ve}"
-          public_base="${TOS_PUBLIC_BASE_URL:-https://vecli-demo.tos-cn-beijing.volces.com}"
+          public_base="${TOS_PUBLIC_BASE_URL:-https://cloudcache.volccdn.com}"
           download_base="${public_base%/}/${prefix}"
           node scripts/configure_npm_release.js "$VERSION" "$download_base"
 
@@ -138,7 +138,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           prefix="${TOS_PREFIX:-ve}"
-          public_base="${TOS_PUBLIC_BASE_URL:-https://vecli-demo.tos-cn-beijing.volces.com}"
+          public_base="${TOS_PUBLIC_BASE_URL:-https://cloudcache.volccdn.com}"
           download_base="${public_base%/}/${prefix}"
           archive="volcengine-cli_${VERSION}_linux_amd64.zip"
           curl --fail --location --head "${download_base}/v${VERSION}/${archive}"

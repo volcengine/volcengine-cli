@@ -7,7 +7,7 @@ const fs = require("fs");
 const path = require("path");
 
 const VERSION = require("./package.json").version;
-const DEFAULT_DOWNLOAD_BASE_URL = "https://volecneing-cli.tos-cn-beijing.volces.com/ve";
+const DEFAULT_DOWNLOAD_BASE_URL = "https://cloudcache.volccdn.com/ve";
 const CHECKSUM_PATH = path.join(__dirname, "checksum");
 const OFFICIAL_RELEASES_URL = "https://github.com/volcengine/volcengine-cli/releases";
 const DOWNLOAD_BASE_URL = normalizeBaseURL(
@@ -270,6 +270,7 @@ module.exports = {
   binaryNameForPlatform,
   checksumForArchive,
   createWindowsVeShim,
+  defaultDownloadBaseURL: DEFAULT_DOWNLOAD_BASE_URL,
   downloadErrorMessage,
   normalizeBaseURL,
   parseChecksum,
