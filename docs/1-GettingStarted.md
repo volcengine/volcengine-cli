@@ -8,7 +8,7 @@ This guide explains how to install `ve`, put it on your PATH, and make a minimal
 
 ## Requirements
 
-- Go 1.5+ is required. Go 1.12+ is recommended.
+- Go 1.12+ is recommended.
 - Starting from v1.0.20, the command prefix changed from `volcengine-cli` to `ve`. Earlier versions are not affected. After upgrading to v1.0.20 or later, update scripts that still call `volcengine-cli`.
 
 ## Install
