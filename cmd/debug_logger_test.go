@@ -31,7 +31,7 @@ func TestResolveDebugOptionsUsesDebugEnvOnly(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			defer setenvForTest(t, envCLIDebug, tt.value)()
 
-			opts, err := resolveDebugOptions(NewContext())
+			opts, err := resolveDebugOptions()
 			if err != nil {
 				t.Fatalf("resolveDebugOptions returned error: %v", err)
 			}
@@ -45,7 +45,7 @@ func TestResolveDebugOptionsUsesDebugEnvOnly(t *testing.T) {
 func TestResolveDebugOptionsDisabledWhenEnvUnset(t *testing.T) {
 	defer unsetenvForTest(t, envCLIDebug)()
 
-	opts, err := resolveDebugOptions(NewContext())
+	opts, err := resolveDebugOptions()
 	if err != nil {
 		t.Fatalf("resolveDebugOptions returned error: %v", err)
 	}

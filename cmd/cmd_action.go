@@ -172,7 +172,7 @@ func prepareDebugLogger(ctx *Context) (*DebugLogger, func() error, error) {
 		return ctx.debugLogger, func() error { return nil }, nil
 	}
 
-	opts, err := resolveDebugOptions(ctx)
+	opts, err := resolveDebugOptions()
 	if err != nil {
 		return nil, nil, err
 	}
