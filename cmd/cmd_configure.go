@@ -45,8 +45,9 @@ func init() {
 
 func newConfigureRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:  "configure",
-		Args: cobra.MatchAll(cobra.OnlyValidArgs),
+		Use:   "configure",
+		Short: "Manage CLI profiles and credentials",
+		Args:  cobra.MatchAll(cobra.OnlyValidArgs),
 		Run: func(cmd *cobra.Command, args []string) {
 			cmd.Usage()
 		},
@@ -98,7 +99,13 @@ func newConfigureSetCmd() *cobra.Command {
       1. if profile not exist, add new;
       2. if profile exist, modify target field
 
-  supported modes: ak, sso, console-login, ramrolearn, oidc, ecsrole`,
+  supported modes: ak, sso, console-login, ramrolearn, oidc, ecsrole
+
+Examples:
+  ve configure set --profile test --region cn-beijing --access-key ak --secret-key sk
+  ve configure set --profile test-ram --mode ramrolearn --region cn-beijing --access-key ak --secret-key sk --role-name YourRoleName --account-id 2100000000
+  ve configure set --profile test-oidc --mode oidc --region cn-beijing --oidc-token-file /path/to/oidc/token --role-trn trn:iam::2100000000:role/YourRoleName
+  ve configure set --profile test-ecs --mode ecsrole --region cn-beijing --role-name YourEcsRoleName`,
 		DisableFlagsInUseLine: true,
 	}
 
@@ -111,6 +118,8 @@ func newConfigureSetCmd() *cobra.Command {
 	cmd.Flags().StringVar(&profileFlags.Region, "region", "", "your region")
 	cmd.Flags().StringVar(&profileFlags.Endpoint, "endpoint", "", "endpoint bind with region")
 	cmd.Flags().StringVar(&profileFlags.EndpointResolver, "endpoint-resolver", "", "endpoint resolver (auto-addressing)")
+	cmd.Flags().StringVar(&profileFlags.HTTPProxy, "http-proxy", "", "HTTP proxy URL used by the SDK when SSL is disabled")
+	cmd.Flags().StringVar(&profileFlags.HTTPSProxy, "https-proxy", "", "HTTPS proxy URL used by the SDK")
 	cmd.Flags().StringVar(&profileFlags.SessionToken, "session-token", "", "your session token")
 	cmd.Flags().StringVar(&profileFlags.SsoSessionName, "sso-session", "", "your sso session name")
 	cmd.Flags().StringVar(&profileFlags.AccountId, "account-id", "", "your account id (required for ramrolearn mode)")
@@ -314,7 +323,10 @@ func newConfigureSsoSessionCmd() *cobra.Command {
 		Long: `Description:
   add new SSO session, or modify target SSO session:
       1. if SSO session not exist, add new;
-      2. if SSO session exist, modify target field`,
+      2. if SSO session exist, modify target field
+
+Examples:
+  ve configure sso-session --name my-sso --start-url https://{custom}.volccloudidentity.com/userportal --region cn-beijing`,
 		DisableFlagsInUseLine: true,
 	}
 

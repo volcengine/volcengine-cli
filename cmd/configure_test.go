@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,6 +53,49 @@ func TestValidateProfileModeRequiresAkCredentialsByDefault(t *testing.T) {
 	}
 }
 
+func TestValidateProfileModeAllowsMissingRegion(t *testing.T) {
+	err := validateProfileMode(&Profile{
+		Name:      "test",
+		Mode:      ModeAK,
+		AccessKey: "ak",
+		SecretKey: "sk",
+	})
+	if err != nil {
+		t.Fatalf("expected missing region to be valid at configure set time, got: %v", err)
+	}
+}
+
+func TestConfigureSetAllowsMissingRegionForNewAkProfile(t *testing.T) {
+	_, cleanupConfigDir := withTestConfigDir(t)
+	defer cleanupConfigDir()
+	defer resetProfileFlagsForTest(t)()
+	defer withTestCtxConfig(t, &Configure{
+		Profiles: map[string]*Profile{},
+	})()
+
+	setCmd := newConfigureSetCmd()
+	setCmd.SetArgs([]string{
+		"--profile", "test",
+		"--mode", ModeAK,
+		"--access-key", "ak",
+		"--secret-key", "sk",
+	})
+
+	err := setCmd.Execute()
+	if err != nil {
+		t.Fatalf("expected configure set to allow profile without region, got: %v", err)
+	}
+
+	cfg := runtimeConfig()
+	p := cfg.Profiles["test"]
+	if p == nil {
+		t.Fatal("expected profile to be saved")
+	}
+	if p.Region != "" {
+		t.Fatalf("expected region to remain empty when omitted, got %q", p.Region)
+	}
+}
+
 func TestValidateProfileModeAkRequiresSecretKey(t *testing.T) {
 	err := validateProfileMode(&Profile{
 		Name:      "test",
@@ -69,6 +113,7 @@ func TestValidateProfileModeAkValid(t *testing.T) {
 		Mode:      ModeAK,
 		AccessKey: "ak",
 		SecretKey: "sk",
+		Region:    "cn-beijing",
 	})
 	if err != nil {
 		t.Fatalf("expected ak mode to be valid, got error: %v", err)
@@ -109,6 +154,7 @@ func TestValidateProfileModeRamRoleArnValid(t *testing.T) {
 		SecretKey: "sk",
 		RoleName:  "role",
 		AccountId: "123",
+		Region:    "cn-beijing",
 	})
 	if err != nil {
 		t.Fatalf("expected ramrolearn mode to be valid, got error: %v", err)
@@ -140,6 +186,7 @@ func TestValidateProfileModeOidcValid(t *testing.T) {
 		Mode:          ModeOIDC,
 		OidcTokenFile: "/tmp/token",
 		RoleTrn:       "trn:iam::2100000000:role/TestRole",
+		Region:        "cn-beijing",
 	})
 	if err != nil {
 		t.Fatalf("expected oidc mode to be valid, got error: %v", err)
@@ -161,6 +208,7 @@ func TestValidateProfileModeEcsRoleValid(t *testing.T) {
 		Name:     "test",
 		Mode:     ModeEcsRole,
 		RoleName: "role",
+		Region:   "cn-beijing",
 	})
 	if err != nil {
 		t.Fatalf("expected ecsrole mode to be valid, got error: %v", err)
@@ -185,6 +233,7 @@ func TestValidateProfileModeConsoleLoginValid(t *testing.T) {
 		Name:         "test",
 		Mode:         ModeConsoleLogin,
 		LoginSession: "trn:iam::123456789012:login/session/test",
+		Region:       "cn-beijing",
 	})
 	if err != nil {
 		t.Fatalf("expected console-login mode to be valid, got error: %v", err)
@@ -205,8 +254,8 @@ func TestValidateProfileModeUnsupported(t *testing.T) {
 }
 
 func TestValidateProfileModeRequiresOidcFieldsFromProfile(t *testing.T) {
-	t.Setenv("VOLCENGINE_OIDC_TOKEN_FILE", "/tmp/token")
-	t.Setenv("VOLCENGINE_OIDC_ROLE_TRN", "trn:iam::2100000000:role/TestRole")
+	defer setenvForTest(t, "VOLCENGINE_OIDC_TOKEN_FILE", "/tmp/token")()
+	defer setenvForTest(t, "VOLCENGINE_OIDC_ROLE_TRN", "trn:iam::2100000000:role/TestRole")()
 
 	err := validateProfileMode(&Profile{
 		Name: "test",
@@ -469,10 +518,258 @@ func TestNewSimpleClientRegionOverride(t *testing.T) {
 	}
 }
 
+func TestNewSimpleClientEndpointOverride(t *testing.T) {
+	ctx := NewContext()
+	disableSSL := false
+	ctx.config = &Configure{
+		Current: "default",
+		Profiles: map[string]*Profile{
+			"default": {
+				Name:       "default",
+				Mode:       ModeAK,
+				AccessKey:  "ak",
+				SecretKey:  "sk",
+				Region:     "cn-beijing",
+				Endpoint:   "profile.example.com",
+				DisableSSL: &disableSSL,
+			},
+		},
+	}
+
+	f, _ := ctx.fixedFlags.AddByName("endpoint")
+	f.SetValue("override.example.com")
+
+	client, err := NewSimpleClient(ctx)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v", err)
+	}
+	if *client.Config.Endpoint != "override.example.com" {
+		t.Fatalf("expected endpoint override, got %q", *client.Config.Endpoint)
+	}
+}
+
+func TestNewSimpleClientProfileProxyConfig(t *testing.T) {
+	ctx := NewContext()
+	disableSSL := false
+	ctx.config = &Configure{
+		Current: "default",
+		Profiles: map[string]*Profile{
+			"default": {
+				Name:       "default",
+				Mode:       ModeAK,
+				AccessKey:  "ak",
+				SecretKey:  "sk",
+				Region:     "cn-beijing",
+				HTTPProxy:  "http://127.0.0.1:8080",
+				HTTPSProxy: "http://127.0.0.1:8443",
+				DisableSSL: &disableSSL,
+			},
+		},
+	}
+
+	client, err := NewSimpleClient(ctx)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v", err)
+	}
+	if client.Config.HTTPProxy == nil || *client.Config.HTTPProxy != "http://127.0.0.1:8080" {
+		t.Fatalf("expected HTTP proxy to be set, got %v", client.Config.HTTPProxy)
+	}
+	if client.Config.HTTPSProxy == nil || *client.Config.HTTPSProxy != "http://127.0.0.1:8443" {
+		t.Fatalf("expected HTTPS proxy to be set, got %v", client.Config.HTTPSProxy)
+	}
+}
+
+func TestNewSimpleClientNoProfileAllowsDefaultChainWithoutExplicitCredentials(t *testing.T) {
+	defer setenvForTest(t, "VOLCENGINE_ACCESS_KEY", "")()
+	defer setenvForTest(t, "VOLCENGINE_SECRET_KEY", "")()
+	defer setenvForTest(t, "VOLCENGINE_REGION", "cn-beijing")()
+	defer setenvForTest(t, "VOLCENGINE_PROFILE", "")()
+	defer setenvForTest(t, "VOLCENGINE_OIDC_TOKEN_FILE", "")()
+	defer setenvForTest(t, "VOLCENGINE_OIDC_ROLE_TRN", "")()
+	defer setenvForTest(t, "VOLCENGINE_ECS_METADATA", "")()
+	defer setenvForTest(t, "VOLCSTACK_ACCESS_KEY_ID", "")()
+	defer setenvForTest(t, "VOLCSTACK_ACCESS_KEY", "")()
+	defer setenvForTest(t, "VOLCSTACK_PROFILE", "")()
+	defer setenvForTest(t, "VOLCSTACK_CONTAINER_CREDENTIALS_FULL_URI", "")()
+
+	ctx := NewContext()
+	ctx.config = &Configure{
+		Current:  "",
+		Profiles: map[string]*Profile{},
+	}
+
+	// Default chain providers, including IMDS, resolve credentials when a request is sent.
+	// Client construction must not require an explicit local credential signal.
+	client, err := NewSimpleClient(ctx)
+	if err != nil {
+		t.Fatalf("expected default chain client construction to succeed, got: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected non-nil client")
+	}
+}
+
+func TestNewSimpleClientNoProfileMissingCredentialAndRegionReportsCredentialFirst(t *testing.T) {
+	defer setenvForTest(t, "VOLCENGINE_ACCESS_KEY", "")()
+	defer setenvForTest(t, "VOLCENGINE_SECRET_KEY", "")()
+	defer setenvForTest(t, "VOLCENGINE_REGION", "")()
+	defer setenvForTest(t, "VOLCENGINE_PROFILE", "")()
+	defer setenvForTest(t, "VOLCENGINE_OIDC_TOKEN_FILE", "")()
+	defer setenvForTest(t, "VOLCENGINE_OIDC_ROLE_TRN", "")()
+	defer setenvForTest(t, "VOLCENGINE_ECS_METADATA", "")()
+	defer setenvForTest(t, "VOLCSTACK_ACCESS_KEY_ID", "")()
+	defer setenvForTest(t, "VOLCSTACK_ACCESS_KEY", "")()
+	defer setenvForTest(t, "VOLCSTACK_PROFILE", "")()
+	defer setenvForTest(t, "VOLCSTACK_CONTAINER_CREDENTIALS_FULL_URI", "")()
+
+	ctx := NewContext()
+	ctx.config = &Configure{
+		Current:  "",
+		Profiles: map[string]*Profile{},
+	}
+
+	_, err := NewSimpleClient(ctx)
+	if err == nil {
+		t.Fatal("expected credentials error")
+	}
+	if !strings.Contains(err.Error(), "credentials not configured") {
+		t.Fatalf("expected credentials guidance before region guidance, got: %v", err)
+	}
+}
+
+func TestNewSimpleClientEmptyCurrentIgnoresDefaultProfile(t *testing.T) {
+	defer setenvForTest(t, "VOLCENGINE_ACCESS_KEY", "env-ak")()
+	defer setenvForTest(t, "VOLCENGINE_SECRET_KEY", "env-sk")()
+	defer setenvForTest(t, "VOLCENGINE_REGION", "cn-shanghai")()
+	defer setenvForTest(t, "VOLCENGINE_PROFILE", "")()
+	defer setenvForTest(t, "VOLCSTACK_PROFILE", "")()
+
+	ctx := NewContext()
+	ctx.config = &Configure{
+		Current: "",
+		Profiles: map[string]*Profile{
+			"default": {
+				Name:      "default",
+				Mode:      ModeAK,
+				AccessKey: "ak",
+				SecretKey: "sk",
+				Region:    "cn-beijing",
+			},
+		},
+	}
+
+	// Empty Current must fall back to the default credential chain, NOT silently
+	// adopt the "default" profile. Region therefore comes from the environment
+	// (cn-shanghai), not from the default profile (cn-beijing).
+	client, err := NewSimpleClient(ctx)
+	if err != nil {
+		t.Fatalf("expected default credential chain, got: %v", err)
+	}
+	if *client.Config.Region != "cn-shanghai" {
+		t.Fatalf("expected env region cn-shanghai (default chain), got %q", *client.Config.Region)
+	}
+}
+
+func TestNewSimpleClientCurrentTakesPriorityOverEnvProfile(t *testing.T) {
+	defer setenvForTest(t, "VOLCENGINE_PROFILE", "prod")()
+	defer setenvForTest(t, "VOLCSTACK_PROFILE", "")()
+
+	ctx := NewContext()
+	ctx.config = &Configure{
+		Current: "default",
+		Profiles: map[string]*Profile{
+			"default": {
+				Name:      "default",
+				Mode:      ModeAK,
+				AccessKey: "ak-default",
+				SecretKey: "sk-default",
+				Region:    "cn-beijing",
+			},
+			"prod": {
+				Name:      "prod",
+				Mode:      ModeAK,
+				AccessKey: "ak-prod",
+				SecretKey: "sk-prod",
+				Region:    "cn-shanghai",
+			},
+		},
+	}
+
+	// Profile selection priority is ---profile > Current > VOLCENGINE_PROFILE, so
+	// the configured Current (default) wins over VOLCENGINE_PROFILE=prod.
+	client, err := NewSimpleClient(ctx)
+	if err != nil {
+		t.Fatalf("expected current profile selection, got: %v", err)
+	}
+	if *client.Config.Region != "cn-beijing" {
+		t.Fatalf("expected current (default) profile region cn-beijing, got %q", *client.Config.Region)
+	}
+}
+
+func TestNewSimpleClientEnvProfileUsedWhenCurrentEmpty(t *testing.T) {
+	defer setenvForTest(t, "VOLCENGINE_PROFILE", "prod")()
+	defer setenvForTest(t, "VOLCSTACK_PROFILE", "")()
+
+	ctx := NewContext()
+	ctx.config = &Configure{
+		Current: "",
+		Profiles: map[string]*Profile{
+			"prod": {
+				Name:      "prod",
+				Mode:      ModeAK,
+				AccessKey: "ak-prod",
+				SecretKey: "sk-prod",
+				Region:    "cn-shanghai",
+			},
+		},
+	}
+
+	// With empty Current, VOLCENGINE_PROFILE selects the profile.
+	client, err := NewSimpleClient(ctx)
+	if err != nil {
+		t.Fatalf("expected env profile selection, got: %v", err)
+	}
+	if *client.Config.Region != "cn-shanghai" {
+		t.Fatalf("expected prod profile region cn-shanghai, got %q", *client.Config.Region)
+	}
+}
+
+func TestNewSimpleClientProfileMissingEndpointFallsBackToEnv(t *testing.T) {
+	defer setenvForTest(t, "VOLCENGINE_PROFILE", "")()
+	defer setenvForTest(t, "VOLCSTACK_PROFILE", "")()
+	defer setenvForTest(t, "VOLCENGINE_ENDPOINT", "env.example.com")()
+
+	ctx := NewContext()
+	disableSSL := false
+	ctx.config = &Configure{
+		Current: "default",
+		Profiles: map[string]*Profile{
+			"default": {
+				Name:       "default",
+				Mode:       ModeAK,
+				AccessKey:  "ak",
+				SecretKey:  "sk",
+				Region:     "cn-beijing",
+				DisableSSL: &disableSSL,
+			},
+		},
+	}
+
+	// Endpoint priority is ---endpoint > profile.Endpoint > VOLCENGINE_ENDPOINT, so
+	// an empty profile endpoint falls back to the environment variable.
+	client, err := NewSimpleClient(ctx)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v", err)
+	}
+	if client.Config.Endpoint == nil || *client.Config.Endpoint != "env.example.com" {
+		t.Fatalf("expected env endpoint env.example.com, got %v", client.Config.Endpoint)
+	}
+}
+
 func TestNewSimpleClientNoProfileUsesDefaultChain(t *testing.T) {
-	t.Setenv("VOLCENGINE_ACCESS_KEY", "env-ak")
-	t.Setenv("VOLCENGINE_SECRET_KEY", "env-sk")
-	t.Setenv("VOLCENGINE_REGION", "cn-beijing")
+	defer setenvForTest(t, "VOLCENGINE_ACCESS_KEY", "env-ak")()
+	defer setenvForTest(t, "VOLCENGINE_SECRET_KEY", "env-sk")()
+	defer setenvForTest(t, "VOLCENGINE_REGION", "cn-beijing")()
 
 	ctx := NewContext()
 	ctx.config = &Configure{
@@ -490,9 +787,9 @@ func TestNewSimpleClientNoProfileUsesDefaultChain(t *testing.T) {
 }
 
 func TestNewSimpleClientNoProfileMissingRegion(t *testing.T) {
-	t.Setenv("VOLCENGINE_ACCESS_KEY", "env-ak")
-	t.Setenv("VOLCENGINE_SECRET_KEY", "env-sk")
-	t.Setenv("VOLCENGINE_REGION", "")
+	defer setenvForTest(t, "VOLCENGINE_ACCESS_KEY", "env-ak")()
+	defer setenvForTest(t, "VOLCENGINE_SECRET_KEY", "env-sk")()
+	defer setenvForTest(t, "VOLCENGINE_REGION", "")()
 
 	ctx := NewContext()
 	ctx.config = &Configure{
@@ -510,6 +807,8 @@ func TestNewSimpleClientNoProfileMissingRegion(t *testing.T) {
 }
 
 func TestNewSimpleClientProfileMissingRegion(t *testing.T) {
+	defer setenvForTest(t, "VOLCENGINE_REGION", "")()
+
 	ctx := NewContext()
 	disableSSL := false
 	ctx.config = &Configure{
@@ -531,6 +830,33 @@ func TestNewSimpleClientProfileMissingRegion(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "region not set") {
 		t.Fatalf("expected error to mention region, got: %v", err)
+	}
+}
+
+func TestNewSimpleClientProfileMissingRegionFallsBackToEnv(t *testing.T) {
+	defer setenvForTest(t, "VOLCENGINE_REGION", "cn-beijing")()
+
+	ctx := NewContext()
+	disableSSL := false
+	ctx.config = &Configure{
+		Current: "test",
+		Profiles: map[string]*Profile{
+			"test": {
+				Name:       "test",
+				Mode:       ModeAK,
+				AccessKey:  "ak",
+				SecretKey:  "sk",
+				DisableSSL: &disableSSL,
+			},
+		},
+	}
+
+	client, err := NewSimpleClient(ctx)
+	if err != nil {
+		t.Fatalf("expected empty profile region to fall back to VOLCENGINE_REGION, got error: %v", err)
+	}
+	if *client.Config.Region != "cn-beijing" {
+		t.Fatalf("expected region cn-beijing from env, got %q", *client.Config.Region)
 	}
 }
 
@@ -563,9 +889,9 @@ func TestNewSimpleClientRegionOverrideFixesEmptyProfileRegion(t *testing.T) {
 }
 
 func TestNewSimpleClientRegionOverrideFixesEmptyEnvRegion(t *testing.T) {
-	t.Setenv("VOLCENGINE_ACCESS_KEY", "env-ak")
-	t.Setenv("VOLCENGINE_SECRET_KEY", "env-sk")
-	t.Setenv("VOLCENGINE_REGION", "")
+	defer setenvForTest(t, "VOLCENGINE_ACCESS_KEY", "env-ak")()
+	defer setenvForTest(t, "VOLCENGINE_SECRET_KEY", "env-sk")()
+	defer setenvForTest(t, "VOLCENGINE_REGION", "")()
 
 	ctx := NewContext()
 	ctx.config = &Configure{
@@ -586,9 +912,9 @@ func TestNewSimpleClientRegionOverrideFixesEmptyEnvRegion(t *testing.T) {
 }
 
 func TestNewSimpleClientNilConfig(t *testing.T) {
-	t.Setenv("VOLCENGINE_ACCESS_KEY", "env-ak")
-	t.Setenv("VOLCENGINE_SECRET_KEY", "env-sk")
-	t.Setenv("VOLCENGINE_REGION", "cn-beijing")
+	defer setenvForTest(t, "VOLCENGINE_ACCESS_KEY", "env-ak")()
+	defer setenvForTest(t, "VOLCENGINE_SECRET_KEY", "env-sk")()
+	defer setenvForTest(t, "VOLCENGINE_REGION", "cn-beijing")()
 
 	ctx := NewContext()
 	// config 为 nil，应该走默认凭证链
@@ -669,9 +995,9 @@ func TestEnsureValidStsTokenWritesToCorrectProfile(t *testing.T) {
 // --------------- SDK CliProvider contract tests ---------------
 
 // 验证 SDK CliProvider 能正确读取 CLI 写入的 config.json 各模式
-func writeTestConfig(t *testing.T, cfg *Configure) string {
+func writeTestConfig(t *testing.T, cfg *Configure) (string, func()) {
 	t.Helper()
-	dir := t.TempDir()
+	dir := tempDirForTest(t)
 	configDir := filepath.Join(dir, ".volcengine")
 	if err := os.MkdirAll(configDir, 0700); err != nil {
 		t.Fatalf("failed to create config dir: %v", err)
@@ -682,14 +1008,14 @@ func writeTestConfig(t *testing.T, cfg *Configure) string {
 	if err != nil {
 		t.Fatalf("marshalConfig error: %v", err)
 	}
-	if err := os.WriteFile(configPath, data, 0600); err != nil {
+	if err := ioutil.WriteFile(configPath, data, 0600); err != nil {
 		t.Fatalf("failed to write config: %v", err)
 	}
-	return configPath
+	return configPath, cleanupDirForTest(dir)
 }
 
 func TestCliProviderContractAkMode(t *testing.T) {
-	configPath := writeTestConfig(t, &Configure{
+	configPath, cleanup := writeTestConfig(t, &Configure{
 		Current: "test",
 		Profiles: map[string]*Profile{
 			"test": {
@@ -701,6 +1027,7 @@ func TestCliProviderContractAkMode(t *testing.T) {
 			},
 		},
 	})
+	defer cleanup()
 
 	creds := clicreds.NewCliCredentials(configPath, "test")
 	v, err := creds.Get()
@@ -716,7 +1043,7 @@ func TestCliProviderContractAkMode(t *testing.T) {
 }
 
 func TestCliProviderContractProfileSelection(t *testing.T) {
-	configPath := writeTestConfig(t, &Configure{
+	configPath, cleanup := writeTestConfig(t, &Configure{
 		Current: "default",
 		Profiles: map[string]*Profile{
 			"default": {
@@ -733,6 +1060,7 @@ func TestCliProviderContractProfileSelection(t *testing.T) {
 			},
 		},
 	})
+	defer cleanup()
 
 	// 指定 profile=prod，应该读 prod 的凭证
 	creds := clicreds.NewCliCredentials(configPath, "prod")
@@ -746,7 +1074,7 @@ func TestCliProviderContractProfileSelection(t *testing.T) {
 }
 
 func TestCliProviderContractProfileNotFound(t *testing.T) {
-	configPath := writeTestConfig(t, &Configure{
+	configPath, cleanup := writeTestConfig(t, &Configure{
 		Current: "default",
 		Profiles: map[string]*Profile{
 			"default": {
@@ -757,6 +1085,7 @@ func TestCliProviderContractProfileNotFound(t *testing.T) {
 			},
 		},
 	})
+	defer cleanup()
 
 	creds := clicreds.NewCliCredentials(configPath, "nonexistent")
 	_, err := creds.Get()
@@ -766,7 +1095,7 @@ func TestCliProviderContractProfileNotFound(t *testing.T) {
 }
 
 func TestCliProviderContractUnsupportedMode(t *testing.T) {
-	configPath := writeTestConfig(t, &Configure{
+	configPath, cleanup := writeTestConfig(t, &Configure{
 		Current: "test",
 		Profiles: map[string]*Profile{
 			"test": {
@@ -775,6 +1104,7 @@ func TestCliProviderContractUnsupportedMode(t *testing.T) {
 			},
 		},
 	})
+	defer cleanup()
 
 	creds := clicreds.NewCliCredentials(configPath, "test")
 	_, err := creds.Get()
@@ -790,26 +1120,27 @@ func TestCliProviderContractUnsupportedMode(t *testing.T) {
 // 区分，会把已有 profile 中显式启用的 DisableSSL/UseDualStack 静默重置为 false。
 // 下面三个用例覆盖 set 子命令调用层（newConfigureSetCmd → RunE → setConfigProfile）。
 
-func resetProfileFlagsForTest(t *testing.T) {
+func resetProfileFlagsForTest(t *testing.T) func() {
 	t.Helper()
 	old := profileFlags
-	t.Cleanup(func() { profileFlags = old })
 	profileFlags = Profile{}
+	return func() { profileFlags = old }
 }
 
-func withTestCtxConfig(t *testing.T, cfg *Configure) {
+func withTestCtxConfig(t *testing.T, cfg *Configure) func() {
 	t.Helper()
 	old := ctx.config
 	ctx.config = cfg
-	t.Cleanup(func() { ctx.config = old })
+	return func() { ctx.config = old }
 }
 
 func TestConfigureSetPreservesPointerFlagsWhenNotPassed(t *testing.T) {
-	withTestConfigDir(t)
-	resetProfileFlagsForTest(t)
+	_, cleanupConfigDir := withTestConfigDir(t)
+	defer cleanupConfigDir()
+	defer resetProfileFlagsForTest(t)()
 
 	trueVal := true
-	withTestCtxConfig(t, &Configure{
+	defer withTestCtxConfig(t, &Configure{
 		Current: "p1",
 		Profiles: map[string]*Profile{
 			"p1": {
@@ -822,7 +1153,7 @@ func TestConfigureSetPreservesPointerFlagsWhenNotPassed(t *testing.T) {
 				UseDualStack: &trueVal,
 			},
 		},
-	})
+	})()
 
 	setCmd := newConfigureSetCmd()
 	setCmd.SetArgs([]string{"--profile", "p1", "--region", "cn-shanghai"})
@@ -850,11 +1181,12 @@ func TestConfigureSetPreservesPointerFlagsWhenNotPassed(t *testing.T) {
 }
 
 func TestConfigureSetExplicitFalseOverridesPointerFlags(t *testing.T) {
-	withTestConfigDir(t)
-	resetProfileFlagsForTest(t)
+	_, cleanupConfigDir := withTestConfigDir(t)
+	defer cleanupConfigDir()
+	defer resetProfileFlagsForTest(t)()
 
 	trueVal := true
-	withTestCtxConfig(t, &Configure{
+	defer withTestCtxConfig(t, &Configure{
 		Current: "p1",
 		Profiles: map[string]*Profile{
 			"p1": {
@@ -867,7 +1199,7 @@ func TestConfigureSetExplicitFalseOverridesPointerFlags(t *testing.T) {
 				UseDualStack: &trueVal,
 			},
 		},
-	})
+	})()
 
 	setCmd := newConfigureSetCmd()
 	setCmd.SetArgs([]string{
@@ -893,16 +1225,18 @@ func TestConfigureSetExplicitFalseOverridesPointerFlags(t *testing.T) {
 }
 
 func TestConfigureSetInitializesPointerFlagsForNewProfile(t *testing.T) {
-	withTestConfigDir(t)
-	resetProfileFlagsForTest(t)
+	_, cleanupConfigDir := withTestConfigDir(t)
+	defer cleanupConfigDir()
+	defer resetProfileFlagsForTest(t)()
 
-	withTestCtxConfig(t, &Configure{
+	defer withTestCtxConfig(t, &Configure{
 		Profiles: map[string]*Profile{},
-	})
+	})()
 
 	setCmd := newConfigureSetCmd()
 	setCmd.SetArgs([]string{
 		"--profile", "fresh",
+		"--region", "cn-beijing",
 		"--access-key", "ak",
 		"--secret-key", "sk",
 	})
@@ -920,5 +1254,45 @@ func TestConfigureSetInitializesPointerFlagsForNewProfile(t *testing.T) {
 	}
 	if p.UseDualStack == nil || *p.UseDualStack {
 		t.Fatalf("new profile UseDualStack should be non-nil false, got %v", p.UseDualStack)
+	}
+}
+
+func TestConfigureSetHelpIncludesCredentialExamples(t *testing.T) {
+	defer resetProfileFlagsForTest(t)()
+
+	cmd := newConfigureSetCmd()
+	var b strings.Builder
+	cmd.SetOut(&b)
+	cmd.SetErr(&b)
+	cmd.SetArgs([]string{"--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("help execute: %v", err)
+	}
+	out := b.String()
+	for _, want := range []string{
+		"ve configure set --profile test --region cn-beijing --access-key ak --secret-key sk",
+		"ve configure set --profile test-ram --mode ramrolearn",
+		"ve configure set --profile test-oidc --mode oidc",
+		"ve configure set --profile test-ecs --mode ecsrole",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("help output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestConfigureSsoSessionHelpIncludesExample(t *testing.T) {
+	cmd := newConfigureSsoSessionCmd()
+	var b strings.Builder
+	cmd.SetOut(&b)
+	cmd.SetErr(&b)
+	cmd.SetArgs([]string{"--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("help execute: %v", err)
+	}
+	if !strings.Contains(b.String(), "ve configure sso-session --name my-sso") {
+		t.Fatalf("help output missing sso-session example:\n%s", b.String())
 	}
 }

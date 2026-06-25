@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,19 +12,19 @@ import (
 	"time"
 )
 
-func withTestConfigDir(t *testing.T) string {
+func withTestConfigDir(t *testing.T) (string, func()) {
 	t.Helper()
 
-	tmpDir := t.TempDir()
+	tmpDir := tempDirForTest(t)
 	oldFunc := configFileDirFunc
 	configFileDirFunc = func() (string, error) {
 		return tmpDir, nil
 	}
-	t.Cleanup(func() {
-		configFileDirFunc = oldFunc
-	})
 
-	return tmpDir
+	return tmpDir, func() {
+		configFileDirFunc = oldFunc
+		_ = os.RemoveAll(filepath.Clean(tmpDir))
+	}
 }
 
 func mustMarshalAccessToken(t *testing.T, creds STSCredentials) json.RawMessage {
@@ -37,7 +38,8 @@ func mustMarshalAccessToken(t *testing.T, creds STSCredentials) json.RawMessage 
 }
 
 func TestEnsureValidLoginTokenReturnsCachedCredentialsWhenStillValid(t *testing.T) {
-	withTestConfigDir(t)
+	_, cleanup := withTestConfigDir(t)
+	defer cleanup()
 
 	cfg := &Configure{
 		Profiles: map[string]*Profile{
@@ -80,16 +82,18 @@ func TestEnsureValidLoginTokenReturnsCachedCredentialsWhenStillValid(t *testing.
 }
 
 func TestLoginCacheDirUsesCustomDirectoryEnv(t *testing.T) {
-	customDir := filepath.Join(t.TempDir(), "custom-cache")
-	t.Setenv(loginCacheDirectoryEnv, customDir)
+	tmpDir := tempDirForTest(t)
+	defer cleanupDirForTest(tmpDir)()
+	customDir := filepath.Join(tmpDir, "custom-cache")
+	defer setenvForTest(t, loginCacheDirectoryEnv, customDir)()
 
 	oldFunc := configFileDirFunc
 	configFileDirFunc = func() (string, error) {
 		return "", os.ErrPermission
 	}
-	t.Cleanup(func() {
+	defer func() {
 		configFileDirFunc = oldFunc
-	})
+	}()
 
 	cacheDir, err := getLoginCacheDir()
 	if err != nil {
@@ -106,7 +110,8 @@ func TestLoginCacheDirUsesCustomDirectoryEnv(t *testing.T) {
 }
 
 func TestEnsureValidLoginTokenRefreshesExpiredCredentials(t *testing.T) {
-	configDir := withTestConfigDir(t)
+	configDir, cleanup := withTestConfigDir(t)
+	defer cleanup()
 
 	cfg := &Configure{
 		Profiles: map[string]*Profile{
@@ -189,7 +194,7 @@ func TestEnsureValidLoginTokenRefreshesExpiredCredentials(t *testing.T) {
 		t.Fatalf("cache path %q not under test config dir %q", cachePath, configDir)
 	}
 
-	data, err := os.ReadFile(filepath.Clean(cachePath))
+	data, err := ioutil.ReadFile(filepath.Clean(cachePath))
 	if err != nil {
 		t.Fatalf("read refreshed cache: %v", err)
 	}
@@ -210,7 +215,8 @@ func TestEnsureValidLoginTokenRefreshesExpiredCredentials(t *testing.T) {
 }
 
 func TestEnsureValidLoginTokenReturnsHelpfulErrorWhenRefreshFails(t *testing.T) {
-	withTestConfigDir(t)
+	_, cleanup := withTestConfigDir(t)
+	defer cleanup()
 
 	cfg := &Configure{
 		Profiles: map[string]*Profile{

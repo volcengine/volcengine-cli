@@ -190,11 +190,11 @@ func TestRemoteAuthorizeAcceptsRawURLEncodedAuthorizationResponse(t *testing.T) 
 	if err != nil {
 		t.Fatalf("create stdin pipe: %v", err)
 	}
-	t.Cleanup(func() {
+	defer func() {
 		os.Stdin = stdin
 		_ = reader.Close()
 		_ = writer.Close()
-	})
+	}()
 	if _, err := writer.WriteString(input); err != nil {
 		t.Fatalf("write stdin pipe: %v", err)
 	}

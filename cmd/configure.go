@@ -43,6 +43,8 @@ type Profile struct {
 	Region           string `json:"region"`
 	Endpoint         string `json:"endpoint"`
 	EndpointResolver string `json:"endpoint-resolver,omitempty"`
+	HTTPProxy        string `json:"http-proxy,omitempty"`
+	HTTPSProxy       string `json:"https-proxy,omitempty"`
 	UseDualStack     *bool  `json:"use-dual-stack,omitempty"`
 	SessionToken     string `json:"session-token"`
 	DisableSSL       *bool  `json:"disable-ssl"`
@@ -263,6 +265,12 @@ func mergeProfile(base *Profile, input *Profile) *Profile {
 	}
 	if input.EndpointResolver != "" {
 		merged.EndpointResolver = input.EndpointResolver
+	}
+	if input.HTTPProxy != "" {
+		merged.HTTPProxy = input.HTTPProxy
+	}
+	if input.HTTPSProxy != "" {
+		merged.HTTPSProxy = input.HTTPSProxy
 	}
 	if input.SessionToken != "" {
 		merged.SessionToken = input.SessionToken

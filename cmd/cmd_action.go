@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/volcengine/volcengine-cli/util"
@@ -16,7 +17,7 @@ type paramValue struct {
 	value string
 }
 
-func generateActionCmd(actionMeta map[string]*VolcengineMeta, apiMetas map[string]*ApiMeta) (actionCmds []*cobra.Command) {
+func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta, apiMetas map[string]*ApiMeta) (actionCmds []*cobra.Command) {
 	for action, meta := range actionMeta {
 		var apiMeta *ApiMeta
 		if len(apiMetas) > 0 {
@@ -24,6 +25,8 @@ func generateActionCmd(actionMeta map[string]*VolcengineMeta, apiMetas map[strin
 		}
 		actionCmd := &cobra.Command{
 			Use:                action,
+			Short:              formatActionShort(serviceName, action),
+			Long:               formatActionLong(serviceName, action),
 			DisableFlagParsing: true,
 			RunE: func(cmd *cobra.Command, args []string) error {
 				if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
@@ -50,16 +53,18 @@ func generateActionCmd(actionMeta map[string]*VolcengineMeta, apiMetas map[strin
 				actionCmd.Flags().StringVar(&paramValues[i].value, paramValues[i].param, "", "")
 			}
 
-			actionCmd.SetUsageTemplate(actionUsageTemplate(formatParamsHelpUsage(params)))
+			actionCmd.SetUsageTemplate(actionUsageTemplate(actionCmd.Long, formatParamsHelpUsage(params)))
 		} else {
 			var paramBody string
 			actionCmd.Flags().StringVar(&paramBody, "body", "", "")
 			var bodyStr []byte
+			params := []string{fmt.Sprintf(`body '%s'`, string(bodyStr))}
 			if apiMeta != nil && apiMeta.Request != nil {
 				bodyMap := apiMeta.Request.GetReqBody()
 				bodyStr, _ = json.MarshalIndent(bodyMap, "", "    ")
+				params = append([]string{fmt.Sprintf(`body '%s'`, string(bodyStr))}, formatParamsHelpUsage(apiMeta.GetRequestParams())...)
 			}
-			actionCmd.SetUsageTemplate(actionUsageTemplate([]string{fmt.Sprintf(`body '%s'`, string(bodyStr))}))
+			actionCmd.SetUsageTemplate(actionUsageTemplate(actionCmd.Long, params))
 		}
 
 		actionCmd.Flags().BoolP("help", "h", false, "")
@@ -76,14 +81,20 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 		return
 	}
 
+	debugLog, closeDebugLog, err := prepareDebugLogger(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := closeDebugLog(); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
+
 	var (
 		sdk *SdkClient
 		out *map[string]interface{}
 	)
-	sdk, err = NewSimpleClient(ctx)
-	if err != nil {
-		return
-	}
 
 	method := "GET"
 	contentType := ""
@@ -98,81 +109,55 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 		contentType = apiInfo.ContentType
 	}
 
-	input := make(map[string]interface{})
-	for _, f := range ctx.dynamicFlags.flags {
-		// rebuild input
-		if f.Name != "body" {
-			// Skip JSON parsing for parameters whose declared type is "string".
-			// Without this, a value like '{"Statement":[...]}' is deserialized
-			// into a Go map and then flattened into query params, which breaks
-			// APIs that expect a raw JSON string (e.g. IAM CreatePolicy's
-			// PolicyDocument parameter).
-			if isStringParam(apiMeta, f.Name) {
-				input[f.Name] = f.value
-			} else if a, success := util.ParseToJsonArrayOrObject(strings.TrimSpace(f.value)); success {
-				input[f.Name] = a
-			} else {
-				input[f.Name] = f.value
-			}
-		} else {
-			// origin
-			input[f.Name] = f.value
-		}
+	version := rootSupport.GetVersion(serviceName)
+	debugLogActionStart(debugLog, serviceName, action, version, method, contentType)
+
+	sdk, err = NewSimpleClient(ctx)
+	if err != nil {
+		debugLogError(debugLog, "client_init_error", err)
+		return
 	}
 
-	version := rootSupport.GetVersion(serviceName)
+	jsonBody := strings.ToLower(contentType) == "application/json"
+	input, inputFromBody, err := buildActionInput(ctx.dynamicFlags.flags, apiMeta, jsonBody)
+	if err != nil {
+		debugLogError(debugLog, "input_build_error", err)
+		return
+	}
+	debugLogInput(debugLog, ctx.dynamicFlags.flags, input, inputFromBody)
 
 	if svc, ok := GetServiceMapping(serviceName); ok {
 		serviceName = svc
 	}
 
+	start := time.Now()
 	if strings.ToLower(contentType) != "application/json" {
+		inputMap, _ := input.(map[string]interface{})
 		out, err = sdk.CallSdk(SdkClientInfo{
 			ServiceName: serviceName,
 			Action:      action,
 			Version:     version,
 			Method:      method,
 			ContentType: contentType,
-		}, &input)
+		}, &inputMap)
 	} else {
-		if jsonStr, ok := input["body"]; ok {
-			var (
-				a []interface{}
-			)
-			m := make(map[string]interface{})
-			err = json.Unmarshal([]byte(jsonStr.(string)), &m)
-			if err != nil {
-				err = json.Unmarshal([]byte(jsonStr.(string)), &a)
-				if err != nil {
-					fmt.Println("json format error")
-					return
-				}
-				out, err = sdk.CallSdk(SdkClientInfo{
-					ServiceName: serviceName,
-					Action:      action,
-					Version:     version,
-					Method:      method,
-					ContentType: contentType,
-				}, &a)
-			} else {
-				out, err = sdk.CallSdk(SdkClientInfo{
-					ServiceName: serviceName,
-					Action:      action,
-					Version:     version,
-					Method:      method,
-					ContentType: contentType,
-				}, &m)
-			}
-		} else {
-			out, err = sdk.CallSdk(SdkClientInfo{
-				ServiceName: serviceName,
-				Action:      action,
-				Version:     version,
-				Method:      method,
-				ContentType: contentType,
-			}, &input)
+		if !inputFromBody {
+			inputMap, _ := input.(map[string]interface{})
+			input = &inputMap
 		}
+		out, err = sdk.CallSdk(SdkClientInfo{
+			ServiceName: serviceName,
+			Action:      action,
+			Version:     version,
+			Method:      method,
+			ContentType: contentType,
+		}, input)
 	}
+	if err != nil {
+		debugLogSdkEnd(debugLog, start, err)
+		return formatActionError(err)
+	}
+	debugLogSdkEnd(debugLog, start, nil)
 
 	if config == nil || !config.EnableColor {
 		util.ShowJson(*out, false)
@@ -180,6 +165,83 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 		util.ShowJson(*out, true)
 	}
 	return
+}
+
+func prepareDebugLogger(ctx *Context) (*DebugLogger, func() error, error) {
+	if ctx != nil && ctx.debugLogger != nil {
+		return ctx.debugLogger, func() error { return nil }, nil
+	}
+
+	opts, err := resolveDebugOptions()
+	if err != nil {
+		return nil, nil, err
+	}
+	logger, err := newDebugLogger(opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	if ctx != nil {
+		ctx.debugLogger = logger
+	}
+	return logger, func() error {
+		closeErr := logger.Close()
+		if ctx != nil && ctx.debugLogger == logger {
+			ctx.debugLogger = nil
+		}
+		return closeErr
+	}, nil
+}
+
+func debugLogActionStart(logger *DebugLogger, serviceName, action, version, method, contentType string) {
+	if !logger.Enabled() {
+		return
+	}
+	logger.Printf("action_start service=%s action=%s version=%s method=%s content_type=%s",
+		serviceName, action, version, method, contentType)
+}
+
+func debugLogInput(logger *DebugLogger, flags []*Flag, input interface{}, inputFromBody bool) {
+	if !logger.Enabled() {
+		return
+	}
+	names := make([]string, 0, len(flags))
+	for _, f := range flags {
+		if f != nil {
+			names = append(names, f.Name)
+		}
+	}
+	sort.Strings(names)
+	logger.Printf("action_input input_from_body=%t dynamic_params=%s input=%s",
+		inputFromBody, strings.Join(names, ","), formatDebugValue(input, defaultDebugValueLimit))
+}
+
+func debugLogSdkEnd(logger *DebugLogger, start time.Time, callErr error) {
+	if !logger.Enabled() {
+		return
+	}
+	duration := time.Since(start)
+	if callErr != nil {
+		logger.Printf("sdk_call_error duration_ms=%d error=%s", duration/time.Millisecond, callErr.Error())
+		return
+	}
+	logger.Printf("sdk_call_success duration_ms=%d", duration/time.Millisecond)
+}
+
+func debugLogError(logger *DebugLogger, stage string, stageErr error) {
+	if !logger.Enabled() || stageErr == nil {
+		return
+	}
+	logger.Printf("%s error=%s", stage, stageErr.Error())
+}
+
+func formatActionError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Error(), "NoCredentialProviders") || strings.Contains(err.Error(), "no valid providers in chain") {
+		return fmt.Errorf("credentials not configured, please run 've login' or 've configure set', or set VOLCENGINE_ACCESS_KEY and VOLCENGINE_SECRET_KEY environment variables")
+	}
+	return err
 }
 
 // isStringParam reports whether the named parameter should be treated as a
@@ -245,14 +307,19 @@ func normalizeMetaTypeKey(name string) string {
 	return strings.Join(parts, ".")
 }
 
-func actionUsageTemplate(params []string) string {
+func actionUsageTemplate(description string, params []string) string {
 	sort.Strings(params)
 
 	for i := 0; i < len(params); i++ {
 		params[i] = "  --" + params[i]
 	}
 
-	return fmt.Sprintf(`Usage:{{if .Runnable}}
+	description = strings.TrimSpace(description)
+	if description != "" {
+		description += "\n\n"
+	}
+
+	return fmt.Sprintf(`%sUsage:{{if .Runnable}}
   {{.CommandPath}} [params]{{end}}{{if .HasExample}}
 
 Examples:
@@ -261,5 +328,10 @@ Examples:
 Available Parameters:
 %s
 
-`, strings.Join(params, "\n"))
+Fixed Flags:
+  ---profile string    Use a configured profile only for this invocation.
+  ---region string     Override the region only for this invocation.
+  ---endpoint string   Override the endpoint only for this invocation.
+
+`, description, strings.Join(params, "\n"))
 }

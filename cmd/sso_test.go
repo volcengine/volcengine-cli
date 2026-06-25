@@ -3,6 +3,8 @@ package cmd
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -131,7 +133,7 @@ func (f *fakePortalClient) GetRoleCredentials(ctx context.Context, req *GetRoleC
 	}, nil
 }
 
-func setupSsoTokenTest(t *testing.T) *Sso {
+func setupSsoTokenTest(t *testing.T) (*Sso, func()) {
 	t.Helper()
 
 	oldConfigDir := getSsoConfigFileDir
@@ -139,19 +141,20 @@ func setupSsoTokenTest(t *testing.T) *Sso {
 	oldPortalFactory := newPortalClientForSSO
 	oldSleep := deviceAuthorizationSleep
 
-	cacheRoot := t.TempDir()
+	cacheRoot := tempDirForTest(t)
 	getSsoConfigFileDir = func() (string, error) {
 		return cacheRoot, nil
 	}
 	deviceAuthorizationSleep = func(time.Duration) {}
-	t.Cleanup(func() {
+	cleanup := func() {
 		getSsoConfigFileDir = oldConfigDir
 		newOAuthClientForSSO = oldOAuthFactory
 		newPortalClientForSSO = oldPortalFactory
 		deviceAuthorizationSleep = oldSleep
-	})
+		_ = os.RemoveAll(filepath.Clean(cacheRoot))
+	}
 
-	return &Sso{
+	sso := &Sso{
 		Profile: &Profile{
 			AccountId: "account-id",
 			RoleName:  "role-name",
@@ -163,6 +166,7 @@ func setupSsoTokenTest(t *testing.T) *Sso {
 		NoBrowser:      true,
 		Scopes:         []string{"cloudidentity:account:access", "offline_access"},
 	}
+	return sso, cleanup
 }
 
 func cacheTokenForTest(t *testing.T, sso *Sso, token *SsoTokenCache) {
@@ -222,8 +226,10 @@ func TestClearSsoProfileTemporaryCredentialsPreservesAccountAndRole(t *testing.T
 }
 
 func TestSetProfileClearsTemporaryCredentialsWhenReconfiguringExistingProfile(t *testing.T) {
-	withTestConfigDir(t)
-	sso := setupSsoTokenTest(t)
+	_, cleanupConfigDir := withTestConfigDir(t)
+	defer cleanupConfigDir()
+	sso, cleanupSso := setupSsoTokenTest(t)
+	defer cleanupSso()
 
 	oldCtx := ctx
 	oldConfig := config
@@ -257,10 +263,10 @@ func TestSetProfileClearsTemporaryCredentialsWhenReconfiguringExistingProfile(t 
 	ctx = NewContext()
 	ctx.SetConfig(cfg)
 	config = cfg
-	t.Cleanup(func() {
+	defer func() {
 		ctx = oldCtx
 		config = oldConfig
-	})
+	}()
 
 	cacheTokenForTest(t, sso, &SsoTokenCache{
 		AccessToken:           "cached-access",
@@ -297,10 +303,10 @@ func TestSetProfileClearsTemporaryCredentialsWhenReconfiguringExistingProfile(t 
 		}
 		return roles[0], nil
 	}
-	t.Cleanup(func() {
+	defer func() {
 		selectSsoAccount = oldSelectAccount
 		selectSsoRole = oldSelectRole
-	})
+	}()
 
 	sso.Profile = cfg.Profiles["dev"]
 	sso.SsoSessionName = "test-session"
@@ -331,7 +337,8 @@ func TestSetProfileClearsTemporaryCredentialsWhenReconfiguringExistingProfile(t 
 }
 
 func TestGetFreshTokenForLoginIgnoresCachedRefreshToken(t *testing.T) {
-	sso := setupSsoTokenTest(t)
+	sso, cleanupSso := setupSsoTokenTest(t)
+	defer cleanupSso()
 	cacheTokenForTest(t, sso, &SsoTokenCache{
 		AccessToken:           "cached-access",
 		RefreshToken:          "cached-refresh",
@@ -365,7 +372,8 @@ func TestGetFreshTokenForLoginIgnoresCachedRefreshToken(t *testing.T) {
 }
 
 func TestGetValidTokenForBusinessUsesCachedAccessTokenOutsideRefreshWindow(t *testing.T) {
-	sso := setupSsoTokenTest(t)
+	sso, cleanupSso := setupSsoTokenTest(t)
+	defer cleanupSso()
 	cacheTokenForTest(t, sso, &SsoTokenCache{
 		AccessToken:           "cached-access",
 		RefreshToken:          "cached-refresh",
@@ -392,7 +400,8 @@ func TestGetValidTokenForBusinessUsesCachedAccessTokenOutsideRefreshWindow(t *te
 }
 
 func TestGetValidTokenForBusinessRefreshesNearExpiryAndPreservesRefreshToken(t *testing.T) {
-	sso := setupSsoTokenTest(t)
+	sso, cleanupSso := setupSsoTokenTest(t)
+	defer cleanupSso()
 	cacheTokenForTest(t, sso, &SsoTokenCache{
 		AccessToken:           "expiring-access",
 		RefreshToken:          "old-refresh",
@@ -442,7 +451,8 @@ func TestClientFromTokenCacheRejectsExpiredClient(t *testing.T) {
 }
 
 func TestLoadReusableClientDoesNotReturnExpiredClient(t *testing.T) {
-	sso := setupSsoTokenTest(t)
+	sso, cleanupSso := setupSsoTokenTest(t)
+	defer cleanupSso()
 	cacheTokenForTest(t, sso, &SsoTokenCache{
 		ClientId:              "cached-client",
 		ClientSecret:          "cached-secret",
@@ -511,7 +521,8 @@ func TestGetValidTokenForBusinessRequiresLoginWhenRefreshUnavailable(t *testing.
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sso := setupSsoTokenTest(t)
+			sso, cleanupSso := setupSsoTokenTest(t)
+			defer cleanupSso()
 			cacheTokenForTest(t, sso, tt.token)
 			newOAuthClientForSSO = func(region string) OAuthClientAPI {
 				return tt.oauth
@@ -532,7 +543,8 @@ func TestGetValidTokenForBusinessRequiresLoginWhenRefreshUnavailable(t *testing.
 }
 
 func TestGetRoleCredentialsRefreshesAccessTokenBeforeFetchingCredentials(t *testing.T) {
-	sso := setupSsoTokenTest(t)
+	sso, cleanupSso := setupSsoTokenTest(t)
+	defer cleanupSso()
 	cacheTokenForTest(t, sso, &SsoTokenCache{
 		AccessToken:           "expiring-access",
 		RefreshToken:          "refresh-token",

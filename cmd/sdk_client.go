@@ -20,8 +20,9 @@ import (
 )
 
 type SdkClient struct {
-	Config  *volcengine.Config
-	Session *session.Session
+	Config      *volcengine.Config
+	Session     *session.Session
+	DebugLogger *DebugLogger
 }
 
 type SdkClientInfo struct {
@@ -43,6 +44,8 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		creds            *credentials.Credentials
 		region, endpoint string
 		endpointResolver string
+		httpProxy        string
+		httpsProxy       string
 		disableSSl       bool
 		useDualStack     bool
 	)
@@ -51,12 +54,16 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 	}
 	var currentProfile *Profile
 	profileName := ""
+	profileSource := "default-chain"
 	if ctx.config != nil {
-		// ---profile 运行时覆盖当前 profile
-		profileName = ctx.config.Current
+		// profile selection priority: ---profile > Current > env.
+		// Empty Current with no env does NOT fall back to a default profile;
+		// it goes to the default credential chain instead.
+		profileName, profileSource = defaultProfileNameWithSource(ctx.config)
 		overrideProfile := false
 		if f := ctx.fixedFlags.GetByName("profile"); f != nil && f.GetValue() != "" {
 			profileName = f.GetValue()
+			profileSource = "flag"
 			overrideProfile = true
 		}
 		currentProfile = ctx.config.Profiles[profileName]
@@ -90,8 +97,19 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		creds = clicreds.NewCliCredentials("", profileName)
 
 		region = currentProfile.Region
+		if region == "" {
+			region = os.Getenv("VOLCENGINE_REGION")
+		}
 		endpoint = currentProfile.Endpoint
+		if endpoint == "" {
+			endpoint = os.Getenv("VOLCENGINE_ENDPOINT")
+		}
 		endpointResolver = currentProfile.EndpointResolver
+		if endpointResolver == "" {
+			endpointResolver = os.Getenv("VOLCENGINE_ENDPOINT_RESOLVER")
+		}
+		httpProxy = currentProfile.HTTPProxy
+		httpsProxy = currentProfile.HTTPSProxy
 		if currentProfile.DisableSSL != nil {
 			disableSSl = *currentProfile.DisableSSL
 		}
@@ -125,7 +143,16 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		region = f.GetValue()
 	}
 
+	// ---endpoint 运行时覆盖 endpoint
+	if f := ctx.fixedFlags.GetByName("endpoint"); f != nil && f.GetValue() != "" {
+		endpoint = f.GetValue()
+		endpointResolver = ""
+	}
+
 	if region == "" {
+		if currentProfile == nil && !hasLocalCredentialSignal() {
+			return nil, fmt.Errorf("credentials not configured, please run 've login' or 've configure set', or set VOLCENGINE_ACCESS_KEY and VOLCENGINE_SECRET_KEY environment variables")
+		}
 		return nil, fmt.Errorf("region not set, please set it via profile, ---region flag, or VOLCENGINE_REGION environment variable")
 	}
 
@@ -151,13 +178,113 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 	if useDualStack {
 		config.WithUseDualStack(true)
 	}
+	if httpProxy != "" {
+		config.WithHTTPProxy(httpProxy)
+	}
+	if httpsProxy != "" {
+		config.WithHTTPSProxy(httpsProxy)
+	}
+
+	debugLogClientConfig(ctx, debugClientConfig{
+		ProfileName:          profileName,
+		ProfileSource:        profileSource,
+		CredentialMode:       debugCredentialMode(currentProfile),
+		Region:               region,
+		Endpoint:             endpoint,
+		EndpointResolver:     endpointResolver,
+		DisableSSL:           disableSSl,
+		UseDualStack:         useDualStack,
+		HTTPProxyConfigured:  httpProxy != "",
+		HTTPSProxyConfigured: httpsProxy != "",
+	})
 
 	sess, _ := session.NewSession(config)
 
 	return &SdkClient{
-		Config:  config,
-		Session: sess,
+		Config:      config,
+		Session:     sess,
+		DebugLogger: debugLoggerFromContext(ctx),
 	}, nil
+}
+
+func hasLocalCredentialSignal() bool {
+	if os.Getenv("VOLCENGINE_ACCESS_KEY") != "" || os.Getenv("VOLCSTACK_ACCESS_KEY_ID") != "" || os.Getenv("VOLCSTACK_ACCESS_KEY") != "" {
+		return true
+	}
+	if os.Getenv("VOLCENGINE_OIDC_TOKEN_FILE") != "" || os.Getenv("VOLCENGINE_OIDC_ROLE_TRN") != "" {
+		return true
+	}
+	if os.Getenv("VOLCENGINE_PROFILE") != "" || os.Getenv("VOLCSTACK_PROFILE") != "" {
+		return true
+	}
+	if os.Getenv("VOLCENGINE_ECS_METADATA") != "" {
+		return true
+	}
+	if os.Getenv("VOLCSTACK_CONTAINER_CREDENTIALS_FULL_URI") != "" {
+		return true
+	}
+	return false
+}
+
+func defaultProfileName(cfg *Configure) string {
+	name, _ := defaultProfileNameWithSource(cfg)
+	return name
+}
+
+func defaultProfileNameWithSource(cfg *Configure) (string, string) {
+	if cfg != nil && cfg.Current != "" {
+		return cfg.Current, "current"
+	}
+	if profile := os.Getenv("VOLCENGINE_PROFILE"); profile != "" {
+		return profile, "env:VOLCENGINE_PROFILE"
+	}
+	if profile := os.Getenv("VOLCSTACK_PROFILE"); profile != "" {
+		return profile, "env:VOLCSTACK_PROFILE"
+	}
+	return "", "default-chain"
+}
+
+type debugClientConfig struct {
+	ProfileName          string
+	ProfileSource        string
+	CredentialMode       string
+	Region               string
+	Endpoint             string
+	EndpointResolver     string
+	DisableSSL           bool
+	UseDualStack         bool
+	HTTPProxyConfigured  bool
+	HTTPSProxyConfigured bool
+}
+
+func debugCredentialMode(profile *Profile) string {
+	if profile == nil {
+		return "default-chain"
+	}
+	mode := strings.ToLower(strings.TrimSpace(profile.Mode))
+	if mode == "" {
+		return ModeAK
+	}
+	return mode
+}
+
+func debugLogClientConfig(ctx *Context, info debugClientConfig) {
+	logger := debugLoggerFromContext(ctx)
+	if logger == nil || !logger.Enabled() {
+		return
+	}
+	logger.Printf("client_config profile_source=%s profile=%s credential_mode=%s region=%s endpoint=%s endpoint_resolver=%s disable_ssl=%t use_dual_stack=%t http_proxy_configured=%t https_proxy_configured=%t",
+		info.ProfileSource,
+		info.ProfileName,
+		info.CredentialMode,
+		info.Region,
+		info.Endpoint,
+		info.EndpointResolver,
+		info.DisableSSL,
+		info.UseDualStack,
+		info.HTTPProxyConfigured,
+		info.HTTPSProxyConfigured,
+	)
 }
 
 func (s *SdkClient) initClient(svc string, version string) *client.Client {
@@ -181,6 +308,7 @@ func (s *SdkClient) initClient(svc string, version string) *client.Client {
 	c.Handlers.Unmarshal.PushBackNamed(volcenginequery.UnmarshalHandler)
 	c.Handlers.UnmarshalMeta.PushBackNamed(volcenginequery.UnmarshalMetaHandler)
 	c.Handlers.UnmarshalError.PushBackNamed(volcenginequery.UnmarshalErrorHandler)
+	s.addDebugRequestAttemptHandler(c)
 
 	return c
 }

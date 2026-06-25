@@ -2,6 +2,88 @@ package cmd
 
 import "testing"
 
+func TestBuildActionInputRejectsBodyWithFlattenedParams(t *testing.T) {
+	body := &Flag{Name: "body"}
+	body.SetValue(`{"InstanceId":"mysql-1"}`)
+	instanceID := &Flag{Name: "InstanceId"}
+	instanceID.SetValue("mysql-1")
+
+	_, _, err := buildActionInput([]*Flag{body, instanceID}, nil, true)
+	if err == nil {
+		t.Fatal("expected --body and flattened params conflict")
+	}
+}
+
+func TestBuildActionInputParsesJsonBody(t *testing.T) {
+	body := &Flag{Name: "body"}
+	body.SetValue(`{"InstanceId":"mysql-1","IPList":["10.20.30.40"]}`)
+
+	input, fromBody, err := buildActionInput([]*Flag{body}, nil, true)
+	if err != nil {
+		t.Fatalf("buildActionInput returned error: %v", err)
+	}
+	if !fromBody {
+		t.Fatal("expected input to be marked from body")
+	}
+	m, ok := input.(*map[string]interface{})
+	if !ok {
+		t.Fatalf("expected *map input, got %T", input)
+	}
+	if (*m)["InstanceId"] != "mysql-1" {
+		t.Fatalf("expected InstanceId to be parsed, got %#v", (*m)["InstanceId"])
+	}
+}
+
+func TestBuildActionInputSupportsFlattenedJsonBodyParams(t *testing.T) {
+	apiMeta := &ApiMeta{Request: &Meta{MetaTypes: map[string]*MetaType{
+		"InstanceId": {TypeName: "string"},
+		"GroupName":  {TypeName: "string"},
+		"IPList":     {TypeName: "array[string]"},
+	}}}
+
+	instanceID := &Flag{Name: "InstanceId"}
+	instanceID.SetValue("mysql-1")
+	groupName := &Flag{Name: "GroupName"}
+	groupName.SetValue("group-a")
+	ipList := &Flag{Name: "IPList"}
+	ipList.SetValue(`["10.20.30.40","50.60.70.80"]`)
+
+	input, fromBody, err := buildActionInput([]*Flag{instanceID, groupName, ipList}, apiMeta, true)
+	if err != nil {
+		t.Fatalf("buildActionInput returned error: %v", err)
+	}
+	if fromBody {
+		t.Fatal("flattened params should not be marked from body")
+	}
+	m, ok := input.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map input, got %T", input)
+	}
+	if m["InstanceId"] != "mysql-1" || m["GroupName"] != "group-a" {
+		t.Fatalf("unexpected scalar params: %#v", m)
+	}
+	gotList, ok := m["IPList"].([]interface{})
+	if !ok || len(gotList) != 2 {
+		t.Fatalf("expected IPList JSON array, got %#v", m["IPList"])
+	}
+}
+
+func TestFormatActionErrorNoCredentialProviders(t *testing.T) {
+	err := formatActionError(assertErr("NoCredentialProviders: no valid providers in chain. Deprecated."))
+	if err == nil {
+		t.Fatal("expected formatted error")
+	}
+	if got := err.Error(); got != "credentials not configured, please run 've login' or 've configure set', or set VOLCENGINE_ACCESS_KEY and VOLCENGINE_SECRET_KEY environment variables" {
+		t.Fatalf("unexpected error: %q", got)
+	}
+}
+
+type assertErr string
+
+func (e assertErr) Error() string {
+	return string(e)
+}
+
 func TestIsStringParam(t *testing.T) {
 	tests := []struct {
 		name     string
