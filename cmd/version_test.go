@@ -57,6 +57,16 @@ func TestDetectSkillInvokers(t *testing.T) {
 			want: []string{"trae"},
 		},
 		{
+			name: "trae icube product brand name",
+			env:  map[string]string{"ICUBE_PRODUCT_BRAND_NAME": "trae"},
+			want: []string{"trae"},
+		},
+		{
+			name: "trae icube product brand name is case insensitive",
+			env:  map[string]string{"ICUBE_PRODUCT_BRAND_NAME": " TRAE "},
+			want: []string{"trae"},
+		},
+		{
 			name: "cursor cli",
 			env:  map[string]string{"CURSOR_AGENT": "1"},
 			want: []string{"cursor"},
@@ -102,9 +112,29 @@ func TestDetectSkillInvokers(t *testing.T) {
 			want: []string{"opencode"},
 		},
 		{
+			name: "agent fallback via AGENT",
+			env:  map[string]string{"AGENT": "1"},
+			want: []string{"agent"},
+		},
+		{
+			name: "agent fallback via IS_AGENT",
+			env:  map[string]string{"IS_AGENT": "true"},
+			want: []string{"agent"},
+		},
+		{
+			name: "specific invoker takes priority over agent fallback",
+			env: map[string]string{
+				"AGENT":      "1",
+				"IS_AGENT":   "1",
+				"CLAUDECODE": "1",
+			},
+			want: []string{"claude-code"},
+		},
+		{
 			name: "blank values are ignored",
 			env: map[string]string{
 				"AI_AGENT":                   " ",
+				"ICUBE_PRODUCT_BRAND_NAME":   " ",
 				"CLAUDECODE":                 " ",
 				"CLAUDE_CODE":                " ",
 				"CLAUDE_CODE_CHILD_SESSION":  " ",
@@ -122,6 +152,8 @@ func TestDetectSkillInvokers(t *testing.T) {
 				"TRAE_CLI_PLUGIN_ROOT":       " ",
 				"COCO_PLUGIN_ROOT":           " ",
 				"OPENCODE":                   " ",
+				"AGENT":                      " ",
+				"IS_AGENT":                   "\t",
 			},
 			want: nil,
 		},
@@ -143,14 +175,14 @@ func TestDetectSkillInvokers(t *testing.T) {
 			want: nil,
 		},
 		{
-			name: "deterministic order",
+			name: "short-circuits on first match in detector order",
 			env: map[string]string{
 				"CODEX_CI":    "1",
 				"CLAUDE_CODE": "1",
 				"GEMINI_CLI":  "1",
 				"OPENCODE":    "1",
 			},
-			want: []string{"claude-code", "codex", "gemini-cli", "opencode"},
+			want: []string{"claude-code"},
 		},
 	}
 
@@ -176,11 +208,16 @@ func TestClientUserAgentIncludesSkillInvokerMetadata(t *testing.T) {
 		runtime.GOOS,
 		runtime.GOARCH,
 		"skill-invoker/claude-code",
-		"skill-invoker/codex",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("clientUserAgent() = %q, want it to contain %q", got, want)
 		}
+	}
+
+	// Detection short-circuits on the first match, so the lower-priority codex
+	// invoker must not appear once claude-code is detected.
+	if strings.Contains(got, "skill-invoker/codex") {
+		t.Fatalf("clientUserAgent() = %q, did not expect it to contain %q", got, "skill-invoker/codex")
 	}
 }
 
@@ -287,6 +324,9 @@ func testEnv(values map[string]string) envGetter {
 func clearSkillInvokerEnv(t *testing.T) {
 	for _, key := range []string{
 		"AI_AGENT",
+		"ICUBE_PRODUCT_BRAND_NAME",
+		"AGENT",
+		"IS_AGENT",
 		"CLAUDECODE",
 		"CLAUDE_CODE",
 		"CLAUDE_CODE_CHILD_SESSION",
