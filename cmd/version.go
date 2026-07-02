@@ -41,7 +41,8 @@ var skillInvokerDetectors = []skillInvokerDetector{
 		match: func(getenv envGetter) bool {
 			return hasEnv(getenv, "TRAE_CLI_PLUGIN_ROOT") ||
 				hasEnv(getenv, "COCO_PLUGIN_ROOT") ||
-				strings.EqualFold(strings.TrimSpace(getenv("AI_AGENT")), "TRAE")
+				strings.EqualFold(strings.TrimSpace(getenv("AI_AGENT")), "TRAE") ||
+				strings.EqualFold(strings.TrimSpace(getenv("ICUBE_PRODUCT_BRAND_NAME")), "TRAE")
 		},
 	},
 	{
@@ -79,6 +80,16 @@ var skillInvokerDetectors = []skillInvokerDetector{
 			return hasEnv(getenv, "OPENCODE")
 		},
 	},
+	// agent is a generic fallback placed last: any specific invoker above
+	// takes priority, and it only matches when a caller advertises itself as
+	// an agent via the generic AGENT/IS_AGENT environment variables.
+	{
+		name: "agent",
+		match: func(getenv envGetter) bool {
+			return hasEnv(getenv, "AGENT") ||
+				hasEnv(getenv, "IS_AGENT")
+		},
+	},
 }
 
 func clientUserAgent(getenv envGetter) string {
@@ -96,13 +107,14 @@ func detectSkillInvokers(getenv envGetter) []string {
 		return nil
 	}
 
-	invokers := make([]string, 0, len(skillInvokerDetectors))
+	// Stop probing as soon as one invoker matches: a single caller drives the
+	// CLI, so the first hit (specific invokers first, generic agent last) wins.
 	for _, detector := range skillInvokerDetectors {
 		if detector.match(getenv) {
-			invokers = append(invokers, detector.name)
+			return []string{detector.name}
 		}
 	}
-	return invokers
+	return nil
 }
 
 func hasEnv(getenv envGetter, key string) bool {
