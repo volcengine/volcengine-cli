@@ -142,7 +142,9 @@ func (p *Parser) readArg(ctx *Context) (arg string, flag *Flag, more bool, err e
 			arg = value
 		}
 	} else { //解析flag
-		if isPresenceOnlyFixedFlag(flag.Name) {
+		// presence-only 语义仅适用于三横线 fixed flag；双横线 dynamic flag 仍需显式 value。
+		isFixedFlag := ctx != nil && ctx.fixedFlags != nil && ctx.fixedFlags.GetByName(flag.Name) == flag
+		if isFixedFlag && isPresenceOnlyFixedFlag(flag.Name) {
 			// 纯开关固定参数：出现即启用，不消费后续 token。
 			flag.SetValue("true")
 			p.currentFlag = nil

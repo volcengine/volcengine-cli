@@ -41,6 +41,19 @@ func initRootCmd() {
 	rootCmd.SetUsageTemplate(rootUsageTemplate())
 
 	rootCmd.AddCommand(&cobra.Command{
+		Use:   "help [command]",
+		Short: "Help about any command",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return rootCmd.Usage()
+			}
+			target, _, err := rootCmd.Find(args)
+			if err != nil {
+				return err
+			}
+			return target.Usage()
+		},
+	}, &cobra.Command{
 		Use:   "version",
 		Short: tr("Show CLI version"),
 		Run: func(cmd *cobra.Command, args []string) {

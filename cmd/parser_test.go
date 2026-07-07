@@ -137,6 +137,28 @@ func TestParserForceFlagBeforeActionName(t *testing.T) {
 	}
 }
 
+func TestParserDynamicForceFlagRequiresValue(t *testing.T) {
+	parser := NewParser([]string{"--force", "true", "SomeAction"})
+	ctx := NewContext()
+
+	positional, err := parser.ReadArgs(ctx)
+	if err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+	if ctx.dynamicFlags.GetByName("force") == nil {
+		t.Fatal("expected dynamic --force flag")
+	}
+	if got := ctx.dynamicFlags.GetByName("force").GetValue(); got != "true" {
+		t.Fatalf("expected dynamic --force=true, got %q", got)
+	}
+	if isForceEnabled(ctx) {
+		t.Fatal("---force switch must not be enabled by dynamic --force")
+	}
+	if len(positional) != 1 || positional[0] != "SomeAction" {
+		t.Fatalf("expected action positional arg, got %#v", positional)
+	}
+}
+
 func TestParserForceFlagDoesNotConsumeNextToken(t *testing.T) {
 	parser := NewParser([]string{"---force", "false", "DescribeNewResource"})
 	ctx := NewContext()

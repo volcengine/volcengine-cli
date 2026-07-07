@@ -35,6 +35,7 @@ var builtinRootCommands = map[string]struct{}{
 	"sso":          {},
 	"completion":   {},
 	"version":      {},
+	"help":         {},
 	"enable-color": {},
 	"disable-color": {},
 }
@@ -203,8 +204,23 @@ func doForceAction(ctx *Context, serviceName, action string) error {
 		contentType:                 contentType,
 		useStandardEndpointResolver: explicitEndpointFromContext(ctx) == "",
 	}, func() (invocationInput, error) {
-		return invocationInput{value: buildForceInput(ctx)}, nil
+		return buildForceInvocationInput(ctx, serviceName, action, contentType)
 	})
+}
+
+// buildForceInvocationInput 组装 force 路径请求体；有元数据的 application/json action 复用 buildActionInput。
+func buildForceInvocationInput(ctx *Context, serviceName, action, contentType string) (invocationInput, error) {
+	jsonBody := strings.ToLower(contentType) == "application/json"
+	if jsonBody {
+		if apiMeta := rootSupport.GetApiMeta(serviceName, action); apiMeta != nil {
+			input, fromBody, err := buildActionInput(ctx.dynamicFlags.flags, apiMeta, jsonBody)
+			if err != nil {
+				return invocationInput{}, err
+			}
+			return invocationInput{value: input, jsonBody: jsonBody, fromBody: fromBody}, nil
+		}
+	}
+	return invocationInput{value: buildForceInput(ctx), jsonBody: jsonBody, fromBody: false}, nil
 }
 
 func isKnownServiceName(name string) bool {

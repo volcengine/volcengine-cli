@@ -63,6 +63,57 @@ func TestValidateForceCallFallsBackToMetadataVersionForKnownService(t *testing.T
 	}
 }
 
+func TestBuildForceInvocationInputSetsJSONBodyWithoutMetadata(t *testing.T) {
+	c := NewContext()
+	parser := NewParser([]string{"--SomeParam", "value"})
+	if _, err := parser.ReadArgs(c); err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+
+	built, err := buildForceInvocationInput(c, "newservice", "NewAction", "application/json")
+	if err != nil {
+		t.Fatalf("buildForceInvocationInput returned error: %v", err)
+	}
+	if !built.jsonBody {
+		t.Fatal("expected jsonBody for application/json content type")
+	}
+	if built.fromBody {
+		t.Fatal("expected fallback input without metadata")
+	}
+	input, ok := built.value.(map[string]interface{})
+	if !ok || input["SomeParam"] != "value" {
+		t.Fatalf("unexpected fallback input: %#v", built.value)
+	}
+}
+
+func TestBuildForceInvocationInputUsesActionInputWithMetadata(t *testing.T) {
+	for _, svc := range rootSupport.GetAllSvc() {
+		for _, action := range rootSupport.GetAllAction(svc) {
+			apiInfo := rootSupport.GetApiInfo(svc, action)
+			if apiInfo == nil || strings.ToLower(apiInfo.ContentType) != "application/json" {
+				continue
+			}
+			if rootSupport.GetApiMeta(svc, action) == nil {
+				continue
+			}
+			c := NewContext()
+			parser := NewParser([]string{"--body", `{"probe":"ok"}`})
+			if _, err := parser.ReadArgs(c); err != nil {
+				t.Fatalf("ReadArgs returned error: %v", err)
+			}
+			built, err := buildForceInvocationInput(c, svc, action, apiInfo.ContentType)
+			if err != nil {
+				t.Fatalf("buildForceInvocationInput(%s,%s): %v", svc, action, err)
+			}
+			if !built.jsonBody || !built.fromBody {
+				t.Fatalf("expected metadata JSON action to use buildActionInput, got jsonBody=%v fromBody=%v", built.jsonBody, built.fromBody)
+			}
+			return
+		}
+	}
+	t.Fatal("expected at least one application/json action in metadata")
+}
+
 func TestBuildForceInputOmitsFixedFlags(t *testing.T) {
 	c := NewContext()
 	parser := NewParser([]string{
@@ -98,6 +149,13 @@ func TestTryExecuteGenericInvokeSkipsKnownService(t *testing.T) {
 
 func TestTryExecuteGenericInvokeSkipsBuiltinCommand(t *testing.T) {
 	err := tryExecuteGenericInvoke([]string{"configure", "list"})
+	if !errors.Is(err, errNotGenericInvoke) {
+		t.Fatalf("expected errNotGenericInvoke, got %v", err)
+	}
+}
+
+func TestTryExecuteGenericInvokeSkipsHelpCommand(t *testing.T) {
+	err := tryExecuteGenericInvoke([]string{"help"})
 	if !errors.Is(err, errNotGenericInvoke) {
 		t.Fatalf("expected errNotGenericInvoke, got %v", err)
 	}
