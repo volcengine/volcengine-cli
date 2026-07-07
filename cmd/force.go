@@ -229,6 +229,17 @@ func isBuiltinRootCommand(name string) bool {
 	return ok
 }
 
+// isRootCLIFlag 判断是否为根命令 cobra 处理的 CLI flag（非 service 名）。
+// 与 ---version（API 版本）区分：-v/--version 仅用于显示 CLI 版本。
+func isRootCLIFlag(arg string) bool {
+	switch arg {
+	case "-h", "--help", "-v", "--version":
+		return true
+	default:
+		return false
+	}
+}
+
 func argsContainHelp(args []string) bool {
 	for _, a := range args {
 		if a == "-h" || a == "--help" {
@@ -260,7 +271,7 @@ func tryExecuteGenericInvoke(args []string) error {
 	if len(args) == 0 {
 		return errNotGenericInvoke
 	}
-	if args[0] == "-h" || args[0] == "--help" {
+	if isRootCLIFlag(args[0]) {
 		return errNotGenericInvoke
 	}
 	if isBuiltinRootCommand(args[0]) {

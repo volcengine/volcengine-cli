@@ -103,6 +103,17 @@ func TestTryExecuteGenericInvokeSkipsBuiltinCommand(t *testing.T) {
 	}
 }
 
+func TestTryExecuteGenericInvokeSkipsRootVersionFlags(t *testing.T) {
+	for _, arg := range []string{"-v", "--version"} {
+		t.Run(arg, func(t *testing.T) {
+			err := tryExecuteGenericInvoke([]string{arg})
+			if !errors.Is(err, errNotGenericInvoke) {
+				t.Fatalf("expected errNotGenericInvoke, got %v", err)
+			}
+		})
+	}
+}
+
 func TestTryExecuteGenericInvokeForceBeforeActionName(t *testing.T) {
 	err := tryExecuteGenericInvoke([]string{
 		"newservice", "---version", "2024-01-01", "---force", "DescribeNewResource",
