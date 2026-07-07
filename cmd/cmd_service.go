@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -69,22 +68,14 @@ func runServiceCmd(cmd *cobra.Command, svc string, validActions []string, args [
 		return cmd.Help()
 	}
 	action := positional[0]
+	known := false
 	for _, va := range validActions {
 		if va == action {
-			// 固定参数写在 action 前时 cobra 不会匹配子命令，在此补发调用。
-			if isForceEnabled(ctx) {
-				return doForceAction(svc, action)
-			}
-			return doAction(ctx, svc, action)
+			known = true
+			break
 		}
 	}
-
-	// action 未匹配任何子命令：若带 ---force，则 positional[0] 即为 action 名，跳过 metadata 校验。
-	if isForceEnabled(ctx) {
-		return doForceAction(svc, action)
-	}
-
-	return fmt.Errorf("%q is not a supported action of %q", action, svc)
+	return dispatchServiceAction(ctx, svc, action, known)
 }
 
 func serviceUsageTemplate() string {

@@ -66,16 +66,7 @@ func TestNewSimpleClientForceModeIgnoresProfileEndpoint(t *testing.T) {
 			},
 		},
 	}
-	forceFlag, err := ctx.fixedFlags.AddByName("force")
-	if err != nil {
-		t.Fatalf("add force flag: %v", err)
-	}
-	forceFlag.SetValue("true")
-	versionFlag, err := ctx.fixedFlags.AddByName("version")
-	if err != nil {
-		t.Fatalf("add version flag: %v", err)
-	}
-	versionFlag.SetValue("2024-01-01")
+	ctx.useStandardEndpointResolver = true
 
 	var out bytes.Buffer
 	ctx.debugLogger = &DebugLogger{enabled: true, out: &out}

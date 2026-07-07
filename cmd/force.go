@@ -11,7 +11,7 @@
 // 固定参数（三横线，存入 fixedFlags）：
 //   ---force   开关，单独出现即 true
 //   ---version API 版本；未收录 service 时 force 模式必填，已收录 service 可回落元数据（非 CLI 的 ve -v/--version）
-//   ---endpoint 可选；未指定时由 sdk_client 按 service+region 推断（忽略 profile endpoint）
+//   ---endpoint 可选；未指定时 invocation 层请求 standard resolver（忽略 profile endpoint）
 //   ---method   可选；GET/POST，未指定时优先用已收录 action 元数据，否则默认 GET
 package cmd
 
@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/volcengine/volcengine-cli/util"
 )
@@ -55,6 +54,7 @@ func resetInvocationContext() {
 	}
 	ctx.fixedFlags = NewFlagSet()
 	ctx.dynamicFlags = NewFlagSet()
+	ctx.useStandardEndpointResolver = false
 }
 
 func parseInvocationArgs(args []string) ([]string, error) {
@@ -113,8 +113,8 @@ func validateForceCall(c *Context, serviceName string) error {
 	return nil
 }
 
-// forceHTTPMethod 读取显式指定的 ---method，仅允许 GET/POST；空串表示未指定、由元数据或默认值决定。
-func forceHTTPMethod(c *Context) (string, error) {
+// explicitHTTPMethod 读取显式指定的 ---method，仅允许 GET/POST；空串表示未指定、由元数据或默认值决定。
+func explicitHTTPMethod(c *Context) (string, error) {
 	if c == nil || c.fixedFlags == nil {
 		return "", nil
 	}
@@ -132,19 +132,39 @@ func forceHTTPMethod(c *Context) (string, error) {
 	return method, nil
 }
 
-// resolveForceCallStyle 决定 force 调用的 Method/ContentType。
-// Method 与正常路径共用 resolveActionHTTPMethod，默认 GET；ContentType 仍取自 action 元数据。
-func resolveForceCallStyle(serviceName, action string) (method, contentType string, err error) {
+// resolveCallStyle 决定调用的 Method/ContentType：method 走 resolveActionHTTPMethod，contentType 取自元数据。
+func resolveCallStyle(ctx *Context, serviceName, action string) (method, contentType string, err error) {
 	apiInfo := rootSupport.GetApiInfo(serviceName, action)
 	method, err = resolveActionHTTPMethod(ctx, apiInfo)
 	if err != nil {
 		return "", "", err
 	}
-	contentType = ""
 	if apiInfo != nil && apiInfo.ContentType != "" {
 		contentType = apiInfo.ContentType
 	}
 	return method, contentType, nil
+}
+
+func explicitEndpointFromContext(c *Context) string {
+	if c == nil || c.fixedFlags == nil {
+		return ""
+	}
+	f := c.fixedFlags.GetByName("endpoint")
+	if f == nil {
+		return ""
+	}
+	return strings.TrimSpace(f.GetValue())
+}
+
+// dispatchServiceAction 统一 service 级 action 分发：force 优先，否则已知 action 走正常路径。
+func dispatchServiceAction(ctx *Context, svc, action string, known bool) error {
+	if isForceEnabled(ctx) {
+		return doForceAction(ctx, svc, action)
+	}
+	if known {
+		return doAction(ctx, svc, action)
+	}
+	return fmt.Errorf("%q is not a supported action of %q", action, svc)
 }
 
 // buildForceInput 将双横线 API 参数（dynamicFlags）组装为请求体/查询参数。
@@ -168,65 +188,28 @@ func buildForceInput(c *Context) map[string]interface{} {
 	return input
 }
 
-// doForceAction 执行强制泛化调用：校验参数、构造 SDK 客户端、透传 dynamicFlags 并输出 JSON 响应。
-func doForceAction(serviceName, action string) (err error) {
-	if err = validateForceCall(ctx, serviceName); err != nil {
+// doForceAction 执行强制泛化调用：校验参数后委托 executeInvocation。
+func doForceAction(ctx *Context, serviceName, action string) error {
+	if err := validateForceCall(ctx, serviceName); err != nil {
 		return err
 	}
-
-	debugLog, closeDebugLog, err := prepareDebugLogger(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if closeErr := closeDebugLog(); err == nil && closeErr != nil {
-			err = closeErr
-		}
-	}()
 
 	version := apiVersionForCall(ctx, serviceName)
-	method, contentType, err := resolveForceCallStyle(serviceName, action)
+	method, contentType, err := resolveCallStyle(ctx, serviceName, action)
 	if err != nil {
 		return err
 	}
 
-	debugLogActionStart(debugLog, serviceName, action, version, method, contentType)
-
-	sdk, err := NewSimpleClient(ctx)
-	if err != nil {
-		debugLogError(debugLog, "client_init_error", err)
-		return err
-	}
-
-	input := buildForceInput(ctx)
-	inputMap := input
-	debugLogInput(debugLog, ctx.dynamicFlags.flags, inputMap, false)
-
-	sdkServiceName := serviceName
-	if svc, ok := GetServiceMapping(serviceName); ok {
-		sdkServiceName = svc
-	}
-
-	start := time.Now()
-	out, err := sdk.CallSdk(SdkClientInfo{
-		ServiceName: sdkServiceName,
-		Action:      action,
-		Version:     version,
-		Method:      method,
-		ContentType: contentType,
-	}, &inputMap)
-	if err != nil {
-		debugLogSdkEnd(debugLog, start, err)
-		return formatActionError(err)
-	}
-	debugLogSdkEnd(debugLog, start, nil)
-
-	if config == nil || !config.EnableColor {
-		util.ShowJson(*out, false)
-	} else {
-		util.ShowJson(*out, true)
-	}
-	return nil
+	return executeInvocation(ctx, invocationParams{
+		serviceName:                 serviceName,
+		action:                      action,
+		version:                     version,
+		method:                      method,
+		contentType:                 contentType,
+		useStandardEndpointResolver: explicitEndpointFromContext(ctx) == "",
+	}, func() (invocationInput, error) {
+		return invocationInput{value: buildForceInput(ctx)}, nil
+	})
 }
 
 func isKnownServiceName(name string) bool {
@@ -305,5 +288,5 @@ func tryExecuteGenericInvoke(args []string) error {
 		return fmt.Errorf("unknown service %q: use ---force with ---version to call unlisted APIs", serviceName)
 	}
 
-	return doForceAction(serviceName, action)
+	return doForceAction(ctx, serviceName, action)
 }

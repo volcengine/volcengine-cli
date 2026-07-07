@@ -163,11 +163,10 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		WithDisableSSL(disableSSl)
 
 	resolverValue := strings.ToLower(strings.TrimSpace(endpointResolver))
-	forceInvoke := isForceEnabled(ctx)
 	// endpoint 优先级：
 	//   profile endpoint_resolver=standard
 	// > 显式 ---endpoint
-	// > force 模式（无显式 endpoint）-> StandardEndpointResolver，忽略 profile/env endpoint
+	// > invocation 层请求 standard resolver（force 且无显式 endpoint）
 	// > profile/env endpoint（正常模式）
 	switch {
 	case resolverValue == "standard":
@@ -178,7 +177,7 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		} else {
 			config.WithEndpoint(explicitEndpoint)
 		}
-	case forceInvoke:
+	case ctx.useStandardEndpointResolver:
 		config.WithEndpointResolver(endpoints.NewStandardEndpointResolver())
 	case endpoint != "":
 		if strings.ToLower(strings.TrimSpace(endpoint)) == "auto-addressing" {
@@ -201,7 +200,7 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 	debugEndpoint := endpoint
 	if explicitEndpoint != "" {
 		debugEndpoint = explicitEndpoint
-	} else if forceInvoke {
+	} else if ctx.useStandardEndpointResolver {
 		debugEndpoint = "standard-resolver"
 	}
 	debugLogClientConfig(ctx, debugClientConfig{

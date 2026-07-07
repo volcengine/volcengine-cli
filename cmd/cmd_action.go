@@ -37,12 +37,7 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 				if err := parseInvocationFlags(args); err != nil {
 					return err
 				}
-				// ---force 时走泛化路径：可覆盖 ---version/---method；Method 解析与正常路径一致，ContentType 仍取自元数据。
-				if isForceEnabled(ctx) {
-					return doForceAction(cmd.Parent().Name(), cmd.Name())
-				}
-
-				return doAction(ctx, cmd.Parent().Name(), cmd.Name())
+				return dispatchServiceAction(ctx, cmd.Parent().Name(), cmd.Name(), true)
 			},
 		}
 
@@ -79,12 +74,55 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 	return
 }
 
-func doAction(ctx *Context, serviceName, action string) (err error) {
+func doAction(ctx *Context, serviceName, action string) error {
 	if !rootSupport.IsValidAction(serviceName, action) {
-		err = fmt.Errorf("%s.%s is unsupport action", serviceName, action)
-		return
+		return fmt.Errorf("%s.%s is unsupport action", serviceName, action)
 	}
 
+	apiInfo := rootSupport.GetApiInfo(serviceName, action)
+	apiMeta := rootSupport.GetApiMeta(serviceName, action)
+	method, err := resolveActionHTTPMethod(ctx, apiInfo)
+	if err != nil {
+		return err
+	}
+	contentType := ""
+	if apiInfo != nil && apiInfo.ContentType != "" {
+		contentType = apiInfo.ContentType
+	}
+	version := apiVersionForCall(ctx, serviceName)
+	jsonBody := strings.ToLower(contentType) == "application/json"
+
+	return executeInvocation(ctx, invocationParams{
+		serviceName: serviceName,
+		action:      action,
+		version:     version,
+		method:      method,
+		contentType: contentType,
+	}, func() (invocationInput, error) {
+		input, fromBody, err := buildActionInput(ctx.dynamicFlags.flags, apiMeta, jsonBody)
+		if err != nil {
+			return invocationInput{}, err
+		}
+		return invocationInput{value: input, jsonBody: jsonBody, fromBody: fromBody}, nil
+	})
+}
+
+type invocationParams struct {
+	serviceName                 string
+	action                      string
+	version                     string
+	method                      string
+	contentType                 string
+	useStandardEndpointResolver bool
+}
+
+type invocationInput struct {
+	value    interface{}
+	jsonBody bool
+	fromBody bool
+}
+
+func executeInvocation(ctx *Context, p invocationParams, buildInput func() (invocationInput, error)) (err error) {
 	debugLog, closeDebugLog, err := prepareDebugLogger(ctx)
 	if err != nil {
 		return err
@@ -95,67 +133,50 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 		}
 	}()
 
-	var (
-		sdk *SdkClient
-		out *map[string]interface{}
-	)
+	debugLogActionStart(debugLog, p.serviceName, p.action, p.version, p.method, p.contentType)
 
-	contentType := ""
-	apiInfo := rootSupport.GetApiInfo(serviceName, action)
-	apiMeta := rootSupport.GetApiMeta(serviceName, action)
+	prevResolver := ctx.useStandardEndpointResolver
+	ctx.useStandardEndpointResolver = p.useStandardEndpointResolver
+	defer func() { ctx.useStandardEndpointResolver = prevResolver }()
 
-	method, err := resolveActionHTTPMethod(ctx, apiInfo)
+	sdk, err := NewSimpleClient(ctx)
 	if err != nil {
+		debugLogError(debugLog, "client_init_error", err)
 		return err
 	}
 
-	if apiInfo != nil && apiInfo.ContentType != "" {
-		contentType = apiInfo.ContentType
-	}
-
-	version := apiVersionForCall(ctx, serviceName)
-	debugLogActionStart(debugLog, serviceName, action, version, method, contentType)
-
-	sdk, err = NewSimpleClient(ctx)
-	if err != nil {
-		debugLogError(debugLog, "client_init_error", err)
-		return
-	}
-
-	jsonBody := strings.ToLower(contentType) == "application/json"
-	input, inputFromBody, err := buildActionInput(ctx.dynamicFlags.flags, apiMeta, jsonBody)
+	built, err := buildInput()
 	if err != nil {
 		debugLogError(debugLog, "input_build_error", err)
-		return
+		return err
 	}
-	debugLogInput(debugLog, ctx.dynamicFlags.flags, input, inputFromBody)
+	debugLogInput(debugLog, ctx.dynamicFlags.flags, built.value, built.fromBody)
 
-	if svc, ok := GetServiceMapping(serviceName); ok {
-		serviceName = svc
+	sdkServiceName := p.serviceName
+	if svc, ok := GetServiceMapping(p.serviceName); ok {
+		sdkServiceName = svc
+	}
+
+	info := SdkClientInfo{
+		ServiceName: sdkServiceName,
+		Action:      p.action,
+		Version:     p.version,
+		Method:      p.method,
+		ContentType: p.contentType,
 	}
 
 	start := time.Now()
-	if strings.ToLower(contentType) != "application/json" {
-		inputMap, _ := input.(map[string]interface{})
-		out, err = sdk.CallSdk(SdkClientInfo{
-			ServiceName: serviceName,
-			Action:      action,
-			Version:     version,
-			Method:      method,
-			ContentType: contentType,
-		}, &inputMap)
-	} else {
-		if !inputFromBody {
-			inputMap, _ := input.(map[string]interface{})
+	var out *map[string]interface{}
+	if built.jsonBody {
+		input := built.value
+		if !built.fromBody {
+			inputMap, _ := built.value.(map[string]interface{})
 			input = &inputMap
 		}
-		out, err = sdk.CallSdk(SdkClientInfo{
-			ServiceName: serviceName,
-			Action:      action,
-			Version:     version,
-			Method:      method,
-			ContentType: contentType,
-		}, input)
+		out, err = sdk.CallSdk(info, input)
+	} else {
+		inputMap, _ := built.value.(map[string]interface{})
+		out, err = sdk.CallSdk(info, &inputMap)
 	}
 	if err != nil {
 		debugLogSdkEnd(debugLog, start, err)
@@ -168,7 +189,7 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 	} else {
 		util.ShowJson(*out, true)
 	}
-	return
+	return nil
 }
 
 // resolveActionHTTPMethod 决定正常路径的 HTTP 方法：元数据优先，显式 ---method 可覆盖（对齐阿里云 --method）。
@@ -177,7 +198,7 @@ func resolveActionHTTPMethod(ctx *Context, apiInfo *ApiInfo) (string, error) {
 	if apiInfo != nil && apiInfo.Method != "" {
 		method = apiInfo.Method
 	}
-	override, err := forceHTTPMethod(ctx)
+	override, err := explicitHTTPMethod(ctx)
 	if err != nil {
 		return "", err
 	}

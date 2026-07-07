@@ -139,17 +139,11 @@ func TestTryExecuteGenericInvokeShowsHelpWithoutAction(t *testing.T) {
 	}
 }
 
-func TestResolveForceCallStyleUsesMetadataWhenAvailable(t *testing.T) {
+func TestResolveCallStyleUsesMetadataWhenAvailable(t *testing.T) {
 	c := NewContext()
-	parser := NewParser([]string{})
-	if _, err := parser.ReadArgs(c); err != nil {
-		t.Fatalf("ReadArgs: %v", err)
-	}
-	ctx = c
-
-	method, contentType, err := resolveForceCallStyle("sts", "GetCallerIdentity")
+	method, contentType, err := resolveCallStyle(c, "sts", "GetCallerIdentity")
 	if err != nil {
-		t.Fatalf("resolveForceCallStyle: %v", err)
+		t.Fatalf("resolveCallStyle: %v", err)
 	}
 	if method == "" {
 		t.Fatal("expected method from metadata or default")
@@ -157,31 +151,36 @@ func TestResolveForceCallStyleUsesMetadataWhenAvailable(t *testing.T) {
 	_ = contentType
 }
 
-func TestResolveForceCallStyleDefaultsToGETLikeNormalPath(t *testing.T) {
+func TestResolveCallStyleDefaultsToGETLikeNormalPath(t *testing.T) {
 	c := NewContext()
-	parser := NewParser([]string{})
-	if _, err := parser.ReadArgs(c); err != nil {
-		t.Fatalf("ReadArgs: %v", err)
-	}
-	ctx = c
-
-	method, _, err := resolveForceCallStyle("sts", "TotallyUnknownAction")
+	method, _, err := resolveCallStyle(c, "sts", "TotallyUnknownAction")
 	if err != nil {
-		t.Fatalf("resolveForceCallStyle: %v", err)
+		t.Fatalf("resolveCallStyle: %v", err)
 	}
 	if method != "GET" {
-		t.Fatalf("expected force path default GET to match normal path, got %q", method)
+		t.Fatalf("expected default GET, got %q", method)
 	}
 }
 
-func TestForceHTTPMethodRejectsInvalidValue(t *testing.T) {
+func TestExplicitHTTPMethodRejectsInvalidValue(t *testing.T) {
 	c := NewContext()
 	parser := NewParser([]string{"---method", "DELETE"})
 	if _, err := parser.ReadArgs(c); err != nil {
 		t.Fatalf("ReadArgs: %v", err)
 	}
-	if _, err := forceHTTPMethod(c); err == nil {
+	if _, err := explicitHTTPMethod(c); err == nil {
 		t.Fatal("expected unsupported method error")
+	}
+}
+
+func TestDispatchServiceActionRejectsUnknownWithoutForce(t *testing.T) {
+	c := NewContext()
+	err := dispatchServiceAction(c, "sts", "UnknownAction", false)
+	if err == nil {
+		t.Fatal("expected unsupported action error")
+	}
+	if !strings.Contains(err.Error(), "is not a supported action") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
