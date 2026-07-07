@@ -18,7 +18,7 @@ var allowedFixedFlags = map[string]struct{}{
 	"method":   {},
 }
 
-// booleanFixedFlags 无需跟值的开关型固定参数（参考阿里云 CLI 的 AssignedNone）。
+// booleanFixedFlags 纯开关型固定参数：出现即生效，不消费后续 token。
 var booleanFixedFlags = map[string]struct{}{
 	"force": {},
 }
@@ -105,14 +105,8 @@ func (p *Parser) readArg(ctx *Context) (arg string, flag *Flag, more bool, err e
 	//跳出条件
 	if len(p.args) <= p.currentIndex {
 		if p.currentFlag != nil {
-			// ---force 出现在参数末尾时，自动视为 true。
-			if isBooleanFixedFlag(p.currentFlag.Name) {
-				p.currentFlag.SetValue("true")
-				p.currentFlag = nil
-			} else {
-				err = p.currentFlagValueError(ctx)
-				p.currentFlag = nil
-			}
+			err = p.currentFlagValueError(ctx)
+			p.currentFlag = nil
 		}
 		more = false
 		return
@@ -140,11 +134,6 @@ func (p *Parser) readArg(ctx *Context) (arg string, flag *Flag, more bool, err e
 		if p.currentFlag != nil {
 			if value == "" {
 				err = p.currentFlagValueError(ctx)
-			} else if isBooleanFixedFlag(p.currentFlag.Name) && !isBooleanLiteral(value) {
-				// ---force DescribeAction：下一个 token 是 action 名，不能当作 force 的值。
-				p.currentFlag.SetValue("true")
-				p.currentFlag = nil
-				arg = value
 			} else {
 				p.currentFlag.SetValue(value)
 				p.currentFlag = nil
@@ -153,20 +142,10 @@ func (p *Parser) readArg(ctx *Context) (arg string, flag *Flag, more bool, err e
 			arg = value
 		}
 	} else { //解析flag
-		if isBooleanFixedFlag(flag.Name) {
-			switch {
-			case p.currentIndex >= len(p.args) || isFlagToken(p.args[p.currentIndex]):
-				// ---force 位于末尾或后接其它 flag：开关置 true，不消费下一 token。
-				flag.SetValue("true")
-				p.currentFlag = nil
-			case isBooleanLiteral(p.args[p.currentIndex]):
-				// ---force false：显式布尔字面量由下一轮赋值。
-				p.currentFlag = flag
-			default:
-				// ---force DescribeAction：后接 action 名，置 true 并保留下一 token 给位置参数。
-				flag.SetValue("true")
-				p.currentFlag = nil
-			}
+		if isPresenceOnlyFixedFlag(flag.Name) {
+			// 纯开关固定参数：出现即启用，不消费后续 token。
+			flag.SetValue("true")
+			p.currentFlag = nil
 		} else {
 			p.currentFlag = flag
 		}
@@ -174,22 +153,9 @@ func (p *Parser) readArg(ctx *Context) (arg string, flag *Flag, more bool, err e
 	return
 }
 
-func isBooleanFixedFlag(name string) bool {
+func isPresenceOnlyFixedFlag(name string) bool {
 	_, ok := booleanFixedFlags[name]
 	return ok
-}
-
-func isFlagToken(arg string) bool {
-	return strings.HasPrefix(arg, "--") || strings.HasPrefix(arg, "---")
-}
-
-func isBooleanLiteral(value string) bool {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "true", "false", "1", "0", "yes", "no":
-		return true
-	default:
-		return false
-	}
 }
 
 func (p *Parser) currentFlagValueError(ctx *Context) error {

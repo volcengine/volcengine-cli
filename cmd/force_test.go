@@ -15,8 +15,8 @@ func TestIsForceEnabled(t *testing.T) {
 		want bool
 	}{
 		{name: "bare force flag", args: []string{"---force"}, want: true},
-		{name: "force true", args: []string{"---force", "true"}, want: true},
-		{name: "force false", args: []string{"---force", "false"}, want: false},
+		{name: "force does not accept true value", args: []string{"---force", "true"}, want: true},
+		{name: "force does not accept false value", args: []string{"---force", "false"}, want: true},
 		{name: "no force", args: []string{"---version", "2024-01-01"}, want: false},
 	}
 
@@ -103,8 +103,8 @@ func TestTryExecuteGenericInvokeSkipsBuiltinCommand(t *testing.T) {
 	}
 }
 
-func TestTryExecuteGenericInvokeSkipsRootVersionFlags(t *testing.T) {
-	for _, arg := range []string{"-v", "--version"} {
+func TestTryExecuteGenericInvokeSkipsRootFlags(t *testing.T) {
+	for _, arg := range []string{"-v", "--version", "-h", "--help", "-x", "--foo", "---force"} {
 		t.Run(arg, func(t *testing.T) {
 			err := tryExecuteGenericInvoke([]string{arg})
 			if !errors.Is(err, errNotGenericInvoke) {

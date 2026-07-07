@@ -191,7 +191,7 @@ CLI 内置了部分云产品的元数据，正常调用时会校验 service 和 
 
 | 参数 | 是否必填 | 说明 |
 | --- | --- | --- |
-| `---force` | 是 | 开关型参数，单独出现即表示启用；也支持 `---force true` |
+| `---force` | 是 | 纯开关型参数，出现即表示启用；不接受 `true`/`false` 等后续赋值 |
 | `---version` | 视 service | **未收录 service 时必填**；**已收录 service 可省略**，回落内置元数据版本。也可用于覆盖元数据中的 API 版本 |
 | `---endpoint` | 否 | 产品接入地址；未指定时，CLI 会结合 service 与 `---region` 尝试自动推断（忽略 profile endpoint） |
 | `---method` | 否 | HTTP 方法：`GET` 或 `POST`；正常路径与 force 路径规则一致：显式值优先 → action 元数据 → 默认 `GET` |

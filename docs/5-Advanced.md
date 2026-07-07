@@ -191,7 +191,7 @@ Unknown API parameters already pass through in normal mode. `---force` mainly re
 
 | Flag | Required | Description |
 | --- | --- | --- |
-| `---force` | Yes | Switch flag; presence alone enables force mode; `---force true` also works |
+| `---force` | Yes | Presence-only switch; enables force mode when present; does not accept `true`/`false` values |
 | `---version` | Depends on service | **Required for unlisted services**; **optional for bundled services**, falling back to metadata. Can also override the bundled API version |
 | `---endpoint` | No | Product endpoint; if omitted, inferred from service and `---region` (profile endpoint is ignored) |
 | `---method` | No | HTTP method: `GET` or `POST`; same on normal and force paths: explicit value → action metadata → default `GET` |

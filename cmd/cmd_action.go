@@ -192,7 +192,7 @@ func executeInvocation(ctx *Context, p invocationParams, buildInput func() (invo
 	return nil
 }
 
-// resolveActionHTTPMethod 决定正常路径的 HTTP 方法：元数据优先，显式 ---method 可覆盖（对齐阿里云 --method）。
+// resolveActionHTTPMethod 决定正常路径的 HTTP 方法：元数据优先，显式 ---method 可覆盖。
 func resolveActionHTTPMethod(ctx *Context, apiInfo *ApiInfo) (string, error) {
 	method := "GET"
 	if apiInfo != nil && apiInfo.Method != "" {

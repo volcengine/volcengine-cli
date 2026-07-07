@@ -9,7 +9,7 @@
 //   3. cmd_action action RunE：已知 action 子命令且带 ---force（可覆盖 ---version/---method）
 //
 // 固定参数（三横线，存入 fixedFlags）：
-//   ---force   开关，单独出现即 true
+//   ---force   纯开关，出现即启用，不接受后续 true/false 赋值
 //   ---version API 版本；未收录 service 时 force 模式必填，已收录 service 可回落元数据（非 CLI 的 ve -v/--version）
 //   ---endpoint 可选；未指定时 invocation 层请求 standard resolver（忽略 profile endpoint）
 //   ---method   可选；GET/POST，未指定时优先用已收录 action 元数据，否则默认 GET
@@ -68,17 +68,12 @@ func parseInvocationFlags(args []string) error {
 	return err
 }
 
-// isForceEnabled 判断 ---force 是否生效。---force 为开关型固定参数，缺省值视为 true。
+// isForceEnabled 判断 ---force 是否生效。---force 为纯开关，出现即启用。
 func isForceEnabled(c *Context) bool {
 	if c == nil || c.fixedFlags == nil {
 		return false
 	}
-	f := c.fixedFlags.GetByName("force")
-	if f == nil {
-		return false
-	}
-	v := strings.ToLower(strings.TrimSpace(f.GetValue()))
-	return v == "" || v == "true" || v == "1" || v == "yes"
+	return c.fixedFlags.GetByName("force") != nil
 }
 
 // apiVersionForCall 返回本次调用使用的 API 版本：优先 ---version，否则回落到内置元数据。
@@ -102,7 +97,7 @@ func forceAPIVersion(c *Context) string {
 }
 
 // validateForceCall 校验 force 模式最低要求：---force 已启用，且能解析到 API 版本。
-// 已收录 service 可回落元数据版本（对齐阿里云已知 product + --force）；未收录 service 须显式 ---version。
+// 已收录 service 可回落元数据版本；未收录 service 须显式 ---version。
 func validateForceCall(c *Context, serviceName string) error {
 	if !isForceEnabled(c) {
 		return fmt.Errorf("---force is required for force invocation")
@@ -229,17 +224,6 @@ func isBuiltinRootCommand(name string) bool {
 	return ok
 }
 
-// isRootCLIFlag 判断是否为根命令 cobra 处理的 CLI flag（非 service 名）。
-// 与 ---version（API 版本）区分：-v/--version 仅用于显示 CLI 版本。
-func isRootCLIFlag(arg string) bool {
-	switch arg {
-	case "-h", "--help", "-v", "--version":
-		return true
-	default:
-		return false
-	}
-}
-
 func argsContainHelp(args []string) bool {
 	for _, a := range args {
 		if a == "-h" || a == "--help" {
@@ -271,7 +255,8 @@ func tryExecuteGenericInvoke(args []string) error {
 	if len(args) == 0 {
 		return errNotGenericInvoke
 	}
-	if isRootCLIFlag(args[0]) {
+	// 根级 flag（含 -v/--version、未知 --foo）交给 cobra；不与 ---version（API 版本）混淆。
+	if strings.HasPrefix(args[0], "-") {
 		return errNotGenericInvoke
 	}
 	if isBuiltinRootCommand(args[0]) {

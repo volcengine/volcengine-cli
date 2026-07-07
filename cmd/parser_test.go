@@ -137,7 +137,7 @@ func TestParserForceFlagBeforeActionName(t *testing.T) {
 	}
 }
 
-func TestParserForceFlagExplicitFalse(t *testing.T) {
+func TestParserForceFlagDoesNotConsumeNextToken(t *testing.T) {
 	parser := NewParser([]string{"---force", "false", "DescribeNewResource"})
 	ctx := NewContext()
 
@@ -145,11 +145,11 @@ func TestParserForceFlagExplicitFalse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadArgs returned error: %v", err)
 	}
-	if isForceEnabled(ctx) {
-		t.Fatal("expected ---force false to disable force")
+	if !isForceEnabled(ctx) {
+		t.Fatal("expected ---force to enable force without consuming next token")
 	}
-	if len(positional) != 1 || positional[0] != "DescribeNewResource" {
-		t.Fatalf("expected action as positional arg, got %#v", positional)
+	if len(positional) != 2 || positional[0] != "false" || positional[1] != "DescribeNewResource" {
+		t.Fatalf("expected following tokens as positional args, got %#v", positional)
 	}
 }
 
