@@ -4,7 +4,7 @@
 
 ## Advanced Usage
 
-This document covers shell completion, colored output, debug logs, and common questions. These features are not required for API calls, but they improve daily ergonomics and troubleshooting.
+This document covers shell completion, colored output, debug logs, `---force` invocation, and common questions. These features are not required for API calls, but they improve daily ergonomics and troubleshooting.
 
 ## Shell Completion
 
@@ -175,6 +175,104 @@ VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity ---region cn-beijing
 tail -n 100 ~/.volcengine/logs/$(date +%Y%m%d%H).log
 ```
 
+## Force Invocation
+
+The CLI ships with metadata for a subset of cloud products. In normal mode it validates that the service and action exist. If a product or API is not yet bundled, or local metadata lags behind the service, you may see `unsupported action` or `unknown command`. Use `---force` to skip service/action validation and issue an RPC call directly.
+
+### When to Use It
+
+- Call a **service not yet listed** in metadata
+- Call a **new action** under a known service
+- Call an API with a **version not in bundled metadata** (via `---version`)
+
+Unknown API parameters already pass through in normal mode. `---force` mainly removes limits at the **service / action / API version** level.
+
+### Fixed Flag Requirements
+
+| Flag | Required | Description |
+| --- | --- | --- |
+| `---force` | Yes | Switch flag; presence alone enables force mode; `---force true` also works |
+| `---version` | Depends on service | **Required for unlisted services**; **optional for bundled services**, falling back to metadata. Can also override the bundled API version |
+| `---endpoint` | No | Product endpoint; if omitted, inferred from service and `---region` (profile endpoint is ignored) |
+| `---method` | No | HTTP method: `GET` or `POST`; same on normal and force paths: explicit value → action metadata → default `GET` |
+| `---region` | Depends on config | Same as normal calls; a region must be resolvable |
+
+Notes:
+
+- `---version` is the **OpenAPI version**, not the CLI tool version. Use `ve version` or `ve -v` for the CLI version.
+- Bundled services can omit `---version` in force mode, same as normal calls (e.g. `ve sts GetCallerIdentity ---force`).
+- `---method` uses the same resolution order on normal and force paths: explicit `---method` overrides metadata; otherwise bundled action `Method`; otherwise defaults to `GET` (`---force` does not change this).
+- Force control flags use **three hyphens** `---`, separate from API parameters with `--`.
+
+### Examples
+
+Normal metadata-validated call:
+
+```shell
+ve rds_mysql ModifyDBInstanceIPList \
+  --InstanceId mysql-xxxxxx \
+  --GroupName default \
+  --IPList '["10.20.30.40"]'
+```
+
+Force-call an unlisted service:
+
+```shell
+ve newservice DescribeNewResource \
+  ---version 2024-01-01 \
+  ---endpoint open.volcengineapi.com \
+  --SomeParam value \
+  ---force
+```
+
+Known service, unknown action (`---version` optional; falls back to service metadata):
+
+```shell
+ve sts SomeNewAction \
+  ---region cn-beijing \
+  --Param1 value \
+  ---force
+```
+
+Known service and action, skip validation only:
+
+```shell
+ve sts GetCallerIdentity ---force
+```
+
+Override API version and endpoint:
+
+```shell
+ve ecs DescribeInstances \
+  ---version 2024-01-01 \
+  ---endpoint ecs.cn-beijing.volcengineapi.com \
+  ---region cn-beijing \
+  ---force
+```
+
+### Help for Unlisted Services
+
+`ve <unknown-service> -h` or a bare service name prints force-invocation usage instead of a generic error:
+
+```shell
+ve newservice -h
+ve newservice
+```
+
+### Common Errors
+
+Missing `---version` for an unlisted service:
+
+```text
+---version is required when using ---force for service "newservice"
+```
+
+Unlisted service without `---force`:
+
+```text
+unknown service "newservice": use ---force with ---version to call unlisted APIs
+```
+
 ## FAQ
 
 ### Why is `---debug` unsupported?
@@ -188,7 +286,7 @@ VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity
 The supported fixed flags are:
 
 ```text
----profile, ---region, ---endpoint, ---lang
+---profile, ---region, ---endpoint, ---lang, ---version, ---method, ---force
 ```
 
 ### Why does the CLI say region is missing?

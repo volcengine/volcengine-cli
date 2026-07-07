@@ -7,10 +7,10 @@
 CLI 的基本调用格式：
 
 ```shell
-ve <service> <action> [--Param value ...] [---profile name] [---region region] [---endpoint endpoint] [---lang language]
+ve <service> <action> [--Param value ...] [---profile name] [---region region] [---endpoint endpoint] [---lang language] [---version api-version] [---method GET|POST] [---force]
 ```
 
-其中 `--Param value` 是 API 参数，`---profile` / `---region` / `---endpoint` / `---lang` 是 CLI 固定参数。
+其中 `--Param value` 是 API 参数，`---profile` / `---region` / `---endpoint` / `---lang` /`---version` / `---method` / `---force`  是 CLI 固定参数。
 
 ## 查看服务和接口
 
@@ -78,6 +78,9 @@ ve rds_mysql ListDBInstanceIPLists --InstanceId mysql-xxxxxx --GroupName default
 | `---region` | 本次调用覆盖 region |
 | `---endpoint` | 本次调用覆盖 endpoint，并清空 endpoint resolver |
 | `---lang` | 设置本次调用中 CLI 自有帮助、提示和错误的显示语言 |
+| `---version` | 指定本次调用的 **API 版本**；未指定时使用内置元数据中的 service 版本（与根命令 `ve -v` / `ve --version` 的 CLI 版本无关） |
+| `---force` | 跳过 service/action 元数据校验，强制调用未收录或新发布的接口；**未收录 service** 须配合 `---version`，已收录 service 可回落元数据版本 |
+| `---method` | 指定 HTTP 方法（`GET`/`POST`）；正常路径与 `---force` 路径规则一致：显式值优先，否则用 action 元数据，均无则默认 `GET` |
 
 示例：
 
@@ -184,6 +187,18 @@ ve ecs DescribeInstances --NewServerSideParam value
 
 这对服务端新增参数、metadata 尚未更新的场景有用。
 
+## 未收录 service / action
+
+CLI 会校验 service 和 action 是否在内置元数据中。若调用的 **service 或 action 尚未收录**，需使用 `---force` 跳过校验；未收录 service 还须显式指定 `---version`，已收录 service 在 force 模式下可省略 `---version` 并使用元数据版本。详见 [高级用法：强制泛化调用](5-Advanced-zh.md#强制泛化调用-force)。
+
+```shell
+ve newservice DescribeNewResource \
+  ---version 2024-01-01 \
+  ---endpoint open.volcengineapi.com \
+  --SomeParam value \
+  ---force
+```
+
 ## 常用调用场景
 
 使用默认 profile：
@@ -241,10 +256,10 @@ region not set, please set it via profile, ---region flag, or VOLCENGINE_REGION 
 固定参数不支持时：
 
 ```text
----debug is not supported, supported fixed flags: ---profile, ---region, ---endpoint, ---lang
+---debug is not supported, supported fixed flags: ---profile, ---region, ---endpoint, ---lang, ---force, ---version, ---method
 ```
 
-当前支持的固定参数只有 `---profile`、`---region`、`---endpoint`、`---lang`。
+当前支持的固定参数只有 `---profile`、`---region`、`---endpoint`、`---lang`、`---version`、`---method`、`---force`。
 
 ---
 

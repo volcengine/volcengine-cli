@@ -34,9 +34,12 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 					return nil
 				}
 
-				parser := NewParser(args)
-				if _, err := parser.ReadArgs(ctx); err != nil {
+				if err := parseInvocationFlags(args); err != nil {
 					return err
+				}
+				// ---force 时走泛化路径：可覆盖 ---version/---method；Method 解析与正常路径一致，ContentType 仍取自元数据。
+				if isForceEnabled(ctx) {
+					return doForceAction(cmd.Parent().Name(), cmd.Name())
 				}
 
 				return doAction(ctx, cmd.Parent().Name(), cmd.Name())
@@ -97,20 +100,20 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 		out *map[string]interface{}
 	)
 
-	method := "GET"
 	contentType := ""
 	apiInfo := rootSupport.GetApiInfo(serviceName, action)
 	apiMeta := rootSupport.GetApiMeta(serviceName, action)
 
-	if apiInfo != nil && apiInfo.Method != "" {
-		method = apiInfo.Method
+	method, err := resolveActionHTTPMethod(ctx, apiInfo)
+	if err != nil {
+		return err
 	}
 
 	if apiInfo != nil && apiInfo.ContentType != "" {
 		contentType = apiInfo.ContentType
 	}
 
-	version := rootSupport.GetVersion(serviceName)
+	version := apiVersionForCall(ctx, serviceName)
 	debugLogActionStart(debugLog, serviceName, action, version, method, contentType)
 
 	sdk, err = NewSimpleClient(ctx)
@@ -166,6 +169,22 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 		util.ShowJson(*out, true)
 	}
 	return
+}
+
+// resolveActionHTTPMethod 决定正常路径的 HTTP 方法：元数据优先，显式 ---method 可覆盖（对齐阿里云 --method）。
+func resolveActionHTTPMethod(ctx *Context, apiInfo *ApiInfo) (string, error) {
+	method := "GET"
+	if apiInfo != nil && apiInfo.Method != "" {
+		method = apiInfo.Method
+	}
+	override, err := forceHTTPMethod(ctx)
+	if err != nil {
+		return "", err
+	}
+	if override != "" {
+		method = override
+	}
+	return method, nil
 }
 
 func prepareDebugLogger(ctx *Context) (*DebugLogger, func() error, error) {
@@ -358,10 +377,18 @@ func renderActionUsageTemplate(description, parameterHelp string) string {
   ---profile string    %s
   ---region string     %s
   ---endpoint string   %s
+  ---version string    %s
+  ---method string     %s
+  ---force             %s
   ---lang string       %s
 
 `, description, tr("Usage:"), tr("Examples:"), tr("Available Parameters:"), parameterHelp,
-		tr("Fixed Flags:"), tr("Use a configured profile only for this invocation."),
-		tr("Override the region only for this invocation."), tr("Override the endpoint only for this invocation."),
+		tr("Fixed Flags:"),
+		tr("Use a configured profile only for this invocation."),
+		tr("Override the region only for this invocation."),
+		tr("Override the endpoint only for this invocation."),
+		tr("API version; uses metadata when omitted (required with ---force for unlisted services)."),
+		tr("HTTP method GET or POST; explicit value overrides metadata, else metadata, else GET."),
+		tr("Skip service/action metadata validation and force the call."),
 		tr("Set the display language for this invocation (EN or ZH)."))
 }

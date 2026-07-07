@@ -7,10 +7,10 @@
 Basic command format:
 
 ```shell
-ve <service> <action> [--Param value ...] [---profile name] [---region region] [---endpoint endpoint] [---lang language]
+ve <service> <action> [--Param value ...] [---profile name] [---region region] [---endpoint endpoint] [---lang language] [---version api-version] [---method GET|POST] [---force]
 ```
 
-`--Param value` is an API parameter. `---profile`, `---region`, `---endpoint`, and `---lang` are CLI fixed flags.
+`--Param value` is an API parameter. `---profile`, `---region`, `---endpoint`, `---lang`, `---version`, `---method`, and `---force` are CLI fixed flags.
 
 ## Discover Services and Actions
 
@@ -78,6 +78,9 @@ Fixed flags use three hyphens `---` and do not conflict with API parameters:
 | `---region` | Override region for this invocation |
 | `---endpoint` | Override endpoint for this invocation and clear endpoint resolver |
 | `---lang` | Set the language of CLI-owned help, prompts, and errors for this invocation |
+| `---version` | Set the **API version** for this call; if omitted, uses the bundled service version (not the CLI version from `ve -v` / `ve --version`) |
+| `---force` | Skip service/action metadata validation and force-call unlisted or newly released APIs; **unlisted services** require `---version`; bundled services can fall back to metadata |
+| `---method` | HTTP method (`GET`/`POST`); same rules on normal and `---force` paths: explicit value wins, else action metadata, else `GET` |
 
 Examples:
 
@@ -184,6 +187,18 @@ ve ecs DescribeInstances --NewServerSideParam value
 
 This is useful when the service has added a parameter but local metadata has not been updated yet.
 
+## Unlisted Services and Actions
+
+The CLI validates services and actions against built-in metadata. If the **service or action is not yet bundled**, use `---force` to bypass validation; unlisted services also require `---version`, while bundled services can omit it in force mode and use the metadata version. See [Advanced Usage: Force Invocation](5-Advanced.md#force-invocation).
+
+```shell
+ve newservice DescribeNewResource \
+  ---version 2024-01-01 \
+  ---endpoint open.volcengineapi.com \
+  --SomeParam value \
+  ---force
+```
+
 ## Common Scenarios
 
 Use current profile:
@@ -241,10 +256,10 @@ region not set, please set it via profile, ---region flag, or VOLCENGINE_REGION 
 Unsupported fixed flag:
 
 ```text
----debug is not supported, supported fixed flags: ---profile, ---region, ---endpoint, ---lang
+---debug is not supported, supported fixed flags: ---profile, ---region, ---endpoint, ---lang, ---force, ---version, ---method
 ```
 
-The only supported fixed flags are `---profile`, `---region`, `---endpoint`, and `---lang`.
+The only supported fixed flags are `---profile`, `---region`, `---endpoint`, `---lang`, `---version`, `---method`, and `---force`.
 
 ---
 

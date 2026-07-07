@@ -61,22 +61,30 @@ func runServiceCmd(cmd *cobra.Command, svc string, validActions []string, args [
 			return cmd.Help()
 		}
 	}
-	var first string
-	for _, a := range args {
-		if !strings.HasPrefix(a, "-") {
-			first = a
-			break
-		}
+	positional, err := parseInvocationArgs(args)
+	if err != nil {
+		return err
 	}
-	if first == "" {
+	if len(positional) == 0 {
 		return cmd.Help()
 	}
+	action := positional[0]
 	for _, va := range validActions {
-		if va == first {
-			return nil
+		if va == action {
+			// 固定参数写在 action 前时 cobra 不会匹配子命令，在此补发调用。
+			if isForceEnabled(ctx) {
+				return doForceAction(svc, action)
+			}
+			return doAction(ctx, svc, action)
 		}
 	}
-	return fmt.Errorf("%q is not a supported action of %q", first, svc)
+
+	// action 未匹配任何子命令：若带 ---force，则 positional[0] 即为 action 名，跳过 metadata 校验。
+	if isForceEnabled(ctx) {
+		return doForceAction(svc, action)
+	}
+
+	return fmt.Errorf("%q is not a supported action of %q", action, svc)
 }
 
 func serviceUsageTemplate() string {
@@ -97,6 +105,9 @@ func serviceUsageTemplate() string {
   ---profile string    ` + tr("Use a configured profile only for this invocation.") + `
   ---region string     ` + tr("Override the region only for this invocation.") + `
   ---endpoint string   ` + tr("Override the endpoint only for this invocation.") + `
+  ---version string    ` + tr("API version; uses metadata when omitted (required with ---force for unlisted services).") + `
+  ---method string     ` + tr("HTTP method GET or POST; explicit value overrides metadata, else metadata, else GET.") + `
+  ---force             ` + tr("Skip service/action metadata validation and force the call.") + `
   ---lang string       ` + tr("Set the display language for this invocation (EN or ZH).") + `
 `
 }

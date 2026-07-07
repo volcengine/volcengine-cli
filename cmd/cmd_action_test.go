@@ -2,6 +2,43 @@ package cmd
 
 import "testing"
 
+func TestResolveActionHTTPMethodUsesMetadataByDefault(t *testing.T) {
+	apiInfo := &ApiInfo{Method: "POST"}
+	method, err := resolveActionHTTPMethod(NewContext(), apiInfo)
+	if err != nil {
+		t.Fatalf("resolveActionHTTPMethod: %v", err)
+	}
+	if method != "POST" {
+		t.Fatalf("expected metadata method POST, got %q", method)
+	}
+}
+
+func TestResolveActionHTTPMethodOverrideFromFlag(t *testing.T) {
+	c := NewContext()
+	parser := NewParser([]string{"---method", "GET"})
+	if _, err := parser.ReadArgs(c); err != nil {
+		t.Fatalf("ReadArgs: %v", err)
+	}
+	apiInfo := &ApiInfo{Method: "POST"}
+	method, err := resolveActionHTTPMethod(c, apiInfo)
+	if err != nil {
+		t.Fatalf("resolveActionHTTPMethod: %v", err)
+	}
+	if method != "GET" {
+		t.Fatalf("expected ---method to override metadata, got %q", method)
+	}
+}
+
+func TestResolveActionHTTPMethodDefaultsToGET(t *testing.T) {
+	method, err := resolveActionHTTPMethod(NewContext(), nil)
+	if err != nil {
+		t.Fatalf("resolveActionHTTPMethod: %v", err)
+	}
+	if method != "GET" {
+		t.Fatalf("expected default GET, got %q", method)
+	}
+}
+
 func TestBuildActionInputRejectsBodyWithFlattenedParams(t *testing.T) {
 	body := &Flag{Name: "body"}
 	body.SetValue(`{"InstanceId":"mysql-1"}`)

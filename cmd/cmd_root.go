@@ -73,6 +73,14 @@ func Execute() {
 	initRootCmd()
 	localizeHelpFlags(rootCmd)
 
+	// cobra 只为 metadata 中的 service 注册了子命令；未知 service 需在此前置拦截并走 ---force 路径。
+	if err := tryExecuteGenericInvoke(os.Args[1:]); err == nil {
+		return
+	} else if !errors.Is(err, errNotGenericInvoke) {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -137,6 +145,9 @@ func rootUsageTemplate() string {
   ---profile string    ` + tr("Use a configured profile only for this invocation.") + `
   ---region string     ` + tr("Override the region only for this invocation.") + `
   ---endpoint string   ` + tr("Override the endpoint only for this invocation.") + `
+  ---version string    ` + tr("API version; uses metadata when omitted (required with ---force for unlisted services).") + `
+  ---method string     ` + tr("HTTP method GET or POST; explicit value overrides metadata, else metadata, else GET.") + `
+  ---force             ` + tr("Skip service/action metadata validation and force the call.") + `
   ---lang string       ` + tr("Set the display language for this invocation (EN or ZH).") + `
 
 ` + tr("Examples:") + `

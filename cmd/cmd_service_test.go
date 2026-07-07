@@ -22,10 +22,51 @@ func TestRunServiceCmdUnknownActionErrors(t *testing.T) {
 	}
 }
 
-func TestRunServiceCmdValidActionReturnsNil(t *testing.T) {
-	if err := runServiceCmd(&cobra.Command{}, "sts", []string{"GetCallerIdentity"},
-		[]string{"GetCallerIdentity"}); err != nil {
-		t.Fatalf("expected nil for valid action, got: %v", err)
+func TestRunServiceCmdUnknownActionWithForceBypassesUnsupportedError(t *testing.T) {
+	err := runServiceCmd(&cobra.Command{}, "sts", []string{"GetCallerIdentity"},
+		[]string{"NonExistentAction", "---version", "2024-01-01", "---force", "---region", "cn-beijing"})
+	if err == nil {
+		t.Fatal("expected downstream error because credentials are not configured in unit test")
+	}
+	if strings.Contains(err.Error(), "is not a supported action") {
+		t.Fatalf("---force should bypass unsupported action error, got: %v", err)
+	}
+}
+
+func TestRunServiceCmdForceUsesPositionalActionNotVersionValue(t *testing.T) {
+	// Fixed flags before action: version value must not be mistaken for the action name.
+	err := runServiceCmd(&cobra.Command{}, "sts", []string{"GetCallerIdentity"},
+		[]string{"---version", "2024-01-01", "---force", "UnknownAction"})
+	if err == nil {
+		t.Fatal("expected downstream error because credentials are not configured in unit test")
+	}
+	if strings.Contains(err.Error(), "is not a supported action") {
+		t.Fatalf("---force should bypass unsupported action error, got: %v", err)
+	}
+	if strings.Contains(err.Error(), "2024-01-01") {
+		t.Fatalf("version value must not be treated as action, got: %v", err)
+	}
+}
+
+func TestRunServiceCmdValidActionDispatchesWhenCobraMissedSubcommand(t *testing.T) {
+	err := runServiceCmd(&cobra.Command{}, "sts", []string{"GetCallerIdentity"},
+		[]string{"GetCallerIdentity"})
+	if err == nil {
+		t.Fatal("expected downstream error because credentials are not configured in unit test")
+	}
+	if strings.Contains(err.Error(), "is not a supported action") {
+		t.Fatalf("valid action should dispatch instead of unsupported error, got: %v", err)
+	}
+}
+
+func TestRunServiceCmdValidActionDispatchesWhenFlagsBeforeAction(t *testing.T) {
+	err := runServiceCmd(&cobra.Command{}, "sts", []string{"GetCallerIdentity"},
+		[]string{"---region", "cn-beijing", "GetCallerIdentity"})
+	if err == nil {
+		t.Fatal("expected downstream error because credentials are not configured in unit test")
+	}
+	if strings.Contains(err.Error(), "is not a supported action") {
+		t.Fatalf("valid action with flags before it should dispatch, got: %v", err)
 	}
 }
 

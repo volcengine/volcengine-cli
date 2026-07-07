@@ -4,7 +4,7 @@
 
 ## 高级用法
 
-本文包含自动补全、彩色输出、debug 日志和常见问题。这些能力不是调用 API 的必需步骤，但能提升日常使用效率和排障效率。
+本文包含自动补全、彩色输出、debug 日志、`---force` 强制泛化调用和常见问题。这些能力不是调用 API 的必需步骤，但能提升日常使用效率和排障效率。
 
 ## 自动补全
 
@@ -175,6 +175,104 @@ VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity ---region cn-beijing
 tail -n 100 ~/.volcengine/logs/$(date +%Y%m%d%H).log
 ```
 
+## 强制泛化调用 (`---force`)
+
+CLI 内置了部分云产品的元数据，正常调用时会校验 service 和 action 是否存在。若产品或接口尚未收录、或元数据版本滞后，直接调用可能报 `unsupported action` 或 `unknown command`。此时可使用 `---force` 跳过 service/action 校验，强制发起 RPC 调用。
+
+### 适用场景
+
+- 调用 **metadata 中尚未收录** 的 service
+- 调用 **已收录 service 下的新 action**
+- 使用 **非内置元数据版本** 的 API（通过 `---version` 指定）
+
+未知 API 参数在正常模式下已可透传；`---force` 主要解决的是 **service / action / API 版本** 层面的限制。
+
+### 固定参数要求
+
+| 参数 | 是否必填 | 说明 |
+| --- | --- | --- |
+| `---force` | 是 | 开关型参数，单独出现即表示启用；也支持 `---force true` |
+| `---version` | 视 service | **未收录 service 时必填**；**已收录 service 可省略**，回落内置元数据版本。也可用于覆盖元数据中的 API 版本 |
+| `---endpoint` | 否 | 产品接入地址；未指定时，CLI 会结合 service 与 `---region` 尝试自动推断（忽略 profile endpoint） |
+| `---method` | 否 | HTTP 方法：`GET` 或 `POST`；正常路径与 force 路径规则一致：显式值优先 → action 元数据 → 默认 `GET` |
+| `---region` | 视凭证配置 | 与正常调用相同，必须能解析到 region |
+
+注意：
+
+- `---version` 指 **OpenAPI 接口版本**，不是 CLI 工具版本。查看 CLI 版本请用 `ve version` 或 `ve -v`。
+- 已收录 service 在 force 模式下可不传 `---version`，行为与正常路径一致（如 `ve sts GetCallerIdentity ---force`）。
+- `---method` 在正常路径与 force 路径使用相同解析顺序：显式 `---method` 覆盖元数据；未指定时优先用已收录 action 的 Method；均无则默认 `GET`（不因 `---force` 而改变）。
+- force 相关控制参数均使用 **三横线** `---`，与 API 业务参数的双横线 `--` 区分。
+
+### 示例
+
+常规元数据校验调用：
+
+```shell
+ve rds_mysql ModifyDBInstanceIPList \
+  --InstanceId mysql-xxxxxx \
+  --GroupName default \
+  --IPList '["10.20.30.40"]'
+```
+
+强制调用未收录 service 的新接口：
+
+```shell
+ve newservice DescribeNewResource \
+  ---version 2024-01-01 \
+  ---endpoint open.volcengineapi.com \
+  --SomeParam value \
+  ---force
+```
+
+已知 service、未知 action（可省略 `---version`，回落 service 元数据版本）：
+
+```shell
+ve sts SomeNewAction \
+  ---region cn-beijing \
+  --Param1 value \
+  ---force
+```
+
+已知 service、已知 action，仅跳过校验：
+
+```shell
+ve sts GetCallerIdentity ---force
+```
+
+指定 endpoint 并覆盖 API 版本：
+
+```shell
+ve ecs DescribeInstances \
+  ---version 2024-01-01 \
+  ---endpoint ecs.cn-beijing.volcengineapi.com \
+  ---region cn-beijing \
+  ---force
+```
+
+### 未收录 service 的帮助
+
+`ve <unknown-service> -h` 或只输入 service 名时，会输出 force 调用说明，而不是报错：
+
+```shell
+ve newservice -h
+ve newservice
+```
+
+### 常见错误
+
+未收录 service 缺少 `---version`：
+
+```text
+---version is required when using ---force for service "newservice"
+```
+
+未收录 service 且未加 `---force`：
+
+```text
+unknown service "newservice": use ---force with ---version to call unlisted APIs
+```
+
 ## 常见问题
 
 ### `---debug` 为什么不支持？
@@ -185,10 +283,10 @@ debug 不是 CLI fixed flag。当前只通过 `VOLCENGINE_CLI_DEBUG` 环境变�
 VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity
 ```
 
-当前支持的 fixed flags 只有：
+当前支持的 fixed flags：
 
 ```text
----profile, ---region, ---endpoint, ---lang
+---profile, ---region, ---endpoint, ---lang, ---version, ---method, ---force
 ```
 
 ### 为什么提示缺少 region？

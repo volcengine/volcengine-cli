@@ -143,9 +143,10 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		region = f.GetValue()
 	}
 
-	// ---endpoint 运行时覆盖 endpoint
+	// 仅当用户显式传入 ---endpoint 时才覆盖；force 模式下不应回落到 profile/env endpoint。
+	explicitEndpoint := ""
 	if f := ctx.fixedFlags.GetByName("endpoint"); f != nil && f.GetValue() != "" {
-		endpoint = f.GetValue()
+		explicitEndpoint = f.GetValue()
 		endpointResolver = ""
 	}
 
@@ -162,16 +163,28 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		WithDisableSSL(disableSSl)
 
 	resolverValue := strings.ToLower(strings.TrimSpace(endpointResolver))
-	switch resolverValue {
-	case "standard":
+	forceInvoke := isForceEnabled(ctx)
+	// endpoint 优先级：
+	//   profile endpoint_resolver=standard
+	// > 显式 ---endpoint
+	// > force 模式（无显式 endpoint）-> StandardEndpointResolver，忽略 profile/env endpoint
+	// > profile/env endpoint（正常模式）
+	switch {
+	case resolverValue == "standard":
 		config.WithEndpointResolver(endpoints.NewStandardEndpointResolver())
-	default:
-		if endpoint != "" {
-			if strings.ToLower(strings.TrimSpace(endpoint)) == "auto-addressing" {
-				config.WithEndpointResolver(endpoints.NewStandardEndpointResolver())
-			} else {
-				config.WithEndpoint(endpoint)
-			}
+	case explicitEndpoint != "":
+		if strings.ToLower(strings.TrimSpace(explicitEndpoint)) == "auto-addressing" {
+			config.WithEndpointResolver(endpoints.NewStandardEndpointResolver())
+		} else {
+			config.WithEndpoint(explicitEndpoint)
+		}
+	case forceInvoke:
+		config.WithEndpointResolver(endpoints.NewStandardEndpointResolver())
+	case endpoint != "":
+		if strings.ToLower(strings.TrimSpace(endpoint)) == "auto-addressing" {
+			config.WithEndpointResolver(endpoints.NewStandardEndpointResolver())
+		} else {
+			config.WithEndpoint(endpoint)
 		}
 	}
 
@@ -185,12 +198,18 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		config.WithHTTPSProxy(httpsProxy)
 	}
 
+	debugEndpoint := endpoint
+	if explicitEndpoint != "" {
+		debugEndpoint = explicitEndpoint
+	} else if forceInvoke {
+		debugEndpoint = "standard-resolver"
+	}
 	debugLogClientConfig(ctx, debugClientConfig{
 		ProfileName:          profileName,
 		ProfileSource:        profileSource,
 		CredentialMode:       debugCredentialMode(currentProfile),
 		Region:               region,
-		Endpoint:             endpoint,
+		Endpoint:             debugEndpoint,
 		EndpointResolver:     endpointResolver,
 		DisableSSL:           disableSSl,
 		UseDualStack:         useDualStack,

@@ -71,7 +71,7 @@ ve sts GetCallerIdentity
 2. [Authentication](docs/2-Authentication.md): AK/SK, default credential chain, OIDC, ECS instance role, SSO, and Console Login.
 3. [Configuration](docs/3-Configuration.md): inspect, list, switch, update, and delete profiles.
 4. [Usage](docs/4-Usage.md): service discovery, API calls, fixed flags, JSON body, arrays, and nested parameters.
-5. [Advanced Usage](docs/5-Advanced.md): shell completion, colored output, debug logs, and FAQ.
+5. [Advanced Usage](docs/5-Advanced.md): shell completion, colored output, debug logs, `---force` invocation, and FAQ.
 
 ### Security and privacy
 This project takes security seriously.
