@@ -189,7 +189,7 @@ ve ecs DescribeInstances --NewServerSideParam value
 
 ## 未收录 service / action
 
-CLI 会校验 service 和 action 是否在内置元数据中。若调用的 **service 或 action 尚未收录**，需使用 `---force` 跳过校验；未收录 service 还须显式指定 `---version`，已收录 service 在 force 模式下可省略 `---version` 并使用元数据版本。详见 [高级用法：强制泛化调用](5-Advanced-zh.md#强制泛化调用-force)。
+CLI 会校验 service 和 action 是否在内置元数据中。若调用的 **service 或 action 尚未收录**，需使用 `---force` 跳过校验；未收录 service 还须显式指定 `---version`，已收录 service 在 force 模式下可省略 `---version` 并使用元数据版本。详见 [高级用法：强制泛化调用](5-Advanced-zh.md#force-invocation)。
 
 ```shell
 ve newservice DescribeNewResource \

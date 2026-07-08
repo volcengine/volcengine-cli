@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"bytes"
 	"errors"
+	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -10,13 +13,14 @@ import (
 
 func TestIsForceEnabled(t *testing.T) {
 	tests := []struct {
-		name string
-		args []string
-		want bool
+		name           string
+		args           []string
+		want           bool
+		wantPositional []string
 	}{
 		{name: "bare force flag", args: []string{"---force"}, want: true},
-		{name: "force does not accept true value", args: []string{"---force", "true"}, want: true},
-		{name: "force does not accept false value", args: []string{"---force", "false"}, want: true},
+		{name: "force does not accept true value", args: []string{"---force", "true"}, want: true, wantPositional: []string{"true"}},
+		{name: "force does not accept false value", args: []string{"---force", "false"}, want: true, wantPositional: []string{"false"}},
 		{name: "no force", args: []string{"---version", "2024-01-01"}, want: false},
 	}
 
@@ -24,11 +28,22 @@ func TestIsForceEnabled(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			c := NewContext()
 			parser := NewParser(tt.args)
-			if _, err := parser.ReadArgs(c); err != nil {
+			positional, err := parser.ReadArgs(c)
+			if err != nil {
 				t.Fatalf("ReadArgs returned error: %v", err)
 			}
 			if got := isForceEnabled(c); got != tt.want {
 				t.Fatalf("isForceEnabled() = %v, want %v", got, tt.want)
+			}
+			if tt.wantPositional != nil {
+				if len(positional) != len(tt.wantPositional) {
+					t.Fatalf("positional = %v, want %v", positional, tt.wantPositional)
+				}
+				for i := range tt.wantPositional {
+					if positional[i] != tt.wantPositional[i] {
+						t.Fatalf("positional[%d] = %q, want %q", i, positional[i], tt.wantPositional[i])
+					}
+				}
 			}
 		})
 	}
@@ -173,11 +188,12 @@ func TestTryExecuteGenericInvokeSkipsRootFlags(t *testing.T) {
 }
 
 func TestTryExecuteGenericInvokeForceBeforeActionName(t *testing.T) {
+	stubExecuteInvocation(t, errStubInvocation)
 	err := tryExecuteGenericInvoke([]string{
 		"newservice", "---version", "2024-01-01", "---force", "DescribeNewResource",
 	})
-	if err == nil {
-		t.Fatal("expected downstream error because credentials are not configured in unit test")
+	if !errors.Is(err, errStubInvocation) {
+		t.Fatalf("expected stub invocation after force path, got: %v", err)
 	}
 	if strings.Contains(err.Error(), "use ---force with ---version") {
 		t.Fatalf("---force before action should be recognized, got: %v", err)
@@ -195,9 +211,25 @@ func TestTryExecuteGenericInvokeRequiresForce(t *testing.T) {
 }
 
 func TestPrintUnknownServiceHelp(t *testing.T) {
+	oldStdout := os.Stdout
+	r, w, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		t.Fatalf("os.Pipe: %v", pipeErr)
+	}
+	os.Stdout = w
+	t.Cleanup(func() { os.Stdout = oldStdout })
+
 	err := tryExecuteGenericInvoke([]string{"newservice", "-h"})
+	w.Close()
+	var buf bytes.Buffer
+	if _, copyErr := io.Copy(&buf, r); copyErr != nil {
+		t.Fatalf("read captured stdout: %v", copyErr)
+	}
 	if err != nil {
 		t.Fatalf("expected help output without error, got: %v", err)
+	}
+	if !strings.Contains(buf.String(), "Use ---force with ---version") {
+		t.Fatalf("expected unknown service help text, got: %q", buf.String())
 	}
 }
 

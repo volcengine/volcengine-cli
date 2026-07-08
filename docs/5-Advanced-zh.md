@@ -175,6 +175,8 @@ VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity ---region cn-beijing
 tail -n 100 ~/.volcengine/logs/$(date +%Y%m%d%H).log
 ```
 
+<a id="force-invocation"></a>
+
 ## 强制泛化调用 (`---force`)
 
 CLI 内置了部分云产品的元数据，正常调用时会校验 service 和 action 是否存在。若产品或接口尚未收录、或元数据版本滞后，直接调用可能报 `unsupported action` 或 `unknown command`。此时可使用 `---force` 跳过 service/action 校验，强制发起 RPC 调用。
@@ -237,7 +239,7 @@ ve sts SomeNewAction \
 已知 service、已知 action，仅跳过校验：
 
 ```shell
-ve sts GetCallerIdentity ---force
+ve sts GetCallerIdentity ---region cn-beijing ---force
 ```
 
 指定 endpoint 并覆盖 API 版本：

@@ -49,6 +49,7 @@ func initRootCmd() {
 			}
 			target, _, err := rootCmd.Find(args)
 			if err != nil {
+				_ = rootCmd.Usage()
 				return err
 			}
 			return target.Usage()

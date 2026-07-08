@@ -122,7 +122,13 @@ type invocationInput struct {
 	fromBody bool
 }
 
+// executeInvocationHook 仅供测试注入，避免单测触发真实 SDK 调用。
+var executeInvocationHook func(ctx *Context, p invocationParams, buildInput func() (invocationInput, error)) error
+
 func executeInvocation(ctx *Context, p invocationParams, buildInput func() (invocationInput, error)) (err error) {
+	if executeInvocationHook != nil {
+		return executeInvocationHook(ctx, p, buildInput)
+	}
 	debugLog, closeDebugLog, err := prepareDebugLogger(ctx)
 	if err != nil {
 		return err

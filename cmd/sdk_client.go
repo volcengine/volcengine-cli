@@ -164,8 +164,8 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 
 	resolverValue := strings.ToLower(strings.TrimSpace(endpointResolver))
 	// endpoint 优先级：
-	//   profile endpoint_resolver=standard
-	// > 显式 ---endpoint
+	//   显式 ---endpoint（传入时会清空 endpoint_resolver）
+	// > profile endpoint_resolver=standard（未显式 ---endpoint 时）
 	// > invocation 层请求 standard resolver（force 且无显式 endpoint）
 	// > profile/env endpoint（正常模式）
 	switch {
@@ -199,8 +199,14 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 
 	debugEndpoint := endpoint
 	if explicitEndpoint != "" {
-		debugEndpoint = explicitEndpoint
-	} else if ctx.useStandardEndpointResolver {
+		if strings.ToLower(strings.TrimSpace(explicitEndpoint)) == "auto-addressing" {
+			debugEndpoint = "standard-resolver"
+		} else {
+			debugEndpoint = explicitEndpoint
+		}
+	} else if ctx.useStandardEndpointResolver || resolverValue == "standard" {
+		debugEndpoint = "standard-resolver"
+	} else if endpoint != "" && strings.ToLower(strings.TrimSpace(endpoint)) == "auto-addressing" {
 		debugEndpoint = "standard-resolver"
 	}
 	debugLogClientConfig(ctx, debugClientConfig{

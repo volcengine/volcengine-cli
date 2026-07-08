@@ -237,7 +237,7 @@ ve sts SomeNewAction \
 Known service and action, skip validation only:
 
 ```shell
-ve sts GetCallerIdentity ---force
+ve sts GetCallerIdentity ---region cn-beijing ---force
 ```
 
 Override API version and endpoint:

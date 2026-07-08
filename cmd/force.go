@@ -4,15 +4,18 @@
 // 直接通过 SDK 发起 RPC 请求，适用于未收录产品、新发布接口或需覆盖 API 版本的场景。
 //
 // 调用入口（维护时按此排查）：
-//   1. cmd_root.Execute       -> tryExecuteGenericInvoke：metadata 中不存在的 service
-//   2. cmd_service.runServiceCmd：已知 service、action 未匹配子命令时
-//   3. cmd_action action RunE：已知 action 子命令且带 ---force（可覆盖 ---version/---method）
+//  1. cmd_root.Execute       -> tryExecuteGenericInvoke：metadata 中不存在的 service
+//  2. cmd_service.runServiceCmd：已知 service、action 未匹配子命令时
+//  3. cmd_action action RunE：已知 action 子命令且带 ---force（可覆盖 ---version/---method）
 //
 // 固定参数（三横线，存入 fixedFlags）：
-//   ---force   纯开关，出现即启用，不接受后续 true/false 赋值
-//   ---version API 版本；未收录 service 时 force 模式必填，已收录 service 可回落元数据（非 CLI 的 ve -v/--version）
-//   ---endpoint 可选；未指定时 invocation 层请求 standard resolver（忽略 profile endpoint）
-//   ---method   可选；GET/POST，未指定时优先用已收录 action 元数据，否则默认 GET
+//
+//	---profile  可选；指定 profile
+//	---region   可选；覆盖 region（与正常路径相同，调用时须能解析到 region）
+//	---force    纯开关，出现即启用，不接受后续 true/false 赋值
+//	---version  API 版本；未收录 service 时 force 模式必填，已收录 service 可回落元数据（非 CLI 的 ve -v/--version）
+//	---endpoint 可选；未指定时 invocation 层请求 standard resolver（忽略 profile endpoint）
+//	---method    可选；GET/POST，未指定时优先用已收录 action 元数据，否则默认 GET
 package cmd
 
 import (
@@ -29,14 +32,14 @@ var errNotGenericInvoke = errors.New("not a generic force invoke")
 
 // builtinRootCommands 非 API 调用的根级子命令；这些名称不能当作 service 解析。
 var builtinRootCommands = map[string]struct{}{
-	"configure":    {},
-	"login":        {},
-	"logout":       {},
-	"sso":          {},
-	"completion":   {},
-	"version":      {},
-	"help":         {},
-	"enable-color": {},
+	"configure":     {},
+	"login":         {},
+	"logout":        {},
+	"sso":           {},
+	"completion":    {},
+	"version":       {},
+	"help":          {},
+	"enable-color":  {},
 	"disable-color": {},
 }
 

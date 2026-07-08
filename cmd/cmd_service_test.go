@@ -2,11 +2,14 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 )
+
+var errStubInvocation = errors.New("stub invocation")
 
 func TestRunServiceCmdUnknownActionErrors(t *testing.T) {
 	err := runServiceCmd(&cobra.Command{}, "sts", []string{"GetCallerIdentity"},
@@ -23,10 +26,11 @@ func TestRunServiceCmdUnknownActionErrors(t *testing.T) {
 }
 
 func TestRunServiceCmdUnknownActionWithForceBypassesUnsupportedError(t *testing.T) {
+	stubExecuteInvocation(t, errStubInvocation)
 	err := runServiceCmd(&cobra.Command{}, "sts", []string{"GetCallerIdentity"},
 		[]string{"NonExistentAction", "---version", "2024-01-01", "---force", "---region", "cn-beijing"})
-	if err == nil {
-		t.Fatal("expected downstream error because credentials are not configured in unit test")
+	if !errors.Is(err, errStubInvocation) {
+		t.Fatalf("expected stub invocation error, got: %v", err)
 	}
 	if strings.Contains(err.Error(), "is not a supported action") {
 		t.Fatalf("---force should bypass unsupported action error, got: %v", err)
