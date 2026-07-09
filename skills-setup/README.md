@@ -18,6 +18,51 @@ toolchain:
 By default it installs **all skills to all agents** (`-s '*' -a '*' -y`); use
 `--agent` to narrow the target agent(s).
 
+---
+
+## 一条命令：`npx -y @volcengine/skills-setup`
+
+> `-y` 让 npx 免确认自动拉取本包，适合 CI / 首次运行。**本包尚未发布到 npm** 时，用本地路径代替包名：`npx -y ./skills-setup`（详见下方「Usage」）。
+
+### 核心做哪些事情（三步）
+
+1. **检测工具**：扫描 `PATH`，判断 `ve`、`arkcli` 是否已安装。
+2. **按需安装**（缺失才装，已存在则跳过，幂等）：
+   - `ve` ← `npm i -g @volcengine/cli`
+   - `arkcli` ← `npm i -g @volcengine/ark-cli`（检测时 `arkcli` / `ark-cli` 两种拼写都认）
+   - 加 `--local` 可改装到当前项目而非全局。
+3. **下载 skills**：用 `npx skills add` 从两个官方仓库拉取 agent skills，默认 **全部 skill × 全部 agent**（等价 `-s '*' -a '*' -y`）。
+
+### 下载 / 安装了什么内容
+
+| 类别 | 内容 | 来源 | 落地位置 |
+|---|---|---|---|
+| CLI 工具 | `ve` | `@volcengine/cli`（npm） | npm 全局 bin（`--local` → 本地 `node_modules/.bin`） |
+| CLI 工具 | `arkcli` | `@volcengine/ark-cli`（npm） | 同上 |
+| Agent Skills | volcengine 全部 skill | `volcengine/volcengine-skills`（GitHub） | 目标 agent 的 skills 目录 |
+| Agent Skills | ark-cli 全部 skill | `volcengine/ark-cli`（GitHub） | 目标 agent 的 skills 目录 |
+
+> skill 具体写到哪个目录由 `skills` CLI 按目标 agent 决定（如 claude-code → `.claude/skills/`；加 `--skills-global` 则装到用户级全局目录）。
+
+### 自定义指令（可选参数）
+
+| 需求 | 命令 |
+|---|---|
+| 默认全装 | `npx -y @volcengine/skills-setup` |
+| 只装到某个 agent | `npx -y @volcengine/skills-setup --agent claude-code` |
+| 装到多个 agent | `... --agent claude-code --agent codex` |
+| 只装某个/某些 skill | `... --skill sign --skill sts` |
+| 只处理某一个仓库 | `... --repo volcengine/ark-cli` |
+| 只下 skill，不装工具 | `... --skip-install` |
+| 只装工具，不下 skill | `... --skip-skills` |
+| 装到本地项目而非全局 | `... --local` |
+| 先预览不执行 | `... --dry-run` |
+| 透传任意 `skills add` 额外参数 | `... -- --full-depth --subagent reviewer` |
+
+> **参数位置规则**：本工具自己的 flag（如 `--agent` / `--dry-run` / `--skip-install`）必须放在 `--` **之前**；`--` **之后**的所有 token 会原样透传给底层的 `skills add`。完整参数表见下方 [Options](#options)。
+
+---
+
 ## Requirements
 
 - Node.js **>= 16** (bundles npm >= 8, required for `npx --yes`).
