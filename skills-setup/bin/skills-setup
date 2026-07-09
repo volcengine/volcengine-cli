@@ -1,0 +1,9 @@
+#!/usr/bin/env node
+
+require("../setup")
+  .main(process.argv.slice(2))
+  .then((code) => process.exit(code))
+  .catch((err) => {
+    console.error("skills-setup failed:", err && err.message);
+    process.exit(1);
+  });
