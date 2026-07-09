@@ -6,6 +6,7 @@ import (
 	"archive/zip"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -34,6 +35,8 @@ func ChecksumName(version string) string {
 }
 
 // ExtractBinaryFromZip finds binaryName in the zip and writes it to destPath with 0755.
+// Writes via a same-directory temp file then renames, so a failed extract never leaves a
+// truncated destPath.
 func ExtractBinaryFromZip(archivePath, destPath, binaryName string) error {
 	r, err := zip.OpenReader(archivePath)
 	if err != nil {
@@ -52,19 +55,39 @@ func ExtractBinaryFromZip(archivePath, destPath, binaryName string) error {
 		if err != nil {
 			return err
 		}
-		out, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+
+		tmpDir := filepath.Dir(destPath)
+		if tmpDir == "" {
+			tmpDir = "."
+		}
+		tmpFile, err := ioutil.TempFile(tmpDir, ".ve-extract-*")
 		if err != nil {
 			rc.Close()
 			return err
 		}
-		_, copyErr := io.Copy(out, rc)
+		tmpPath := tmpFile.Name()
+
+		_, copyErr := io.Copy(tmpFile, rc)
 		rc.Close()
-		closeErr := out.Close()
+		closeErr := tmpFile.Close()
 		if copyErr != nil {
+			_ = os.Remove(tmpPath)
 			return copyErr
 		}
 		if closeErr != nil {
+			_ = os.Remove(tmpPath)
 			return closeErr
+		}
+		// Ensure executable bit before publish (TempFile is typically 0600).
+		if err := os.Chmod(tmpPath, 0755); err != nil {
+			_ = os.Remove(tmpPath)
+			return err
+		}
+		// Replace dest atomically when possible.
+		_ = os.Remove(destPath)
+		if err := os.Rename(tmpPath, destPath); err != nil {
+			_ = os.Remove(tmpPath)
+			return err
 		}
 		return nil
 	}

@@ -232,6 +232,10 @@ func urlOK(client *http.Client, url string) bool {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
+		// Defensive: rare non-nil resp+err (e.g. redirect edge cases).
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
 		// Some endpoints reject HEAD; fall back to a ranged GET of 1 byte.
 		req, err = http.NewRequest(http.MethodGet, url, nil)
 		if err != nil {
@@ -240,6 +244,9 @@ func urlOK(client *http.Client, url string) bool {
 		req.Header.Set("Range", "bytes=0-0")
 		resp, err = client.Do(req)
 		if err != nil {
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
 			return false
 		}
 	}

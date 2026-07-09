@@ -49,7 +49,9 @@ func ReplaceBinary(newPath, currentPath string) error {
 			return fmt.Errorf("failed to move current binary: %v; you may need elevated privileges", err)
 		}
 		if err := copyFile(newPath, currentPath, perm); err != nil {
-			_ = os.Rename(oldPath, currentPath)
+			if rbErr := os.Rename(oldPath, currentPath); rbErr != nil {
+				return fmt.Errorf("copy new binary failed: %v; rollback also failed (old binary kept at %s): %v", err, oldPath, rbErr)
+			}
 			return err
 		}
 		_ = os.Remove(oldPath)

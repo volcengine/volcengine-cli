@@ -86,22 +86,71 @@ func checkTTL() time.Duration {
 	return time.Duration(hours) * time.Hour
 }
 
+// rootBoolFlags are root-level boolean flags that do not consume a following token.
+// Keep in sync with cmd/cmd_root.go local flags.
+var rootBoolFlags = map[string]struct{}{
+	"-h": {}, "--help": {},
+	"-v": {}, "--version": {},
+}
+
+// rootValueFlags are root-level flags that take a following argument.
+// Currently empty; extend when root gains persistent string flags (e.g. --config).
+var rootValueFlags = map[string]struct{}{}
+
 // ShouldSkipBackgroundCheck returns true when the current invocation should not
 // run a background version check (e.g. ve upgrade itself).
+//
+// Only the first root positional argument is considered: if it is "upgrade",
+// skip. Flag values (and future root value-flags) are not mistaken for the
+// subcommand, and parameter values like --profile upgrade are not either.
 func ShouldSkipBackgroundCheck(args []string) bool {
 	if UpdateCheckDisabled() {
 		return true
 	}
-	for _, a := range args {
-		if a == "upgrade" {
-			return true
+	return firstRootPositional(args) == "upgrade"
+}
+
+// firstRootPositional returns the first non-flag argv token after skipping root
+// flags (and their values when applicable). Empty if none.
+func firstRootPositional(args []string) string {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "" {
+			continue
 		}
-		// stop at first non-flag positional for simple detection
+		// Explicit end of flags: next token is positional.
+		if a == "--" {
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+			return ""
+		}
 		if !strings.HasPrefix(a, "-") {
-			break
+			return a
 		}
+
+		// --flag=value / -o=value: value is embedded, no extra token.
+		if strings.Contains(a, "=") {
+			continue
+		}
+
+		if _, ok := rootBoolFlags[a]; ok {
+			continue
+		}
+		if _, ok := rootValueFlags[a]; ok {
+			// Consume the following token as the flag value when present.
+			if i+1 < len(args) {
+				i++
+			}
+			continue
+		}
+
+		// Unknown flag (e.g. not yet registered here, or user typo). Treat as
+		// boolean-like and do NOT swallow the next token — that token may be
+		// the real subcommand (ve --verbose upgrade).
+		continue
 	}
-	return false
+	return ""
 }
 
 // LoadCheckCache reads the local version check cache. ok=false if missing/stale/invalid.

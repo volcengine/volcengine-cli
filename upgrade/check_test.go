@@ -27,16 +27,63 @@ func TestShouldSkipBackgroundCheck(t *testing.T) {
 	if !ShouldSkipBackgroundCheck([]string{"upgrade", "--yes"}) {
 		t.Fatal("expected skip for upgrade --yes")
 	}
+	if !ShouldSkipBackgroundCheck([]string{"upgrade", "--version", "1.0.48"}) {
+		t.Fatal("expected skip for upgrade --version")
+	}
+	// Root bool flags before subcommand still resolve first positional = upgrade.
+	if !ShouldSkipBackgroundCheck([]string{"-v", "upgrade"}) {
+		t.Fatal("expected skip for -v upgrade")
+	}
+	if !ShouldSkipBackgroundCheck([]string{"--help", "upgrade"}) {
+		t.Fatal("expected skip for --help upgrade")
+	}
+	if !ShouldSkipBackgroundCheck([]string{"--", "upgrade"}) {
+		t.Fatal("expected skip after --")
+	}
+
 	if ShouldSkipBackgroundCheck([]string{"version"}) {
 		t.Fatal("version should not skip")
 	}
 	if ShouldSkipBackgroundCheck([]string{"sts", "GetCallerIdentity"}) {
 		t.Fatal("api call should not skip")
 	}
+	// "upgrade" as a later parameter value must NOT skip.
+	if ShouldSkipBackgroundCheck([]string{"configure", "set", "--profile", "upgrade"}) {
+		t.Fatal("profile value upgrade must not skip")
+	}
+	if ShouldSkipBackgroundCheck([]string{"sts", "Foo", "--Name", "upgrade"}) {
+		t.Fatal("API param value upgrade must not skip")
+	}
+	if ShouldSkipBackgroundCheck([]string{"help", "upgrade"}) {
+		t.Fatal("help upgrade is not the upgrade command")
+	}
+	if ShouldSkipBackgroundCheck(nil) {
+		t.Fatal("empty args should not skip")
+	}
 
 	os.Setenv(EnvDisableUpdateCheck, "1")
 	if !ShouldSkipBackgroundCheck([]string{"version"}) {
 		t.Fatal("expected skip when env set")
+	}
+}
+
+func TestFirstRootPositional_ValueFlags(t *testing.T) {
+	// Temporarily register a future-style root value flag.
+	rootValueFlags["--config"] = struct{}{}
+	defer delete(rootValueFlags, "--config")
+
+	if got := firstRootPositional([]string{"--config", "/tmp/c.json", "upgrade"}); got != "upgrade" {
+		t.Fatalf("got %q want upgrade", got)
+	}
+	if got := firstRootPositional([]string{"--config=/tmp/c.json", "upgrade"}); got != "upgrade" {
+		t.Fatalf("got %q want upgrade", got)
+	}
+	// Unknown flag must not swallow the subcommand token.
+	if got := firstRootPositional([]string{"--verbose", "upgrade"}); got != "upgrade" {
+		t.Fatalf("got %q want upgrade", got)
+	}
+	if got := firstRootPositional([]string{"-v"}); got != "" {
+		t.Fatalf("got %q want empty", got)
 	}
 }
 

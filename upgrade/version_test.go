@@ -40,11 +40,20 @@ func TestIsNewer(t *testing.T) {
 }
 
 func TestIsNewer_NonSemver(t *testing.T) {
-	if !IsNewer("custom-1", "custom-2") {
-		t.Fatal("expected non-semver inequality to report newer")
+	// Both opaque: cannot prove order → not newer.
+	if IsNewer("custom-1", "custom-2") {
+		t.Fatal("expected opaque vs opaque to not claim newer")
 	}
 	if IsNewer("same", "same") {
 		t.Fatal("expected same opaque versions to not be newer")
+	}
+	// Running opaque/dev, official release available → newer.
+	if !IsNewer("dev-build", "1.0.50") {
+		t.Fatal("expected official release newer than opaque current")
+	}
+	// Official current, opaque latest → cannot prove newer.
+	if IsNewer("1.0.50", "dev-build") {
+		t.Fatal("expected opaque latest not to claim newer than semver current")
 	}
 }
 

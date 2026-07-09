@@ -5,8 +5,10 @@ package upgrade
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -37,6 +39,9 @@ func SetCheckHTTPClient(c *http.Client) {
 }
 
 // DownloadFile downloads url into destPath. Progress is written to w when non-nil.
+// Content is written to a same-directory temp file first, then renamed to destPath so a
+// failed/partial download never leaves a truncated final path. When Content-Length is
+// present, the transferred size must match.
 func DownloadFile(w io.Writer, url, destPath string) error {
 	resp, err := httpClient.Get(url)
 	if err != nil {
@@ -48,11 +53,22 @@ func DownloadFile(w io.Writer, url, destPath string) error {
 		return fmt.Errorf("download returned status %d for %s", resp.StatusCode, url)
 	}
 
-	out, err := os.Create(destPath)
+	tmpDir := filepath.Dir(destPath)
+	if tmpDir == "" {
+		tmpDir = "."
+	}
+	tmpFile, err := ioutil.TempFile(tmpDir, ".ve-download-*")
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	tmpPath := tmpFile.Name()
+	// Ensure temp is removed on any failure path; success path renames it away.
+	success := false
+	defer func() {
+		if !success {
+			_ = os.Remove(tmpPath)
+		}
+	}()
 
 	totalSize := resp.ContentLength
 	var downloaded int64
@@ -61,7 +77,8 @@ func DownloadFile(w io.Writer, url, destPath string) error {
 	for {
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
-			if _, writeErr := out.Write(buf[:n]); writeErr != nil {
+			if _, writeErr := tmpFile.Write(buf[:n]); writeErr != nil {
+				tmpFile.Close()
 				return writeErr
 			}
 			downloaded += int64(n)
@@ -77,12 +94,25 @@ func DownloadFile(w io.Writer, url, destPath string) error {
 			if readErr == io.EOF {
 				break
 			}
+			tmpFile.Close()
 			return readErr
 		}
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+	if totalSize > 0 && downloaded != totalSize {
+		return fmt.Errorf("download incomplete: expected %d bytes, got %d bytes", totalSize, downloaded)
 	}
 	if w != nil {
 		fmt.Fprintf(w, "\r  Download complete.                                  \n")
 	}
+
+	_ = os.Remove(destPath)
+	if err := os.Rename(tmpPath, destPath); err != nil {
+		return err
+	}
+	success = true
 	return nil
 }
 

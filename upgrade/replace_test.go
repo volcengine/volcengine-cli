@@ -38,6 +38,30 @@ func TestReplaceBinary(t *testing.T) {
 	}
 }
 
+func TestReplaceBinary_WindowsCopyFailKeepsOldWhenRollbackWorks(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows-only rollback path")
+	}
+	dir := t.TempDir()
+	current := filepath.Join(dir, "ve.exe")
+	// Missing new file → copy fails after rename to .old; rollback should restore.
+	if err := ioutil.WriteFile(current, []byte("old-bin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	missingNew := filepath.Join(dir, "missing-new.exe")
+	err := ReplaceBinary(missingNew, current)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	got, readErr := ioutil.ReadFile(current)
+	if readErr != nil {
+		t.Fatalf("expected current restored, read err: %v; replace err: %v", readErr, err)
+	}
+	if string(got) != "old-bin" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestReplaceBinaryWithBackup_SelfCheckFail(t *testing.T) {
 	dir := t.TempDir()
 	current := filepath.Join(dir, "ve")

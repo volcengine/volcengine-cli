@@ -54,17 +54,24 @@ func ensureVPrefix(version string) string {
 
 // IsNewer reports whether latest is strictly newer than current.
 // Uses a simplified semver compare (major.minor.patch[-prerelease]).
-// Non-semver strings fall back to raw inequality.
+//
+// When versions are not both valid semver:
+//   - latest is valid, current is not → true (can upgrade from opaque/dev builds)
+//   - otherwise → false (cannot prove "newer"; avoids false upgrade notices)
 func IsNewer(current, latest string) bool {
 	cv := ensureVPrefix(current)
 	lv := ensureVPrefix(latest)
 
 	c, cok := parseSemver(cv)
 	l, lok := parseSemver(lv)
-	if !cok || !lok {
-		return NormalizeVersion(current) != NormalizeVersion(latest)
+	if cok && lok {
+		return compareSemver(c, l) < 0
 	}
-	return compareSemver(c, l) < 0
+	// Official release available while running an opaque/dev build.
+	if lok && !cok {
+		return true
+	}
+	return false
 }
 
 // SameVersion reports whether two version strings refer to the same release.
