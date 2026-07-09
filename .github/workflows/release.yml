@@ -120,6 +120,52 @@ jobs:
 
           aws --endpoint-url "$endpoint" s3 ls "$destination" --recursive
 
+      - name: Publish version manifest to TOS root
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.TOS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.TOS_SECRET_ACCESS_KEY }}
+          AWS_MAX_ATTEMPTS: "2"
+          AWS_CLI_CONNECT_TIMEOUT: "10"
+          AWS_CLI_READ_TIMEOUT: "60"
+          TOS_BUCKET: ${{ vars.TOS_BUCKET }}
+          TOS_PREFIX: ${{ vars.TOS_PREFIX }}
+          TOS_REGION: ${{ vars.TOS_REGION }}
+          TOS_S3_ENDPOINT: ${{ vars.TOS_S3_ENDPOINT }}
+          TOS_PUBLIC_BASE_URL: ${{ vars.TOS_PUBLIC_BASE_URL }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          : "${AWS_ACCESS_KEY_ID:?missing secret TOS_ACCESS_KEY_ID}"
+          : "${AWS_SECRET_ACCESS_KEY:?missing secret TOS_SECRET_ACCESS_KEY}"
+
+          export AWS_DEFAULT_REGION="${TOS_REGION:-cn-beijing}"
+          bucket="${TOS_BUCKET:-eps-common-public}"
+          prefix="${TOS_PREFIX:-ve}"
+          endpoint="${TOS_S3_ENDPOINT:-https://tos-s3-cn-beijing.volces.com}"
+          public_base="${TOS_PUBLIC_BASE_URL:-https://cloudcache.volccdn.com}"
+          cdn_base="${public_base%/}/${prefix}"
+          root_dest="s3://${bucket}/${prefix}/"
+
+          aws configure set default.s3.addressing_style virtual
+
+          VERSION="$VERSION" CDN_BASE="$cdn_base" python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          version = os.environ["VERSION"]
+          cdn_base = os.environ["CDN_BASE"]
+          Path("latest").write_text(version + "\n")
+          manifest = {
+              "latest": version,
+              "min_supported": "1.0.20",
+              "security_update": False,
+              "channels": {"cdn_base": cdn_base},
+          }
+          Path("version_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          PY
+
+          aws --endpoint-url "$endpoint" s3 cp latest "${root_dest}latest"
+          aws --endpoint-url "$endpoint" s3 cp version_manifest.json "${root_dest}version_manifest.json"
+          aws --endpoint-url "$endpoint" s3 ls "$root_dest"
+
       - name: Configure npm package for TOS
         env:
           TOS_PREFIX: ${{ vars.TOS_PREFIX }}

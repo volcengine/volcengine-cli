@@ -28,7 +28,15 @@ ve version
 ve --help
 ```
 
-To upgrade to the latest version:
+To upgrade to the latest version, prefer the built-in command (works for npm, Release binaries, and source builds):
+
+```shell
+ve upgrade
+ve upgrade --yes
+ve upgrade --version 1.0.49
+```
+
+You can also upgrade the global npm package:
 
 ```shell
 npm update -g @volcengine/cli

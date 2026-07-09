@@ -175,6 +175,32 @@ VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity ---region cn-beijing
 tail -n 100 ~/.volcengine/logs/$(date +%Y%m%d%H).log
 ```
 
+## 自升级（ve upgrade）
+
+CLI 支持将当前 `ve` 二进制一键升级到最新或指定版本：
+
+```shell
+ve upgrade              # 交互确认后升到最新
+ve upgrade --yes        # 跳过确认（脚本/CI）
+ve upgrade --version 1.0.49   # 安装指定版本（可降级）
+```
+
+升级流程：从官方 CDN（`https://cloudcache.volccdn.com/ve`）下载对应平台 zip，校验 SHA256，再原子替换当前可执行文件；失败会保留/回滚到旧版本。CDN 不可用时回退 GitHub Releases。
+
+### 版本检测与升级提醒
+
+执行任意 `ve` 命令时，CLI 可能在后台做一次轻量版本检测（默认 24 小时最多一次，单次超时约 1.5s）。若发现新版本，命令结束后向 **stderr** 输出非阻断提示，**不会**写入 stdout，以免影响管道解析。
+
+相关环境变量：
+
+| 变量 | 说明 |
+|------|------|
+| `VOLCENGINE_CLI_DISABLE_UPDATE_CHECK=1` | 关闭后台版本检测与提醒 |
+| `VOLCENGINE_CLI_UPDATE_CHECK_TTL_HOURS` | 检测缓存 TTL（小时），默认 24 |
+| `VOLCENGINE_CLI_DOWNLOAD_BASE_URL` | 覆盖下载基址（默认 CDN） |
+
+检测缓存文件：`~/.volcengine/cli/version_check.json`。
+
 <a id="force-invocation"></a>
 
 ## 强制泛化调用 (`---force`)

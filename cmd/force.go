@@ -38,6 +38,7 @@ var builtinRootCommands = map[string]struct{}{
 	"sso":           {},
 	"completion":    {},
 	"version":       {},
+	"upgrade":       {},
 	"help":          {},
 	"enable-color":  {},
 	"disable-color": {},

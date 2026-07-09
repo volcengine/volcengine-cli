@@ -175,6 +175,32 @@ VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity ---region cn-beijing
 tail -n 100 ~/.volcengine/logs/$(date +%Y%m%d%H).log
 ```
 
+## Self-upgrade (`ve upgrade`)
+
+Upgrade the current `ve` binary to the latest or a specific version:
+
+```shell
+ve upgrade              # interactive confirm, then upgrade to latest
+ve upgrade --yes        # skip confirmation (scripts/CI)
+ve upgrade --version 1.0.49   # install a specific version (including downgrade)
+```
+
+Flow: download the platform zip from the official CDN (`https://cloudcache.volccdn.com/ve`), verify SHA256, then atomically replace the running binary. On failure the previous binary is kept/restored. If the CDN is unavailable, the CLI falls back to GitHub Releases.
+
+### Version check and upgrade notice
+
+On any `ve` invocation the CLI may run a lightweight background version check (at most once every 24 hours by default; about 1.5s timeout). When a newer version is available, a non-blocking notice is printed to **stderr** after the command finishes. It never writes to stdout, so pipelines stay intact.
+
+Environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `VOLCENGINE_CLI_DISABLE_UPDATE_CHECK=1` | Disable background version checks and notices |
+| `VOLCENGINE_CLI_UPDATE_CHECK_TTL_HOURS` | Cache TTL in hours (default 24) |
+| `VOLCENGINE_CLI_DOWNLOAD_BASE_URL` | Override download base URL (default CDN) |
+
+Cache file: `~/.volcengine/cli/version_check.json`.
+
 ## Force Invocation
 
 The CLI ships with metadata for a subset of cloud products. In normal mode it validates that the service and action exist. If a product or API is not yet bundled, or local metadata lags behind the service, you may see `unsupported action` or `unknown command`. Use `---force` to skip service/action validation and issue an RPC call directly.

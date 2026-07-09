@@ -1,11 +1,18 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/volcengine/volcengine-cli/upgrade"
 )
+
+// errVersionFlagShown is returned after printing CLI version for -v/--version.
+// It stops cobra from continuing into Run/Usage without os.Exit, so upgrade
+// notices in runMain's defer still run.
+var errVersionFlagShown = errors.New("version flag shown")
 
 var rootCmd = &cobra.Command{
 	Use: "ve",
@@ -32,7 +39,7 @@ func initRootCmd() {
 		showVersion, _ := cmd.Flags().GetBool("version")
 		if showVersion {
 			fmt.Fprintln(cmd.OutOrStdout(), clientVersion)
-			os.Exit(0)
+			return errVersionFlagShown
 		}
 		return nil
 	}
@@ -78,6 +85,13 @@ func initRootCmd() {
 }
 
 func Execute() {
+	exitCode := runMain()
+	if exitCode != 0 {
+		os.Exit(exitCode)
+	}
+}
+
+func runMain() int{
 	if processLanguageResolution.err != nil {
 		fmt.Fprintln(os.Stderr, processLanguageResolution.err)
 		os.Exit(1)
@@ -87,18 +101,27 @@ func Execute() {
 	initRootCmd()
 	localizeHelpFlags(rootCmd)
 
+	asyncCheck := upgrade.StartBackgroundCheck(clientVersion, os.Args[1:])
+	defer upgrade.MaybePrintUpgradeNotice(os.Stderr, clientVersion, asyncCheck, upgrade.CheckHTTPTimeout)
+
 	// cobra 只为 metadata 中的 service 注册了子命令；未知 service 需在此前置拦截并走 ---force 路径。
 	if err := tryExecuteGenericInvoke(os.Args[1:]); err == nil {
-		return
+		return 0
 	} else if !errors.Is(err, errNotGenericInvoke) {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return 1
 	}
 
 	if err := rootCmd.Execute(); err != nil {
+		// -v/--version already printed the version; treat as success so defer
+		// can still emit a non-blocking upgrade notice on stderr.
+		if errors.Is(err, errVersionFlagShown) {
+			return 0
+		}
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 func localizeHelpFlags(command *cobra.Command) {
@@ -167,7 +190,9 @@ func rootUsageTemplate() string {
 ` + tr("Examples:") + `
   ve sts GetCallerIdentity ---profile default ---region cn-beijing
   ve sts GetCallerIdentity ---region cn-beijing ---endpoint sts.volcengineapi.com
-
+  ve upgrade
+  ve upgrade --yes
+  ve upgrade --version 1.0.49
 ` + tr(`Use "{{.CommandPath}} [service] --help" for more information about a service.`) + `{{end}}
 `
 }

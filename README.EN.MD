@@ -49,6 +49,12 @@ sudo cp ve /usr/local/bin
 ve version
 ```
 
+Upgrade to the latest version:
+
+```shell
+ve upgrade
+```
+
 ### Quick Start
 
 ```shell

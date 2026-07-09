@@ -49,6 +49,12 @@ sudo cp ve /usr/local/bin
 ve version
 ```
 
+升级到最新版本：
+
+```shell
+ve upgrade
+```
+
 ### 快速开始
 
 ```shell
