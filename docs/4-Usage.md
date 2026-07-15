@@ -79,7 +79,7 @@ Fixed flags use three hyphens `---` and do not conflict with API parameters:
 | `---endpoint` | Override endpoint for this invocation and clear endpoint resolver |
 | `---lang` | Set the language of CLI-owned help, prompts, and errors for this invocation |
 | `---version` | Set the **API version** for this call; if omitted, uses the bundled service version (not the CLI version from `ve -v` / `ve --version`) |
-| `---force` | Skip service/action metadata validation and force-call unlisted or newly released APIs; **unlisted services** require `---version`; bundled services can fall back to metadata |
+| `---force` | Skip service/action metadata validation and force-call unlisted or newly released APIs; **unlisted services** require both `---version` and `---endpoint`; bundled services can fall back to metadata |
 | `---method` | HTTP method (`GET`/`POST`); same rules on normal and `---force` paths: explicit value wins, else action metadata, else `GET` |
 
 Examples:

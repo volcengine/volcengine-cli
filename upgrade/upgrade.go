@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -37,6 +38,10 @@ func DoUpgrade(opts Options) error {
 	if stdout == nil {
 		stdout = os.Stdout
 	}
+	stderr := opts.Stderr
+	if stderr == nil {
+		stderr = os.Stderr
+	}
 	stdin := opts.Stdin
 	if stdin == nil {
 		stdin = os.Stdin
@@ -45,8 +50,9 @@ func DoUpgrade(opts Options) error {
 	current := NormalizeVersion(opts.CurrentVersion)
 	fmt.Fprintf(stdout, "Current version: %s\n", current)
 
+	explicitTarget := strings.TrimSpace(opts.TargetVersion) != ""
 	target := NormalizeVersion(opts.TargetVersion)
-	if target == "" {
+	if !explicitTarget {
 		fmt.Fprintf(stdout, "Checking for latest version...\n")
 		latest, err := ResolveLatestVersion()
 		if err != nil {
@@ -61,6 +67,10 @@ func DoUpgrade(opts Options) error {
 
 	if SameVersion(current, target) {
 		fmt.Fprintf(stdout, "You are already using version %s.\n", current)
+		return nil
+	}
+	if !explicitTarget && !IsNewer(current, target) {
+		fmt.Fprintf(stdout, "Current version %s is newer than the latest available version %s; refusing to downgrade without --version.\n", current, target)
 		return nil
 	}
 
@@ -83,7 +93,12 @@ func DoUpgrade(opts Options) error {
 	if err != nil {
 		return fmt.Errorf("failed to create temp directory: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	cleanupTempDir := true
+	defer func() {
+		if cleanupTempDir {
+			_ = os.RemoveAll(tmpDir)
+		}
+	}()
 
 	archivePath := filepath.Join(tmpDir, src.ArchiveName)
 	fmt.Fprintf(stdout, "Downloading %s...\n  From: %s\n", src.ArchiveName, src.ArchiveURL)
@@ -115,6 +130,7 @@ func DoUpgrade(opts Options) error {
 		return fmt.Errorf("extraction failed: %v", err)
 	}
 
+	useWindowsHelper := shouldLaunchWindowsUpgradeHelper(runtime.GOOS, opts.ExecPath)
 	execPath := opts.ExecPath
 	if execPath == "" {
 		execPath, err = ResolveExecPath()
@@ -123,6 +139,27 @@ func DoUpgrade(opts Options) error {
 		}
 	}
 	fmt.Fprintf(stdout, "Installing new version to %s ...\n", execPath)
+	if useWindowsHelper {
+		if err := launchWindowsUpgradeHelper(WindowsUpgradeLaunchOptions{
+			CurrentExecutable: execPath,
+			NewBinaryPath:     extractedPath,
+			TargetPath:        execPath,
+			WorkDir:           tmpDir,
+			CurrentVersion:    current,
+			ExpectedVersion:   target,
+			ExplicitTarget:    explicitTarget,
+			SkipSelfCheck:     opts.SkipSelfCheck,
+			Stdout:            stdout,
+			Stderr:            stderr,
+		}); err != nil {
+			return err
+		}
+		// The helper owns this directory after Start succeeds and schedules a
+		// cleanup process from the installed binary after it exits.
+		cleanupTempDir = false
+		fmt.Fprintln(stdout, "The Windows upgrade helper will finish installation after this process exits.")
+		return nil
+	}
 
 	if opts.SkipSelfCheck {
 		if err := ReplaceBinary(extractedPath, execPath); err != nil {

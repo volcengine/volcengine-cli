@@ -31,6 +31,8 @@ func TestIsNewer(t *testing.T) {
 		{"1.0.0-beta", "1.0.0", true},
 		{"1.0.0", "1.0.0-beta", false},
 		{"1.0.0-alpha", "1.0.0-beta", true},
+		{"1.0.0-rc.2", "1.0.0-rc.10", true},
+		{"1.0.0-rc.10", "1.0.0-rc.2", false},
 	}
 	for _, tt := range tests {
 		if got := IsNewer(tt.current, tt.latest); got != tt.want {

@@ -121,6 +121,7 @@ jobs:
           aws --endpoint-url "$endpoint" s3 ls "$destination" --recursive
 
       - name: Publish version manifest to TOS root
+        if: ${{ !contains(steps.version.outputs.version, '-') }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.TOS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.TOS_SECRET_ACCESS_KEY }}

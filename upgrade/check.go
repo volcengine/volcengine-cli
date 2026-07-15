@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -281,9 +280,15 @@ func CheckForUpdate(currentVersion string) CheckResult {
 
 // AsyncCheck is a background version check started at process entry.
 type AsyncCheck struct {
-	ch     chan CheckResult
-	once   sync.Once
+	done   chan struct{}
 	result CheckResult
+}
+
+// complete publishes the background result before closing done. Receiving from
+// done establishes the happens-before relationship needed to read result safely.
+func (a *AsyncCheck) complete(result CheckResult) {
+	a.result = result
+	close(a.done)
 }
 
 // StartBackgroundCheck launches a non-blocking version check when needed.
@@ -311,15 +316,14 @@ func StartBackgroundCheck(currentVersion string, args []string) *AsyncCheck {
 		if cache.Failed && latest == "" {
 			res.Err = fmt.Errorf("version check backoff after recent failure")
 		}
-		ch := make(chan CheckResult, 1)
-		ch <- res
-		return &AsyncCheck{ch: ch, result: res}
+		ac := &AsyncCheck{done: make(chan struct{})}
+		ac.complete(res)
+		return ac
 	}
 
-	ac := &AsyncCheck{ch: make(chan CheckResult, 1)}
+	ac := &AsyncCheck{done: make(chan struct{})}
 	go func() {
-		res := CheckForUpdate(currentVersion)
-		ac.ch <- res
+		ac.complete(CheckForUpdate(currentVersion))
 	}()
 	return ac
 }
@@ -329,18 +333,28 @@ func (a *AsyncCheck) Wait(timeout time.Duration) CheckResult {
 	if a == nil {
 		return CheckResult{}
 	}
-	a.once.Do(func() {
-		if timeout <= 0 {
-			timeout = CheckHTTPTimeout
-		}
-		select {
-		case res := <-a.ch:
-			a.result = res
-		case <-time.After(timeout):
-			a.result = CheckResult{Err: fmt.Errorf("version check timed out")}
-		}
-	})
-	return a.result
+	if timeout <= 0 {
+		timeout = CheckHTTPTimeout
+	}
+	select {
+	case <-a.done:
+		return a.result
+	case <-time.After(timeout):
+		return CheckResult{Err: fmt.Errorf("version check timed out")}
+	}
+}
+
+// TryResult returns a completed check without waiting for network I/O.
+func (a *AsyncCheck) TryResult() (CheckResult, bool) {
+	if a == nil {
+		return CheckResult{}, false
+	}
+	select {
+	case <-a.done:
+		return a.result, true
+	default:
+		return CheckResult{}, false
+	}
 }
 
 // FormatUpgradeNotice builds a single-line stderr notice (no trailing newline).
@@ -358,12 +372,12 @@ func FormatUpgradeNotice(current, latest string) string {
 
 // MaybePrintUpgradeNotice prints to stderr when an update is available.
 // Never writes to stdout. Silent on errors / no update.
-func MaybePrintUpgradeNotice(stderr *os.File, currentVersion string, ac *AsyncCheck, wait time.Duration) {
+func MaybePrintUpgradeNotice(stderr *os.File, currentVersion string, ac *AsyncCheck) {
 	if ac == nil || stderr == nil {
 		return
 	}
-	res := ac.Wait(wait)
-	if res.Err != nil || !res.HasUpdate {
+	res, ready := ac.TryResult()
+	if !ready || res.Err != nil || !res.HasUpdate {
 		return
 	}
 	fmt.Fprintln(stderr, FormatUpgradeNotice(currentVersion, res.Latest))

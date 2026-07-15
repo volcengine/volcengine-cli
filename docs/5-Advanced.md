@@ -177,19 +177,21 @@ tail -n 100 ~/.volcengine/logs/$(date +%Y%m%d%H).log
 
 ## Self-upgrade (`ve upgrade`)
 
-Upgrade the current `ve` binary to the latest or a specific version:
+Upgrade the current `ve` binary to a newer release or install a specific version:
 
 ```shell
-ve upgrade              # interactive confirm, then upgrade to latest
-ve upgrade --yes        # skip confirmation (scripts/CI)
+ve upgrade              # interactive confirm, then upgrade if a newer release exists
+ve upgrade --yes        # skip confirmation; still never downgrades implicitly
 ve upgrade --version 1.0.49   # install a specific version (including downgrade)
 ```
 
-Flow: download the platform zip from the official CDN (`https://cloudcache.volccdn.com/ve`), verify SHA256, then atomically replace the running binary. On failure the previous binary is kept/restored. If the CDN is unavailable, the CLI falls back to GitHub Releases.
+Without `--version`, the CLI installs only a version newer than the running binary; a stale manifest cannot trigger an implicit downgrade. Downgrades require an explicit `--version`.
+
+Flow: download the platform zip and checksum from the official CDN (`https://cloudcache.volccdn.com/ve`), verify SHA256, then atomically replace the running binary. On failure the previous binary is kept/restored. If either CDN artifact is unavailable, the CLI falls back to GitHub Releases. On Windows, a temporary helper completes replacement after the running process exits and reports the final result through the same stdout/stderr streams.
 
 ### Version check and upgrade notice
 
-On any `ve` invocation the CLI may run a lightweight background version check (at most once every 24 hours by default; about 1.5s timeout). When a newer version is available, a non-blocking notice is printed to **stderr** after the command finishes. It never writes to stdout, so pipelines stay intact.
+On any `ve` invocation the CLI may start a lightweight background version check (at most once every 24 hours by default; about 1.5s network timeout). Command exit never waits for an in-flight check. If a cached or already-completed check finds a newer version, the CLI prints a notice to **stderr**; it never writes to stdout, so pipelines stay intact.
 
 Environment variables:
 
@@ -219,13 +221,14 @@ Unknown API parameters already pass through in normal mode. `---force` mainly re
 | --- | --- | --- |
 | `---force` | Yes | Presence-only switch; enables force mode when present; does not accept `true`/`false` values |
 | `---version` | Depends on service | **Required for unlisted services**; **optional for bundled services**, falling back to metadata. Can also override the bundled API version |
-| `---endpoint` | No | Product endpoint; if omitted, inferred from service and `---region` (profile endpoint is ignored) |
+| `---endpoint` | Depends on service | **Required for unlisted services**; optional for bundled services, where it can be inferred from service metadata and `---region` (profile endpoint is ignored) |
 | `---method` | No | HTTP method: `GET` or `POST`; same on normal and force paths: explicit value → action metadata → default `GET` |
 | `---region` | Depends on config | Same as normal calls; a region must be resolvable |
 
 Notes:
 
 - `---version` is the **OpenAPI version**, not the CLI tool version. Use `ve version` or `ve -v` for the CLI version.
+- Unlisted services require an explicit `---endpoint` because the CLI has no service metadata from which to resolve one.
 - Bundled services can omit `---version` in force mode, same as normal calls (e.g. `ve sts GetCallerIdentity ---force`).
 - `---method` uses the same resolution order on normal and force paths: explicit `---method` overrides metadata; otherwise bundled action `Method`; otherwise defaults to `GET` (`---force` does not change this).
 - Force control flags use **three hyphens** `---`, separate from API parameters with `--`.
@@ -293,10 +296,16 @@ Missing `---version` for an unlisted service:
 ---version is required when using ---force for service "newservice"
 ```
 
+Missing `---endpoint` for an unlisted service:
+
+```text
+---endpoint is required when using ---force for unlisted service "newservice"
+```
+
 Unlisted service without `---force`:
 
 ```text
-unknown service "newservice": use ---force with ---version to call unlisted APIs
+unknown service "newservice": use ---force with ---version and ---endpoint to call unlisted APIs
 ```
 
 ## FAQ

@@ -1,10 +1,14 @@
 package upgrade
 
 import (
+	"fmt"
 	"io/ioutil"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -200,6 +204,113 @@ func TestStartBackgroundCheck_FromCache(t *testing.T) {
 	}
 	if !res.FromCache {
 		t.Fatal("expected from cache")
+	}
+}
+
+func TestMaybePrintUpgradeNotice_DoesNotWaitForInFlightCheck(t *testing.T) {
+	dir := t.TempDir()
+	origConfigDirFunc := ConfigDirFunc
+	ConfigDirFunc = func() (string, error) { return dir, nil }
+	defer func() { ConfigDirFunc = origConfigDirFunc }()
+
+	oldDisable := os.Getenv(EnvDisableUpdateCheck)
+	os.Unsetenv(EnvDisableUpdateCheck)
+	defer func() {
+		if oldDisable == "" {
+			os.Unsetenv(EnvDisableUpdateCheck)
+		} else {
+			os.Setenv(EnvDisableUpdateCheck, oldDisable)
+		}
+	}()
+
+	requestStarted := make(chan struct{})
+	releaseRequest := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() { close(releaseRequest) })
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-requestStarted:
+		default:
+			close(requestStarted)
+		}
+		<-releaseRequest
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"latest":"9.9.9"}`)
+	}))
+	defer func() {
+		release()
+		server.Close()
+	}()
+
+	oldDownloadBase := os.Getenv(EnvDownloadBaseURL)
+	os.Setenv(EnvDownloadBaseURL, server.URL)
+	defer os.Setenv(EnvDownloadBaseURL, oldDownloadBase)
+	SetCheckHTTPClient(server.Client())
+	defer SetCheckHTTPClient(&http.Client{Timeout: CheckHTTPTimeout})
+
+	asyncCheck := StartBackgroundCheck("1.0.0", []string{"version"})
+	select {
+	case <-requestStarted:
+	case <-time.After(time.Second):
+		t.Fatal("background check did not start")
+	}
+
+	stderr, err := os.CreateTemp(t.TempDir(), "stderr-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stderr.Close()
+
+	startedAt := time.Now()
+	MaybePrintUpgradeNotice(stderr, "1.0.0", asyncCheck)
+	elapsed := time.Since(startedAt)
+	if elapsed >= 100*time.Millisecond {
+		t.Fatalf("notice path blocked for %s while check was still in flight", elapsed)
+	}
+
+	release()
+	_ = asyncCheck.Wait(time.Second)
+}
+
+func TestMaybePrintUpgradeNotice_PrintsReadyCachedUpdate(t *testing.T) {
+	dir := t.TempDir()
+	origConfigDirFunc := ConfigDirFunc
+	ConfigDirFunc = func() (string, error) { return dir, nil }
+	defer func() { ConfigDirFunc = origConfigDirFunc }()
+
+	oldDisable := os.Getenv(EnvDisableUpdateCheck)
+	os.Unsetenv(EnvDisableUpdateCheck)
+	defer func() {
+		if oldDisable == "" {
+			os.Unsetenv(EnvDisableUpdateCheck)
+		} else {
+			os.Setenv(EnvDisableUpdateCheck, oldDisable)
+		}
+	}()
+
+	if err := SaveCheckCache("9.9.9", "1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	asyncCheck := StartBackgroundCheck("1.0.0", []string{"version"})
+
+	stderrPath := filepath.Join(t.TempDir(), "stderr.txt")
+	stderr, err := os.Create(stderrPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	MaybePrintUpgradeNotice(stderr, "1.0.0", asyncCheck)
+	if err := stderr.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	output, err := ioutil.ReadFile(stderrPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(output), "9.9.9") || !strings.Contains(string(output), "ve upgrade") {
+		t.Fatalf("expected cached upgrade notice, got %q", output)
 	}
 }
 

@@ -19,6 +19,11 @@ import (
 )
 
 func TestDoUpgrade_InstallsTargetVersion(t *testing.T) {
+	configDir := t.TempDir()
+	origConfigDirFunc := ConfigDirFunc
+	ConfigDirFunc = func() (string, error) { return configDir, nil }
+	defer func() { ConfigDirFunc = origConfigDirFunc }()
+
 	// Fake binary content and zip
 	payload := []byte("fake-ve-binary-v2")
 	binName := BinaryName()
@@ -88,7 +93,7 @@ func TestDoUpgrade_InstallsTargetVersion(t *testing.T) {
 
 	var stdout bytes.Buffer
 	err = DoUpgrade(Options{
-		CurrentVersion: "1.0.0",
+		CurrentVersion: "10.0.0",
 		TargetVersion:  version,
 		Yes:            true,
 		Stdout:         &stdout,

@@ -152,9 +152,65 @@ func compareSemver(a, b semver) int {
 		return 1
 	}
 	if a.hasPre {
-		return strings.Compare(a.pre, b.pre)
+		return comparePrerelease(a.pre, b.pre)
 	}
 	return 0
+}
+
+// comparePrerelease implements SemVer prerelease precedence identifier by identifier.
+// Numeric identifiers compare numerically and always sort before non-numeric identifiers.
+func comparePrerelease(a, b string) int {
+	aParts := strings.Split(a, ".")
+	bParts := strings.Split(b, ".")
+	limit := len(aParts)
+	if len(bParts) < limit {
+		limit = len(bParts)
+	}
+	for i := 0; i < limit; i++ {
+		if aParts[i] == bParts[i] {
+			continue
+		}
+		aNumeric := isNumericIdentifier(aParts[i])
+		bNumeric := isNumericIdentifier(bParts[i])
+		switch {
+		case aNumeric && bNumeric:
+			return compareNumericIdentifiers(aParts[i], bParts[i])
+		case aNumeric:
+			return -1
+		case bNumeric:
+			return 1
+		default:
+			return strings.Compare(aParts[i], bParts[i])
+		}
+	}
+	return cmpInt(len(aParts), len(bParts))
+}
+
+func isNumericIdentifier(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func compareNumericIdentifiers(a, b string) int {
+	a = strings.TrimLeft(a, "0")
+	b = strings.TrimLeft(b, "0")
+	if a == "" {
+		a = "0"
+	}
+	if b == "" {
+		b = "0"
+	}
+	if len(a) != len(b) {
+		return cmpInt(len(a), len(b))
+	}
+	return strings.Compare(a, b)
 }
 
 func cmpInt(a, b int) int {

@@ -177,19 +177,21 @@ tail -n 100 ~/.volcengine/logs/$(date +%Y%m%d%H).log
 
 ## 自升级（ve upgrade）
 
-CLI 支持将当前 `ve` 二进制一键升级到最新或指定版本：
+CLI 支持将当前 `ve` 二进制升级到更新版本，或安装显式指定的版本：
 
 ```shell
-ve upgrade              # 交互确认后升到最新
-ve upgrade --yes        # 跳过确认（脚本/CI）
+ve upgrade              # 发现更新版本后交互确认升级
+ve upgrade --yes        # 跳过确认，但仍不会隐式降级
 ve upgrade --version 1.0.49   # 安装指定版本（可降级）
 ```
 
-升级流程：从官方 CDN（`https://cloudcache.volccdn.com/ve`）下载对应平台 zip，校验 SHA256，再原子替换当前可执行文件；失败会保留/回滚到旧版本。CDN 不可用时回退 GitHub Releases。
+未指定 `--version` 时，CLI 只会安装高于当前运行版本的版本；即使 latest manifest 滞后，也不会隐式降级。降级必须显式传入 `--version`。
+
+升级流程：从官方 CDN（`https://cloudcache.volccdn.com/ve`）下载对应平台 zip 和校验文件，校验 SHA256，再原子替换当前可执行文件；失败会保留/回滚到旧版本。任一 CDN 产物不可用时回退 GitHub Releases。Windows 上会由临时 helper 在当前进程退出后完成替换，并通过同一 stdout/stderr 输出最终结果。
 
 ### 版本检测与升级提醒
 
-执行任意 `ve` 命令时，CLI 可能在后台做一次轻量版本检测（默认 24 小时最多一次，单次超时约 1.5s）。若发现新版本，命令结束后向 **stderr** 输出非阻断提示，**不会**写入 stdout，以免影响管道解析。
+执行任意 `ve` 命令时，CLI 可能在后台启动一次轻量版本检测（默认 24 小时最多一次，网络超时约 1.5s）。命令退出不会等待仍在进行的检测；若缓存或已完成的检测发现新版本，则向 **stderr** 输出提示，**不会**写入 stdout，以免影响管道解析。
 
 相关环境变量：
 
@@ -221,13 +223,14 @@ CLI 内置了部分云产品的元数据，正常调用时会校验 service 和 
 | --- | --- | --- |
 | `---force` | 是 | 纯开关型参数，出现即表示启用；不接受 `true`/`false` 等后续赋值 |
 | `---version` | 视 service | **未收录 service 时必填**；**已收录 service 可省略**，回落内置元数据版本。也可用于覆盖元数据中的 API 版本 |
-| `---endpoint` | 否 | 产品接入地址；未指定时，CLI 会结合 service 与 `---region` 尝试自动推断（忽略 profile endpoint） |
+| `---endpoint` | 视 service | **未收录 service 时必填**；已收录 service 可省略，CLI 会结合 service 元数据与 `---region` 推断（忽略 profile endpoint） |
 | `---method` | 否 | HTTP 方法：`GET` 或 `POST`；正常路径与 force 路径规则一致：显式值优先 → action 元数据 → 默认 `GET` |
 | `---region` | 视凭证配置 | 与正常调用相同，必须能解析到 region |
 
 注意：
 
 - `---version` 指 **OpenAPI 接口版本**，不是 CLI 工具版本。查看 CLI 版本请用 `ve version` 或 `ve -v`。
+- 未收录 service 必须显式提供 `---endpoint`，因为 CLI 没有可用于解析接入地址的 service 元数据。
 - 已收录 service 在 force 模式下可不传 `---version`，行为与正常路径一致（如 `ve sts GetCallerIdentity ---force`）。
 - `---method` 在正常路径与 force 路径使用相同解析顺序：显式 `---method` 覆盖元数据；未指定时优先用已收录 action 的 Method；均无则默认 `GET`（不因 `---force` 而改变）。
 - force 相关控制参数均使用 **三横线** `---`，与 API 业务参数的双横线 `--` 区分。
@@ -295,10 +298,16 @@ ve newservice
 ---version is required when using ---force for service "newservice"
 ```
 
+未收录 service 缺少 `---endpoint`：
+
+```text
+---endpoint is required when using ---force for unlisted service "newservice"
+```
+
 未收录 service 且未加 `---force`：
 
 ```text
-unknown service "newservice": use ---force with ---version to call unlisted APIs
+unknown service "newservice": use ---force with ---version and ---endpoint to call unlisted APIs
 ```
 
 ## 常见问题

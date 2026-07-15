@@ -311,8 +311,16 @@ func debugLogClientConfig(ctx *Context, info debugClientConfig) {
 	)
 }
 
-func (s *SdkClient) initClient(svc string, version string) *client.Client {
+func (s *SdkClient) initClient(svc string, version string) (*client.Client, error) {
+	if s == nil || s.Session == nil {
+		return nil, fmt.Errorf("failed to initialize SDK client for service %q: session is not configured", svc)
+	}
 	config := s.Session.ClientConfig(svc)
+	// SDK 的 ClientConfig 会吞掉 endpoint resolver 错误并返回零值配置。
+	// 调用方可能传入 SDK 尚未收录的 service，必须在解引用前转成可读错误，避免 CLI panic。
+	if config.Config == nil {
+		return nil, fmt.Errorf("failed to initialize SDK client for service %q: endpoint or service configuration could not be resolved", svc)
+	}
 	c := client.New(
 		*config.Config,
 		metadata.ClientInfo{
@@ -334,11 +342,14 @@ func (s *SdkClient) initClient(svc string, version string) *client.Client {
 	c.Handlers.UnmarshalError.PushBackNamed(volcenginequery.UnmarshalErrorHandler)
 	s.addDebugRequestAttemptHandler(c)
 
-	return c
+	return c, nil
 }
 
 func (s *SdkClient) CallSdk(info SdkClientInfo, input interface{}) (output *map[string]interface{}, err error) {
-	c := s.initClient(info.ServiceName, info.Version)
+	c, err := s.initClient(info.ServiceName, info.Version)
+	if err != nil {
+		return nil, err
+	}
 	op := &request.Operation{
 		Name:       info.Action,
 		HTTPMethod: strings.ToUpper(info.Method),

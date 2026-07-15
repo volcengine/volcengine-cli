@@ -8,14 +8,13 @@
 //  2. cmd_service.runServiceCmd：已知 service、action 未匹配子命令时
 //  3. cmd_action action RunE：已知 action 子命令且带 ---force（可覆盖 ---version/---method）
 //
-// 固定参数（三横线，存入 fixedFlags）：
+// 固定参数（三横线）的白名单与 Usage 文案见 parser.go（allowedFixedFlags / fixedFlagsHelp）。
+// force 路径额外约定：
 //
-//	---profile  可选；指定 profile
-//	---region   可选；覆盖 region（与正常路径相同，调用时须能解析到 region）
-//	---force    纯开关，出现即启用，不接受后续 true/false 赋值
-//	---version  API 版本；未收录 service 时 force 模式必填，已收录 service 可回落元数据（非 CLI 的 ve -v/--version）
-//	---endpoint 可选；未指定时 invocation 层请求 standard resolver（忽略 profile endpoint）
-//	---method    可选；GET/POST，未指定时优先用已收录 action 元数据，否则默认 GET
+//	---force    纯开关，出现即启用
+//	---version  未收录 service 时必填；已收录可回落元数据
+//	---endpoint 未收录 service 时必填；已收录 service 未指定时请求 standard resolver
+//	---method   可选；未指定时优先元数据，否则 GET
 package cmd
 
 import (
@@ -29,27 +28,6 @@ import (
 
 // errNotGenericInvoke 表示当前参数不应走未知 service 兜底路径，应交给 cobra 正常分发。
 var errNotGenericInvoke = errors.New("not a generic force invoke")
-
-// builtinRootCommands 非 API 调用的根级子命令；这些名称不能当作 service 解析。
-var builtinRootCommands = map[string]struct{}{
-	"configure":     {},
-	"login":         {},
-	"logout":        {},
-	"sso":           {},
-	"completion":    {},
-	"version":       {},
-	"upgrade":       {},
-	"help":          {},
-	"enable-color":  {},
-	"disable-color": {},
-}
-
-const fixedFlagsHelp = `  ---profile string    Use a configured profile only for this invocation.
-  ---region string     Override the region only for this invocation.
-  ---endpoint string   Override the endpoint only for this invocation.
-  ---version string    API version; uses metadata when omitted (required with ---force for unlisted services).
-  ---method string     HTTP method GET or POST; explicit value overrides metadata, else metadata, else GET.
-  ---force             Skip service/action metadata validation and force the call.`
 
 // resetInvocationContext 清空单次调用的 flag 集合。
 // ctx 为进程级全局变量，每次解析参数前必须重置，避免多次调用 flag 残留。
@@ -102,13 +80,16 @@ func forceAPIVersion(c *Context) string {
 }
 
 // validateForceCall 校验 force 模式最低要求：---force 已启用，且能解析到 API 版本。
-// 已收录 service 可回落元数据版本；未收录 service 须显式 ---version。
+// 已收录 service 可回落元数据版本并使用 standard resolver；未收录 service 须显式指定 ---version 与 ---endpoint。
 func validateForceCall(c *Context, serviceName string) error {
 	if !isForceEnabled(c) {
 		return fmt.Errorf("---force is required for force invocation")
 	}
 	if apiVersionForCall(c, serviceName) == "" {
 		return fmt.Errorf("---version is required when using ---force for service %q", serviceName)
+	}
+	if !rootSupport.IsValidSvc(serviceName) && explicitEndpointFromContext(c) == "" {
+		return fmt.Errorf("---endpoint is required when using ---force for unlisted service %q", serviceName)
 	}
 	return nil
 }
@@ -227,21 +208,24 @@ func buildForceInvocationInput(ctx *Context, serviceName, action, contentType st
 	return invocationInput{value: buildForceInput(ctx), jsonBody: jsonBody, fromBody: false}, nil
 }
 
-func isKnownServiceName(name string) bool {
-	if rootSupport.IsValidSvc(name) {
-		return true
+// isRegisteredRootSubcommand 判断 name 是否已是 root 子命令（builtin / metadata service / 兼容别名）。
+// 以 rootCmd 注册表为唯一来源，避免手写名单与 AddCommand 双源不同步。
+// 注意：help/version 等在 initRootCmd 中注册，tryExecuteGenericInvoke 须在 initRootCmd 之后调用。
+func isRegisteredRootSubcommand(name string) bool {
+	if name == "" {
+		return false
 	}
-	for _, v := range compatible_support_cmd {
-		if v == name {
+	for _, c := range rootCmd.Commands() {
+		if c.Name() == name {
 			return true
+		}
+		for _, alias := range c.Aliases {
+			if alias == name {
+				return true
+			}
 		}
 	}
 	return false
-}
-
-func isBuiltinRootCommand(name string) bool {
-	_, ok := builtinRootCommands[name]
-	return ok
 }
 
 func argsContainHelp(args []string) bool {
@@ -257,10 +241,10 @@ func printUnknownServiceHelp(serviceName string) error {
 	_, err := fmt.Fprintf(os.Stdout, `Usage:
   ve %s <action> [--Param value ...] [fixed flags]
 
-"%s" is not bundled in local metadata. Use ---force with ---version to call it.
+"%s" is not bundled in local metadata. Use ---force with ---version and ---endpoint to call it.
 
 Examples:
-  ve %s DescribeNewResource ---version 2024-01-01 ---region cn-beijing ---force
+  ve %s DescribeNewResource ---version 2024-01-01 ---region cn-beijing ---endpoint newservice.cn-beijing.volcengineapi.com ---force
   ve %s DescribeNewResource ---version 2024-01-01 ---endpoint open.volcengineapi.com --SomeParam value ---force
 
 Fixed Flags:
@@ -279,10 +263,8 @@ func tryExecuteGenericInvoke(args []string) error {
 	if strings.HasPrefix(args[0], "-") {
 		return errNotGenericInvoke
 	}
-	if isBuiltinRootCommand(args[0]) {
-		return errNotGenericInvoke
-	}
-	if isKnownServiceName(args[0]) {
+	// 已注册根命令（builtin + service + 兼容别名）一律交给 cobra；仅未注册名走 force。
+	if isRegisteredRootSubcommand(args[0]) {
 		return errNotGenericInvoke
 	}
 
@@ -301,7 +283,7 @@ func tryExecuteGenericInvoke(args []string) error {
 	action := positional[0]
 
 	if !isForceEnabled(ctx) {
-		return fmt.Errorf("unknown service %q: use ---force with ---version to call unlisted APIs", serviceName)
+		return fmt.Errorf("unknown service %q: use ---force with ---version and ---endpoint to call unlisted APIs", serviceName)
 	}
 
 	return doForceAction(ctx, serviceName, action)

@@ -42,6 +42,8 @@ func ReplaceBinary(newPath, currentPath string) error {
 	dir := filepath.Dir(currentPath)
 
 	if runtime.GOOS == "windows" {
+		// Windows locks a running executable image. DoUpgrade delegates replacement
+		// of the live CLI to a copied helper and calls this only after the parent exits.
 		oldPath := currentPath + ".old"
 		_ = os.Remove(oldPath)
 

@@ -7,7 +7,7 @@ import (
 )
 
 func TestHelpUnknownCommandShowsRootUsage(t *testing.T) {
-	initRootCmd()
+	ensureInitRootCmd()
 	helpCmd, _, err := rootCmd.Find([]string{"help"})
 	if err != nil {
 		t.Fatalf("Find help command: %v", err)

@@ -26,7 +26,8 @@ var rootCmd = &cobra.Command{
 }
 
 func initRootCmd() {
-
+	// 关闭 cobra 默认 help 子命令：root 列表按「Service」展示，默认 help 会混进服务名。
+	// 常规帮助入口仍是 -h/--help（及各 service/action 上的 --help）。
 	rootCmd.SetHelpCommand(&cobra.Command{
 		Hidden: true,
 	})
@@ -47,6 +48,10 @@ func initRootCmd() {
 	// todo enable color?
 	rootCmd.SetUsageTemplate(rootUsageTemplate())
 
+	// 显式注册 help 子命令（覆盖上面关掉的默认实现）：
+	// runMain 会先走 tryExecuteGenericInvoke，只把 rootCmd 已注册子命令交给 cobra；
+	// 若不注册 help，`ve help` 会被当成未知 service 误进 ---force 路径。
+	// 同时提供 `ve help` / `ve help <cmd>`，输出走自定义 Usage 模板。
 	rootCmd.AddCommand(&cobra.Command{
 		Use:   "help [command]",
 		Short: "Help about any command",
@@ -91,6 +96,8 @@ func Execute() {
 	}
 }
 
+// runMain executes the CLI and returns a process exit code.
+// Completed background version checks may print to stderr without delaying command exit.
 func runMain() int{
 	if processLanguageResolution.err != nil {
 		fmt.Fprintln(os.Stderr, processLanguageResolution.err)
@@ -102,7 +109,7 @@ func runMain() int{
 	localizeHelpFlags(rootCmd)
 
 	asyncCheck := upgrade.StartBackgroundCheck(clientVersion, os.Args[1:])
-	defer upgrade.MaybePrintUpgradeNotice(os.Stderr, clientVersion, asyncCheck, upgrade.CheckHTTPTimeout)
+	defer upgrade.MaybePrintUpgradeNotice(os.Stderr, clientVersion, asyncCheck)
 
 	// cobra 只为 metadata 中的 service 注册了子命令；未知 service 需在此前置拦截并走 ---force 路径。
 	if err := tryExecuteGenericInvoke(os.Args[1:]); err == nil {

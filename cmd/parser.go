@@ -8,7 +8,8 @@ import (
 )
 
 // allowedFixedFlags 三横线（---）CLI 控制参数白名单，与双横线 API 参数区分。
-// force 专用于跳过元数据校验；version/method 在正常与 force 路径均可覆盖元数据。新增固定参数时需同步更新 supportedFixedFlagsMessage 与文档。
+// profile/region/endpoint 为通用运行时覆盖；force 跳过元数据校验；version/method 在正常与 force 路径均可覆盖元数据。
+// 新增固定参数时需同步更新 supportedFixedFlagsMessage、fixedFlagsHelp 与文档。
 var allowedFixedFlags = map[string]struct{}{
 	"profile":  {},
 	"region":   {},
@@ -24,6 +25,15 @@ var booleanFixedFlags = map[string]struct{}{
 }
 
 const supportedFixedFlagsMessage = "---profile, ---region, ---endpoint, ---force, ---version, ---method"
+
+// fixedFlagsHelp 根/service/action Usage 与未知 service 帮助共用的 Fixed Flags 说明。
+// 与 allowedFixedFlags 同源维护：这些 flag 对正常调用与 ---force 均适用（force 为可选开关）。
+const fixedFlagsHelp = `  ---profile string    Use a configured profile only for this invocation.
+  ---region string     Override the region only for this invocation.
+  ---endpoint string   Override the endpoint only for this invocation.
+  ---version string    API version; uses metadata when omitted (required with ---force for unlisted services).
+  ---method string     HTTP method GET or POST; explicit value overrides metadata, else metadata, else GET.
+  ---force             Skip service/action metadata validation and force the call.`
 
 type Parser struct {
 	currentIndex int

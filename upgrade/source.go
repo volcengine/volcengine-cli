@@ -111,9 +111,10 @@ func ResolveAssetSource(version string) (*AssetSource, error) {
 		ChecksumURL:  fmt.Sprintf("%s/v%s/%s", base, version, checksum),
 	}
 
-	// Probe CDN archive; if missing, fall back to GitHub release assets.
+	// Both files are required for a safe install. Fall back to GitHub when the
+	// archive or its checksum is absent from the CDN.
 	probeClient := &http.Client{Timeout: 10 * time.Second}
-	if !urlOK(probeClient, src.ArchiveURL) {
+	if !urlOK(probeClient, src.ArchiveURL) || !urlOK(probeClient, src.ChecksumURL) {
 		gh, err := resolveAssetSourceFromGitHub(version, archive, checksum)
 		if err != nil {
 			// Keep CDN URLs so the download error still points at the official channel.

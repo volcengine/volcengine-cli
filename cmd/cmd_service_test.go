@@ -26,7 +26,7 @@ func TestRunServiceCmdUnknownActionErrors(t *testing.T) {
 }
 
 func TestRunServiceCmdUnknownActionWithForceBypassesUnsupportedError(t *testing.T) {
-	stubExecuteInvocation(t, errStubInvocation)
+	captured := stubExecuteInvocation(t, errStubInvocation)
 	err := runServiceCmd(&cobra.Command{}, "sts", []string{"GetCallerIdentity"},
 		[]string{"NonExistentAction", "---version", "2024-01-01", "---force", "---region", "cn-beijing"})
 	if !errors.Is(err, errStubInvocation) {
@@ -35,42 +35,48 @@ func TestRunServiceCmdUnknownActionWithForceBypassesUnsupportedError(t *testing.
 	if strings.Contains(err.Error(), "is not a supported action") {
 		t.Fatalf("---force should bypass unsupported action error, got: %v", err)
 	}
+	if captured.action != "NonExistentAction" || captured.version != "2024-01-01" {
+		t.Fatalf("unexpected invocation params: action=%q version=%q", captured.action, captured.version)
+	}
 }
 
 func TestRunServiceCmdForceUsesPositionalActionNotVersionValue(t *testing.T) {
 	// Fixed flags before action: version value must not be mistaken for the action name.
+	captured := stubExecuteInvocation(t, errStubInvocation)
 	err := runServiceCmd(&cobra.Command{}, "sts", []string{"GetCallerIdentity"},
 		[]string{"---version", "2024-01-01", "---force", "UnknownAction"})
-	if err == nil {
-		t.Fatal("expected downstream error because credentials are not configured in unit test")
+	if !errors.Is(err, errStubInvocation) {
+		t.Fatalf("expected stub invocation error, got: %v", err)
 	}
-	if strings.Contains(err.Error(), "is not a supported action") {
-		t.Fatalf("---force should bypass unsupported action error, got: %v", err)
+	if captured.action != "UnknownAction" {
+		t.Fatalf("action = %q, want %q", captured.action, "UnknownAction")
 	}
-	if strings.Contains(err.Error(), "2024-01-01") {
-		t.Fatalf("version value must not be treated as action, got: %v", err)
+	if captured.version != "2024-01-01" {
+		t.Fatalf("version = %q, want %q", captured.version, "2024-01-01")
 	}
 }
 
 func TestRunServiceCmdValidActionDispatchesWhenCobraMissedSubcommand(t *testing.T) {
+	captured := stubExecuteInvocation(t, errStubInvocation)
 	err := runServiceCmd(&cobra.Command{}, "sts", []string{"GetCallerIdentity"},
 		[]string{"GetCallerIdentity"})
-	if err == nil {
-		t.Fatal("expected downstream error because credentials are not configured in unit test")
+	if !errors.Is(err, errStubInvocation) {
+		t.Fatalf("expected stub invocation error, got: %v", err)
 	}
-	if strings.Contains(err.Error(), "is not a supported action") {
-		t.Fatalf("valid action should dispatch instead of unsupported error, got: %v", err)
+	if captured.action != "GetCallerIdentity" {
+		t.Fatalf("action = %q, want %q", captured.action, "GetCallerIdentity")
 	}
 }
 
 func TestRunServiceCmdValidActionDispatchesWhenFlagsBeforeAction(t *testing.T) {
+	captured := stubExecuteInvocation(t, errStubInvocation)
 	err := runServiceCmd(&cobra.Command{}, "sts", []string{"GetCallerIdentity"},
 		[]string{"---region", "cn-beijing", "GetCallerIdentity"})
-	if err == nil {
-		t.Fatal("expected downstream error because credentials are not configured in unit test")
+	if !errors.Is(err, errStubInvocation) {
+		t.Fatalf("expected stub invocation error, got: %v", err)
 	}
-	if strings.Contains(err.Error(), "is not a supported action") {
-		t.Fatalf("valid action with flags before it should dispatch, got: %v", err)
+	if captured.action != "GetCallerIdentity" {
+		t.Fatalf("action = %q, want %q", captured.action, "GetCallerIdentity")
 	}
 }
 

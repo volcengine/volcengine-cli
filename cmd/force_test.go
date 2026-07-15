@@ -64,6 +64,22 @@ func TestValidateForceCallRequiresVersion(t *testing.T) {
 	}
 }
 
+func TestValidateForceCallRequiresEndpointForUnlistedService(t *testing.T) {
+	c := NewContext()
+	parser := NewParser([]string{"---force", "---version", "2024-01-01"})
+	if _, err := parser.ReadArgs(c); err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+
+	err := validateForceCall(c, "newservice")
+	if err == nil {
+		t.Fatal("expected missing endpoint error")
+	}
+	if !strings.Contains(err.Error(), "---endpoint is required") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestValidateForceCallFallsBackToMetadataVersionForKnownService(t *testing.T) {
 	c := NewContext()
 	parser := NewParser([]string{"---force"})
@@ -75,6 +91,32 @@ func TestValidateForceCallFallsBackToMetadataVersionForKnownService(t *testing.T
 	}
 	if got := apiVersionForCall(c, "sts"); got == "" {
 		t.Fatal("expected non-empty metadata version for sts")
+	}
+}
+
+func TestCallSdkReturnsErrorWhenEndpointResolutionFails(t *testing.T) {
+	defer setenvForTest(t, "VOLCENGINE_ACCESS_KEY", "ak-test")()
+	defer setenvForTest(t, "VOLCENGINE_SECRET_KEY", "sk-test")()
+	defer setenvForTest(t, "VOLCENGINE_REGION", "cn-beijing")()
+
+	c := NewContext()
+	c.useStandardEndpointResolver = true
+	sdk, err := NewSimpleClient(c)
+	if err != nil {
+		t.Fatalf("NewSimpleClient returned error: %v", err)
+	}
+
+	_, err = sdk.CallSdk(SdkClientInfo{
+		ServiceName: "definitely_unlisted_service",
+		Action:      "DescribeResource",
+		Version:     "2024-01-01",
+		Method:      "GET",
+	}, &map[string]interface{}{})
+	if err == nil {
+		t.Fatal("expected endpoint resolution error")
+	}
+	if !strings.Contains(err.Error(), "failed to initialize SDK client") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -169,10 +211,63 @@ func TestTryExecuteGenericInvokeSkipsBuiltinCommand(t *testing.T) {
 	}
 }
 
+// ensureInitRootCmd 保证 help/version 等已注册。initRootCmd 非幂等（重复注册 flag 会 panic）。
+func ensureInitRootCmd() {
+	if rootCmd.Flags().Lookup("version") != nil {
+		return
+	}
+	initRootCmd()
+}
+
 func TestTryExecuteGenericInvokeSkipsHelpCommand(t *testing.T) {
+	// help/version 在 initRootCmd 中注册（与 runMain 一致）。
+	ensureInitRootCmd()
 	err := tryExecuteGenericInvoke([]string{"help"})
 	if !errors.Is(err, errNotGenericInvoke) {
 		t.Fatalf("expected errNotGenericInvoke, got %v", err)
+	}
+}
+
+func TestIsRegisteredRootSubcommandCoversRootCommands(t *testing.T) {
+	ensureInitRootCmd()
+
+	// 动态覆盖：凡已挂到 rootCmd 的名称都必须被识别（新增根命令无需再改名单）。
+	for _, c := range rootCmd.Commands() {
+		name := c.Name()
+		if !isRegisteredRootSubcommand(name) {
+			t.Fatalf("isRegisteredRootSubcommand(%q) = false, want true", name)
+		}
+		if err := tryExecuteGenericInvoke([]string{name}); !errors.Is(err, errNotGenericInvoke) {
+			t.Fatalf("tryExecuteGenericInvoke(%q) = %v, want errNotGenericInvoke", name, err)
+		}
+	}
+
+	// 抽检若干 builtin / service
+	for _, name := range []string{"configure", "login", "upgrade", "version", "sts", "help"} {
+		if !isRegisteredRootSubcommand(name) {
+			t.Fatalf("expected %q to be a registered root subcommand", name)
+		}
+	}
+	if isRegisteredRootSubcommand("definitely-not-a-registered-service") {
+		t.Fatal("unknown name should not be registered")
+	}
+}
+
+func TestIsRegisteredRootSubcommandTracksNewRootCommand(t *testing.T) {
+	const name = "force-reg-probe-cmd"
+	if isRegisteredRootSubcommand(name) {
+		t.Fatalf("%q unexpectedly already registered", name)
+	}
+	probe := &cobra.Command{Use: name, Hidden: true}
+	rootCmd.AddCommand(probe)
+	t.Cleanup(func() {
+		rootCmd.RemoveCommand(probe)
+	})
+	if !isRegisteredRootSubcommand(name) {
+		t.Fatalf("after AddCommand, isRegisteredRootSubcommand(%q) = false", name)
+	}
+	if err := tryExecuteGenericInvoke([]string{name, "AnyAction", "---force", "---version", "2024-01-01"}); !errors.Is(err, errNotGenericInvoke) {
+		t.Fatalf("new root command should defer to cobra, got: %v", err)
 	}
 }
 
@@ -190,7 +285,7 @@ func TestTryExecuteGenericInvokeSkipsRootFlags(t *testing.T) {
 func TestTryExecuteGenericInvokeForceBeforeActionName(t *testing.T) {
 	stubExecuteInvocation(t, errStubInvocation)
 	err := tryExecuteGenericInvoke([]string{
-		"newservice", "---version", "2024-01-01", "---force", "DescribeNewResource",
+		"newservice", "---version", "2024-01-01", "---endpoint", "newservice.cn-beijing.volcengineapi.com", "---force", "DescribeNewResource",
 	})
 	if !errors.Is(err, errStubInvocation) {
 		t.Fatalf("expected stub invocation after force path, got: %v", err)
@@ -228,7 +323,7 @@ func TestPrintUnknownServiceHelp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected help output without error, got: %v", err)
 	}
-	if !strings.Contains(buf.String(), "Use ---force with ---version") {
+	if !strings.Contains(buf.String(), "Use ---force with ---version and ---endpoint") {
 		t.Fatalf("expected unknown service help text, got: %q", buf.String())
 	}
 }
@@ -307,12 +402,13 @@ func TestTryExecuteGenericInvokeRequiresActionWhenOnlyFlags(t *testing.T) {
 }
 
 func TestRunServiceCmdForceUnknownActionParsesFlags(t *testing.T) {
+	captured := stubExecuteInvocation(t, errStubInvocation)
 	err := runServiceCmd(&cobra.Command{}, "sts", []string{"GetCallerIdentity"},
 		[]string{"UnknownAction", "---version", "2024-01-01", "---force"})
-	if err == nil {
-		t.Fatal("expected error because SDK call is not configured in unit test")
+	if !errors.Is(err, errStubInvocation) {
+		t.Fatalf("expected stub invocation error, got: %v", err)
 	}
-	if strings.Contains(err.Error(), "is not a supported action") {
-		t.Fatalf("force path should bypass unsupported action error, got: %v", err)
+	if captured.action != "UnknownAction" || captured.version != "2024-01-01" {
+		t.Fatalf("unexpected invocation params: action=%q version=%q", captured.action, captured.version)
 	}
 }
