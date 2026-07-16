@@ -8,6 +8,9 @@
 npx -y @volcengine/skills-setup
 ```
 
+> **前置依赖**：Node.js **>= 18**（提供 `npx` 与全局 `fetch`），以及 `PATH` 上的
+> `unzip`（或 `tar`）用于解压 skill bundle。详见 [环境要求](#环境要求)。
+
 ## 1. 它做什么
 
 `skills-setup` 做三件事，每一步都是**幂等的**（可安全重复运行）：
