@@ -8,7 +8,7 @@
 npx -y @volcengine/skills-setup
 ```
 
-> **前置依赖**：Node.js **>= 18**（提供 `npx` 与全局 `fetch`），以及 `PATH` 上的
+> **前置依赖**：Node.js **>= 20**（提供 `npx` 与全局 `fetch`），以及 `PATH` 上的
 > `unzip`（或 `tar`）用于解压 skill bundle。详见 [环境要求](#环境要求)。
 
 ## 1. 它做什么
@@ -78,7 +78,7 @@ npx -y @volcengine/skills-setup
 
 ## 环境要求
 
-- Node.js **>= 18**（自带 npm，供 `npx --yes` 使用；用全局 `fetch` 下载
+- Node.js **>= 20**（自带 npm，供 `npx --yes` 使用；用全局 `fetch` 下载
   bundle）。
 - `PATH` 上有 `tar` 或 `unzip`，用于解压 bundle zip。
 - 能访问 npm 与 bundle 下载地址。

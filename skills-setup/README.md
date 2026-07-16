@@ -9,7 +9,7 @@ their companion skills:
 npx -y @volcengine/skills-setup
 ```
 
-> **Prerequisites**: Node.js **>= 18** (provides `npx` and global `fetch`) and
+> **Prerequisites**: Node.js **>= 20** (provides `npx` and global `fetch`) and
 > `unzip` (or `tar`) on your `PATH` to extract the skills bundle. See
 > [Requirements](#requirements) for details.
 
@@ -84,7 +84,7 @@ verbatim to the underlying `skills add`.
 
 ## Requirements
 
-- Node.js **>= 18** (bundles npm for `npx --yes`; global `fetch` downloads the
+- Node.js **>= 20** (bundles npm for `npx --yes`; global `fetch` downloads the
   bundle).
 - `tar` or `unzip` on `PATH` to extract the bundle zip.
 - Network access to npm and the bundle URL.
