@@ -22,6 +22,25 @@ const BINARIES = [
 // a subset but can never inject an arbitrary source.
 const SKILL_REPOS = ["volcengine/volcengine-skills", "volcengine/ark-cli"];
 
+// Default agents targeted by `skills add` when the caller does not pass
+// `--agent`. We enumerate the supported agents explicitly instead of using the
+// `*` wildcard because `*` pulls in `promptscript`, which fails during a global
+// (`-g`) install. `eve` and `zcode` are intentionally omitted: `skills add`
+// rejects them as invalid agents and aborts the whole run.
+const DEFAULT_AGENTS = [
+  "adal", "aider-desk", "amp", "antigravity", "antigravity-cli", "astrbot",
+  "augment", "autohand-code", "bob", "claude-code", "cline", "codearts-agent",
+  "codebuddy", "codemaker", "codestudio", "codex", "command-code", "continue",
+  "cortex", "crush", "cursor", "deepagents", "devin", "dexto", "droid",
+  "firebender", "forgecode", "gemini-cli", "github-copilot", "goose",
+  "hermes-agent", "iflow-cli", "inference-sh", "jazz", "junie", "kilo",
+  "kimi-code-cli", "kiro-cli", "kode", "lingma", "loaf", "mcpjam",
+  "mistral-vibe", "moxby", "mux", "neovate", "ona", "openclaw", "opencode",
+  "openhands", "pi", "pochi", "qoder", "qoder-cn", "qwen-code", "reasonix",
+  "replit", "roo", "rovodev", "tabnine-cli", "terramind", "tinycloud", "trae",
+  "trae-cn", "universal", "warp", "windsurf", "zed", "zencoder", "zenflow",
+];
+
 // Agent / skill values: alphanumerics plus a safe punctuation set (and the '*'
 // wildcard). A leading '-' is forbidden so a value can never masquerade as an
 // option (option-injection), and shell metacharacters are excluded.
@@ -41,7 +60,8 @@ const USAGE = [
   "",
   "Options:",
   "  --agent <name>    Target agent(s) for skills (repeatable or comma-separated).",
-  "                    Default: all agents (*).",
+  "                    Default: the built-in supported agent list (excludes",
+  "                    promptscript, which fails on global install).",
   "  --skill <name>    Skill name(s) to install (repeatable or comma-separated).",
   "                    Default: all skills (*).",
   "  --repo <slug>     Restrict to a whitelisted repo (repeatable).",
@@ -219,7 +239,8 @@ function buildSkillsAddArgs(repo, options) {
   // safe, unambiguous form; comma-joined values would NOT work.
   const skills = options.skills && options.skills.length ? options.skills : ["*"];
   for (const s of skills) args.push("-s", s);
-  const agents = options.agents && options.agents.length ? options.agents : ["*"];
+  const agents =
+    options.agents && options.agents.length ? options.agents : DEFAULT_AGENTS;
   for (const a of agents) args.push("-a", a);
   if (options.yes !== false) args.push("-y");
   if (options.skillsGlobal) args.push("-g");
@@ -549,6 +570,7 @@ if (require.main === module) {
 module.exports = {
   BINARIES,
   SKILL_REPOS,
+  DEFAULT_AGENTS,
   VALUE_RE,
   USAGE,
   normalizeList,

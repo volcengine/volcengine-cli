@@ -9,6 +9,7 @@ const path = require("path");
 const {
   BINARIES,
   SKILL_REPOS,
+  DEFAULT_AGENTS,
   USAGE,
   normalizeList,
   validateValue,
@@ -271,7 +272,7 @@ check("buildNpmInstallArgs", () => {
 });
 
 // --- buildSkillsAddArgs ----------------------------------------------------
-check("buildSkillsAddArgs defaults (all skills/all agents)", () => {
+check("buildSkillsAddArgs defaults (all skills / built-in agent list)", () => {
   assert.deepStrictEqual(
     buildSkillsAddArgs("volcengine/ark-cli", {
       agents: [],
@@ -279,8 +280,16 @@ check("buildSkillsAddArgs defaults (all skills/all agents)", () => {
       yes: true,
       passthrough: [],
     }),
-    ["skills", "add", "volcengine/ark-cli", "-s", "*", "-a", "*", "-y"]
+    ["skills", "add", "volcengine/ark-cli", "-s", "*"]
+      .concat(DEFAULT_AGENTS.flatMap((a) => ["-a", a]))
+      .concat(["-y"])
   );
+});
+check("DEFAULT_AGENTS excludes promptscript and invalid agents", () => {
+  assert.ok(DEFAULT_AGENTS.length > 0);
+  assert.strictEqual(DEFAULT_AGENTS.indexOf("promptscript"), -1);
+  assert.strictEqual(DEFAULT_AGENTS.indexOf("eve"), -1);
+  assert.strictEqual(DEFAULT_AGENTS.indexOf("zcode"), -1);
 });
 check("buildSkillsAddArgs agent override drops '*' agent, keeps '*' skill", () => {
   const args = buildSkillsAddArgs("volcengine/volcengine-skills", {
@@ -344,7 +353,9 @@ check("npxArgvForRepo defaults", () => {
       yes: true,
       passthrough: [],
     }),
-    ["--yes", "skills", "add", "volcengine/ark-cli", "-s", "*", "-a", "*", "-y"]
+    ["--yes", "skills", "add", "volcengine/ark-cli", "-s", "*"]
+      .concat(DEFAULT_AGENTS.flatMap((a) => ["-a", a]))
+      .concat(["-y"])
   );
 });
 
@@ -371,17 +382,12 @@ check("planSetup all present -> no installs, 2 skill steps", () => {
   const plan = planSetup(parseArgs([]), detectDeps(["ve", "arkcli"]));
   assert.deepStrictEqual(plan.installs, []);
   assert.strictEqual(plan.skills.length, 2);
-  assert.deepStrictEqual(plan.skills[0].args, [
-    "--yes",
-    "skills",
-    "add",
-    "volcengine/volcengine-skills",
-    "-s",
-    "*",
-    "-a",
-    "*",
-    "-y",
-  ]);
+  assert.deepStrictEqual(
+    plan.skills[0].args,
+    ["--yes", "skills", "add", "volcengine/volcengine-skills", "-s", "*"]
+      .concat(DEFAULT_AGENTS.flatMap((a) => ["-a", a]))
+      .concat(["-y"])
+  );
 });
 check("planSetup arkcli missing -> one install (ark), ve absent from installs", () => {
   const plan = planSetup(parseArgs([]), detectDeps(["ve"]));
