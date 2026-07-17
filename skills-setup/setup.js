@@ -30,7 +30,7 @@ const SKILL_REPOS = ["volcengine/volcengine-skills"];
 // `skills add <dir>`. Override with --bundle-url or the SKILLS_BUNDLE_URL env
 // var; use a local zip with --bundle-file.
 const DEFAULT_BUNDLE_URL =
-  "https://cloudcache.volccdn.com/ve/skills/v1.0.0/volcengine-skills-bundle.zip";
+  "https://cloudcache.volccdn.com/ve/skills/v1.3.0/volcengine-skills-bundle.zip";
 
 // Default agents targeted by `skills add` when the caller does not pass
 // `--agent`. We enumerate the supported agents explicitly instead of using the
@@ -80,6 +80,7 @@ const USAGE = [
   "  --skip-install    Skip ve/arkcli detection & install (skills only).",
   "  --skip-skills     Skip skills install (binaries only).",
   "  --force           Reinstall ve/arkcli even if already present.",
+  "  --update          Force-upgrade ve/arkcli to @latest even if present.",
   "  --dry-run         Print the planned commands without executing.",
   "  -h, --help        Show this help.",
   "",
@@ -146,6 +147,7 @@ function parseArgs(argv) {
     skipInstall: false,
     skipSkills: false,
     force: false,
+    update: false,
     dryRun: false,
     help: false,
     passthrough: [],
@@ -193,6 +195,10 @@ function parseArgs(argv) {
       options.force = true;
       continue;
     }
+    if (tok === "--update") {
+      options.update = true;
+      continue;
+    }
     if (tok === "--dry-run") {
       options.dryRun = true;
       continue;
@@ -238,9 +244,12 @@ function parseArgs(argv) {
 // ---------------------------------------------------------------------------
 
 function buildNpmInstallArgs(pkg, options) {
+  // Always pin to `@latest` so a reinstall/update pulls the newest published
+  // version (npm otherwise treats an existing satisfying version as up-to-date).
+  const target = pkg + "@latest";
   return options.scope === "local"
-    ? ["install", pkg]
-    : ["install", "-g", pkg];
+    ? ["install", target]
+    : ["install", "-g", target];
 }
 
 // Build `skills add <source> ...` where source is a LOCAL directory (the
@@ -383,12 +392,15 @@ function planSetup(options, deps) {
       detection = detectBinary(bin, deps);
     }
     detections.push(detection);
-    if (!options.skipInstall && (options.force || !detection.found)) {
+    if (
+      !options.skipInstall &&
+      (options.force || options.update || !detection.found)
+    ) {
       installs.push({
         pkg: bin.pkg,
         cmd: "npm",
         args: buildNpmInstallArgs(bin.pkg, options),
-        reason: options.force ? "forced" : "missing",
+        reason: options.force ? "forced" : options.update ? "update" : "missing",
         label: "install " + bin.pkg,
       });
     }
@@ -468,7 +480,10 @@ function renderSummary(plan, steps) {
     }
     const step = installStepFor(d.pkg);
     if (step) {
-      const verb = d.found ? "reinstalled" : "installed";
+      const install = plan.installs.find((s) => s.pkg === d.pkg);
+      const reason = install ? install.reason : null;
+      const verb =
+        reason === "update" ? "updated" : d.found ? "reinstalled" : "installed";
       lines.push(
         "  " +
           mark(step.ok) +

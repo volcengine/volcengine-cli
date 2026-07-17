@@ -223,8 +223,14 @@ check("parseArgs defaults", () => {
   assert.deepStrictEqual(o.skills, []);
   assert.strictEqual(o.bundleUrl, null);
   assert.strictEqual(o.bundleFile, null);
+  assert.strictEqual(o.force, false);
+  assert.strictEqual(o.update, false);
   assert.deepStrictEqual(o.passthrough, []);
   assert.strictEqual(o.help, false);
+});
+check("parseArgs --force / --update", () => {
+  assert.strictEqual(parseArgs(["--force"]).force, true);
+  assert.strictEqual(parseArgs(["--update"]).update, true);
 });
 check("parseArgs --skills-project opts out of global skills", () => {
   assert.strictEqual(parseArgs(["--skills-project"]).skillsGlobal, false);
@@ -272,11 +278,11 @@ check("buildNpmInstallArgs", () => {
   assert.deepStrictEqual(buildNpmInstallArgs("@volcengine/cli", { scope: "global" }), [
     "install",
     "-g",
-    "@volcengine/cli",
+    "@volcengine/cli@latest",
   ]);
   assert.deepStrictEqual(buildNpmInstallArgs("@volcengine/cli", { scope: "local" }), [
     "install",
-    "@volcengine/cli",
+    "@volcengine/cli@latest",
   ]);
 });
 
@@ -422,7 +428,7 @@ check("planSetup arkcli missing -> one install (ark), ve absent from installs", 
   assert.deepStrictEqual(plan.installs[0].args, [
     "install",
     "-g",
-    "@volcengine/ark-cli",
+    "@volcengine/ark-cli@latest",
   ]);
 });
 check("planSetup skip-install / skip-skills / force", () => {
@@ -438,9 +444,21 @@ check("planSetup skip-install / skip-skills / force", () => {
   assert.strictEqual(force.installs[0].reason, "forced");
   assert.strictEqual(force.installs[1].reason, "forced");
 });
+check("planSetup --update forces reinstall of present binaries", () => {
+  const update = planSetup(parseArgs(["--update"]), detectDeps(["ve", "arkcli"]));
+  assert.strictEqual(update.installs.length, 2);
+  assert.strictEqual(update.installs[0].reason, "update");
+  assert.strictEqual(update.installs[1].reason, "update");
+  // Update installs still pin to @latest.
+  assert.deepStrictEqual(update.installs[0].args, [
+    "install",
+    "-g",
+    "@volcengine/cli@latest",
+  ]);
+});
 check("planSetup local scope", () => {
   const plan = planSetup(parseArgs(["--local"]), detectDeps([]));
-  assert.deepStrictEqual(plan.installs[0].args, ["install", "@volcengine/cli"]);
+  assert.deepStrictEqual(plan.installs[0].args, ["install", "@volcengine/cli@latest"]);
 });
 
 // --- aggregateExitCode -----------------------------------------------------
@@ -483,6 +501,24 @@ check("renderSummary install/reinstall + [FAIL] lines", () => {
   assert.ok(
     s.indexOf("[FAIL] tool arkcli installed (@volcengine/ark-cli) — exit 1") !== -1
   );
+});
+check("renderSummary reports 'updated' for --update installs", () => {
+  const plan = {
+    detections: [
+      { name: "ve", pkg: "@volcengine/cli", found: true, foundVia: "ve" },
+    ],
+    installs: [
+      {
+        pkg: "@volcengine/cli",
+        reason: "update",
+        args: ["install", "-g", "@volcengine/cli@latest"],
+      },
+    ],
+  };
+  const s = renderSummary(plan, [
+    { label: "install @volcengine/cli", cmd: "npm", ok: true, status: 0 },
+  ]);
+  assert.ok(s.indexOf("[ok] tool ve updated (@volcengine/cli)") !== -1);
 });
 check("renderSummary emits global-bin-dir Note only for global installs", () => {
   const globalPlan = planSetup(parseArgs([]), detectDeps([])); // 2 global (-g) installs

@@ -16,7 +16,8 @@ npx -y @volcengine/skills-setup
 `skills-setup` 做三件事，每一步都是**幂等的**（可安全重复运行）：
 
 1. **检测**：扫描 `PATH`，判断 `ve`、`arkcli` 是否已安装。
-2. **按需安装**：缺失的 CLI 工具用 npm 装上（已存在则跳过）。
+2. **按需安装**：缺失的 CLI 工具用 npm 装上，始终固定为 `@latest`
+   （已存在则跳过；用 `--update` 可强制升级到最新版）。
 3. **安装 agent skills**：从预打包 bundle 装到你的 AI agent 里。
 
 ## 2.1 安装了哪些内容
@@ -71,6 +72,7 @@ npx -y @volcengine/skills-setup
 | 用本地 bundle zip | `... --bundle-file ./skills-bundle.zip` |
 | 只装 skill，不装工具 | `... --skip-install` |
 | 只装工具，不下 skill | `... --skip-skills` |
+| 强制升级 ve/arkcli 到最新 | `... --update` |
 | ve/arkcli 装到本地项目而非全局 | `... --local` |
 | skill 装到当前项目而非全局 | `... --skills-project` |
 | 先预览不执行 | `... --dry-run` |
@@ -86,7 +88,7 @@ npx -y @volcengine/skills-setup
 ## 用法
 
 ```bash
-# 在本目录直接运行（零依赖，无需安装）：
+# 在本目录直接运行（无需安装）：
 node setup.js [选项] [-- <透传给 `skills add` 的额外参数>]
 
 # 或作为包安装后，通过 bin 调用：
@@ -129,6 +131,7 @@ node setup.js --bundle-file ./skills-bundle.zip --skill volcengine-cli --dry-run
 | `--skip-install` | 关 | 跳过 ve/arkcli 检测与安装，只装 skill。 |
 | `--skip-skills` | 关 | 只装二进制，不装 skill。 |
 | `--force` | 关 | 即使已存在也重装二进制。 |
+| `--update` | 关 | 即使已存在也强制把 ve/arkcli 升级到 `@latest`。 |
 | `--dry-run` | 关 | 打印将执行的 npm/npx 命令，不真正执行。 |
 | `-h`, `--help` | — | 显示帮助。 |
 | `-- <tokens>` | — | `--` 之后的 token 原样追加到每个 `skills add`。 |
@@ -143,18 +146,3 @@ node setup.js --bundle-file ./skills-bundle.zip --skill volcengine-cli --dry-run
 | `3` | 全部失败（每个已执行步骤都失败）。 |
 
 步骤不会 fail-fast：某个安装/skill 失败不会中断其余步骤，结果汇总为上表退出码。
-
-## 设计说明
-
-- **零依赖**，CommonJS，风格对齐 `../npm/install.js`。
-- **安全性**：unix 上每个子进程都用 argv 数组启动（绝不用 shell 命令字符串，
-  `shell:false`）。`--agent`/`--skill`/透传值都按安全字符集校验，`--bundle-url`
-  必须是 http(s) URL，包名是固定常量——所以用户输入无法注入选项或 shell 命令。
-  Windows 上 npm/npx 是 `.cmd` 脚本，需要 shell，因此用 `shell:true` 运行；
-  同样的校验保证这条路径依然安全。
-- **可测试**：所有副作用都收敛到可注入的 `exec` / `download`（检测用可注入的
-  `isExecutable`），因此 `setup_test.js` 在**零网络、零真实安装**下即可运行：
-
-  ```bash
-  npm test   # 或：node setup_test.js
-  ```

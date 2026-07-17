@@ -19,7 +19,8 @@ npx -y @volcengine/skills-setup
 re-run):
 
 1. **Detect** whether `ve` and `arkcli` are already on your `PATH`.
-2. **Install** the missing CLI tools via npm (nothing happens if already present).
+2. **Install** the missing CLI tools via npm, always pinned to `@latest`
+   (nothing happens if already present — use `--update` to force an upgrade).
 3. **Install agent skills** from a pre-packaged bundle into your AI agents.
 
 ## 2.1 What gets installed
@@ -77,6 +78,7 @@ verbatim to the underlying `skills add`.
 | Use a local bundle zip | `... --bundle-file ./skills-bundle.zip` |
 | Skills only (skip ve/arkcli) | `... --skip-install` |
 | Tools only (skip skills) | `... --skip-skills` |
+| Force-upgrade ve/arkcli to latest | `... --update` |
 | Install ve/arkcli into the local project | `... --local` |
 | Install skills into the current project | `... --skills-project` |
 | Preview without executing | `... --dry-run` |
@@ -92,7 +94,7 @@ verbatim to the underlying `skills add`.
 ## Usage
 
 ```bash
-# From this directory (no install needed — zero dependencies):
+# From this directory (no install needed):
 node setup.js [options] [-- <extra args forwarded to `skills add`>]
 
 # Or, once installed as a package, via the bin:
@@ -135,6 +137,7 @@ node setup.js --bundle-file ./skills-bundle.zip --skill volcengine-cli --dry-run
 | `--skip-install` | off | Skip binary detect/install; skills only. |
 | `--skip-skills` | off | Install binaries only; no skills. |
 | `--force` | off | Reinstall binaries even if already present. |
+| `--update` | off | Force-upgrade ve/arkcli to `@latest` even if present. |
 | `--dry-run` | off | Print planned npm/npx commands; run nothing. |
 | `-h`, `--help` | — | Show help. |
 | `-- <tokens>` | — | Extra tokens appended verbatim to each `skills add`. |
@@ -150,21 +153,3 @@ node setup.js --bundle-file ./skills-bundle.zip --skill volcengine-cli --dry-run
 
 Steps never fail fast: a failing install/skill does not abort the rest; results
 are aggregated into the exit code above.
-
-## Design notes
-
-- **Zero dependencies**, CommonJS, mirrors the style of `../npm/install.js`.
-- **Security**: every child process is spawned with an argv array (never a shell
-  command string) on unix (`shell:false`). `--agent`/`--skill`/passthrough
-  values are validated against a safe character set, `--bundle-url` must be an
-  http(s) URL, and package names are fixed constants — so user input cannot
-  inject options or shell commands. On Windows, npm/npx are `.cmd` shims that
-  require the shell, so it runs them with `shell:true`; the same validation
-  keeps that path safe.
-- **Testable**: all side effects funnel through injectable `exec` / `download`
-  (and an injectable `isExecutable` for detection), so `setup_test.js` runs with
-  **zero network and zero real installs**:
-
-  ```bash
-  npm test   # or: node setup_test.js
-  ```
