@@ -177,21 +177,32 @@ tail -n 100 ~/.volcengine/logs/$(date +%Y%m%d%H).log
 
 ## Self-upgrade (`ve upgrade`)
 
-Upgrade the current `ve` binary to a newer release or install a specific version:
+Behavior depends on how `ve` was installed:
+
+| Install source | Default action |
+|----------------|----------------|
+| **Homebrew** (macOS/Linux; Homebrew/Linuxbrew/Cellar paths) | `brew update` then `brew upgrade volcengine-cli` (network required; `--version` needs `--force`) |
+| **npm** (`node_modules/@volcengine/cli`) | Prints `npm install -g @volcengine/cli@...`; no in-place replace (exit 0) |
+| **standalone** (Release zip, source build, etc.) | Download and replace the current binary in place |
 
 ```shell
-ve upgrade              # interactive confirm, then upgrade if a newer release exists
-ve upgrade --yes        # skip confirmation; still never downgrades implicitly
-ve upgrade --version 1.0.49   # install a specific version (including downgrade)
+ve upgrade              # source-aware: brew / npm guidance / standalone self-upgrade
+ve upgrade --yes        # skip confirmation for standalone in-place (never implies package-manager upgrade)
+ve upgrade --version 1.0.49
+#   standalone: pin/downgrade in place
+#   npm: prints "npm install -g @volcengine/cli@1.0.49" (exit 0; --force not required)
+#   Homebrew: errors unless --force (in-place replace; not a brew pin)
+ve upgrade --force      # npm/Homebrew in-place replace (not recommended; still prompts unless --yes)
+ve upgrade --force --version 1.0.49
 ```
 
-Without `--version`, the CLI installs only a version newer than the running binary; a stale manifest cannot trigger an implicit downgrade. Downgrades require an explicit `--version`.
+For standalone installs, without `--version` the CLI installs only a version newer than the running binary; a stale manifest cannot trigger an implicit downgrade. Downgrades require an explicit `--version`.
 
-Flow: download the platform zip and checksum from the official CDN (`https://cloudcache.volccdn.com/ve`), verify SHA256, then atomically replace the running binary. On failure the previous binary is kept/restored. If either CDN artifact is unavailable, the CLI falls back to GitHub Releases. On Windows, a temporary helper completes replacement after the running process exits and reports the final result through the same stdout/stderr streams.
+Standalone flow: download the platform zip and checksum from the official CDN (`https://cloudcache.volccdn.com/ve`), verify SHA256, then atomically replace the running binary. On failure the previous binary is kept/restored. If either CDN artifact is unavailable, the CLI falls back to GitHub Releases. On Windows, a temporary helper completes replacement after the running process exits and reports the final result through the same stdout/stderr streams.
 
 ### Version check and upgrade notice
 
-On any `ve` invocation the CLI may start a lightweight background version check (at most once every 24 hours by default; about 1.5s network timeout). Command exit never waits for an in-flight check. If a cached or already-completed check finds a newer version, the CLI prints a notice to **stderr**; it never writes to stdout, so pipelines stay intact.
+On any `ve` invocation the CLI may start a lightweight background version check (at most once every 24 hours by default; about 1.5s network timeout). Command exit never waits for an in-flight check. If a cached or already-completed check finds a newer version, the CLI prints a notice to **stderr** (the suggested command is install-source aware); it never writes to stdout, so pipelines stay intact.
 
 Environment variables:
 
@@ -200,6 +211,7 @@ Environment variables:
 | `VOLCENGINE_CLI_DISABLE_UPDATE_CHECK=1` | Disable background version checks and notices |
 | `VOLCENGINE_CLI_UPDATE_CHECK_TTL_HOURS` | Cache TTL in hours (default 24) |
 | `VOLCENGINE_CLI_DOWNLOAD_BASE_URL` | Override download base URL (default CDN) |
+| `VOLCENGINE_CLI_INSTALL_METHOD` | Override install detection: `standalone`, `npm`, or `homebrew` |
 
 Cache file: `~/.volcengine/cli/version_check.json`.
 

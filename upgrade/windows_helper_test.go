@@ -157,6 +157,7 @@ func TestDoUpgradeDelegatesRunningWindowsExecutableToHelper(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows helper integration")
 	}
+	forceStandaloneDetect(t)
 
 	version := "2.0.0"
 	binName := BinaryName()

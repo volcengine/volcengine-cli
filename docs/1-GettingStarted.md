@@ -28,18 +28,20 @@ ve version
 ve --help
 ```
 
-To upgrade to the latest version, prefer the built-in command (works for npm, Release binaries, and source builds):
+To upgrade an **npm** install, use npm so the package metadata stays consistent:
+
+```shell
+npm install -g @volcengine/cli@latest
+```
+
+`ve upgrade` detects npm installs and prints this guidance instead of replacing the binary in place. Use `ve upgrade --force` only if you intentionally want an in-place replace (not recommended).
+
+For **Release binaries** or **source builds** (standalone):
 
 ```shell
 ve upgrade
 ve upgrade --yes
 ve upgrade --version 1.0.49
-```
-
-You can also upgrade the global npm package:
-
-```shell
-npm update -g @volcengine/cli
 ```
 
 ### Download from Release

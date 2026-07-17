@@ -49,10 +49,16 @@ sudo cp ve /usr/local/bin
 ve version
 ```
 
-升级到最新版本：
+升级到最新版本（standalone / Release 安装）：
 
 ```shell
 ve upgrade
+```
+
+npm 安装请优先：
+
+```shell
+npm install -g @volcengine/cli@latest
 ```
 
 ### 快速开始

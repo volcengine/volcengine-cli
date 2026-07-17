@@ -3,8 +3,10 @@ package upgrade
 import (
 	"bytes"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -16,6 +18,7 @@ func (f downgradeRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, er
 }
 
 func TestDoUpgrade_DoesNotDowngradeToResolvedLatest(t *testing.T) {
+	forceStandaloneDetect(t)
 	oldDownloadBase := os.Getenv(EnvDownloadBaseURL)
 	os.Setenv(EnvDownloadBaseURL, "http://127.0.0.1:1")
 	defer os.Setenv(EnvDownloadBaseURL, oldDownloadBase)
@@ -36,11 +39,17 @@ func TestDoUpgrade_DoesNotDowngradeToResolvedLatest(t *testing.T) {
 	})})
 	defer SetHTTPClient(&http.Client{Timeout: DefaultHTTPTimeout})
 
+	execPath := filepath.Join(t.TempDir(), BinaryName())
+	if err := ioutil.WriteFile(execPath, []byte("old"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
 	var stdout bytes.Buffer
 	err := DoUpgrade(Options{
 		CurrentVersion: "2.0.0",
 		Yes:            true,
 		Stdout:         &stdout,
+		ExecPath:       execPath,
 	})
 	if err != nil {
 		t.Fatalf("default upgrade must not attempt a downgrade: %v", err)

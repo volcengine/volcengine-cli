@@ -28,18 +28,20 @@ ve version
 ve --help
 ```
 
-如需升级到最新版本，推荐使用 CLI 内置命令（适用于 npm 安装、Release 解压或源码编译等路径）：
+**npm 安装**请用 npm 升级，以保持包元数据一致：
+
+```shell
+npm install -g @volcengine/cli@latest
+```
+
+`ve upgrade` 会识别 npm 安装，并提示上述命令，而不会默认原地替换二进制。仅在明确需要时使用 `ve upgrade --force` 强制原地替换（不推荐）。
+
+**Release 解压**或**源码编译**（standalone）可使用：
 
 ```shell
 ve upgrade
 ve upgrade --yes
 ve upgrade --version 1.0.49
-```
-
-也可以继续用 npm 升级全局包：
-
-```shell
-npm update -g @volcengine/cli
 ```
 
 ### 通过 Release 获取客户端

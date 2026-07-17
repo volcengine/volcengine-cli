@@ -166,12 +166,21 @@ func TestInvalidateCheckCache(t *testing.T) {
 }
 
 func TestFormatUpgradeNotice(t *testing.T) {
-	s := FormatUpgradeNotice("1.0.40", "1.0.49")
+	s := FormatUpgradeNoticeFor("1.0.40", "1.0.49", standaloneInfo("", DetectedByDefault))
 	if !strings.Contains(s, "1.0.49") || !strings.Contains(s, "1.0.40") {
 		t.Fatal(s)
 	}
 	if !strings.Contains(s, "ve upgrade") {
 		t.Fatal(s)
+	}
+
+	npmNotice := FormatUpgradeNoticeFor("1.0.40", "1.0.49", npmInfo("/x/node_modules/@volcengine/cli/bin/ve"))
+	if !strings.Contains(npmNotice, "npm install -g @volcengine/cli@latest") {
+		t.Fatal(npmNotice)
+	}
+	brewNotice := FormatUpgradeNoticeFor("1.0.40", "1.0.49", homebrewInfo("/opt/homebrew/Cellar/volcengine-cli/1.0.40/bin/ve"))
+	if !strings.Contains(brewNotice, "brew upgrade volcengine-cli") {
+		t.Fatal(brewNotice)
 	}
 }
 

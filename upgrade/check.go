@@ -357,16 +357,26 @@ func (a *AsyncCheck) TryResult() (CheckResult, bool) {
 	}
 }
 
-// FormatUpgradeNotice builds a single-line stderr notice (no trailing newline).
+// FormatUpgradeNotice 生成单行 stderr 升级提示（无尾部换行）。
+// 建议命令会随当前二进制的安装来源变化（npm / brew / ve upgrade）。
 func FormatUpgradeNotice(current, latest string) string {
+	return FormatUpgradeNoticeFor(current, latest, DetectInstallFromRunningBinary())
+}
+
+// FormatUpgradeNoticeFor 与 FormatUpgradeNotice 相同，但安装来源由调用方显式传入（便于测试）。
+func FormatUpgradeNoticeFor(current, latest string, info InstallInfo) string {
 	current = NormalizeVersion(current)
 	latest = NormalizeVersion(latest)
-	// Yellow-ish ANSI for the upgrade command hint at the end.
+	cmd := "ve upgrade"
+	if info.Managed() && strings.TrimSpace(info.UpgradeCmd) != "" {
+		cmd = info.UpgradeCmd
+	}
+	// 升级命令用黄色 ANSI 高亮
 	const yellow = "\033[33m"
 	const reset = "\033[0m"
 	return fmt.Sprintf(
-		"A new version of ve is available: %s (current: %s). Run: %sve upgrade%s",
-		latest, current, yellow, reset,
+		"A new version of ve is available: %s (current: %s). Run: %s%s%s",
+		latest, current, yellow, cmd, reset,
 	)
 }
 

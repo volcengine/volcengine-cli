@@ -13,26 +13,32 @@ import (
 	"strings"
 )
 
-// Options controls DoUpgrade behavior.
+// Options 控制 DoUpgrade 行为。
 type Options struct {
-	// CurrentVersion is the running CLI version (required).
+	// CurrentVersion 当前运行的 CLI 版本（必填）。
 	CurrentVersion string
-	// TargetVersion empty means "latest".
+	// TargetVersion 目标版本；空表示升级到 latest。
 	TargetVersion string
-	// Yes skips the interactive confirmation prompt.
+	// Yes 跳过交互确认。
 	Yes bool
-	// Stdout / Stderr for user-facing messages. Defaults to os.Stdout/Stderr.
+	// Force 允许在 npm/Homebrew 等托管安装下仍做原地二进制替换。
+	// 不隐含 Yes。默认：Homebrew 委托 brew；npm 仅打印升级指引。
+	Force bool
+	// Stdout / Stderr 面向用户的输出，默认 os.Stdout/Stderr。
 	Stdout io.Writer
 	Stderr io.Writer
-	// Stdin for confirmation. Defaults to os.Stdin.
+	// Stdin 确认交互输入，默认 os.Stdin。
 	Stdin io.Reader
-	// SkipSelfCheck disables post-install version self-check (tests).
+	// SkipSelfCheck 跳过安装后版本自检（测试用）。
 	SkipSelfCheck bool
-	// ExecPath overrides the install destination (tests). Empty = current executable.
+	// ExecPath 覆盖安装目标路径（测试用）；空则使用当前可执行文件。
 	ExecPath string
 }
 
-// DoUpgrade downloads, verifies, and installs the target CLI version.
+// DoUpgrade 按安装来源升级 CLI：
+//   - Homebrew：委托 brew update / brew upgrade（除非 Force）
+//   - npm：打印 npm 升级命令并成功返回（除非 Force 走原地替换）
+//   - standalone：从 CDN/GitHub 下载并原地替换当前二进制
 func DoUpgrade(opts Options) error {
 	stdout := opts.Stdout
 	if stdout == nil {
@@ -49,6 +55,31 @@ func DoUpgrade(opts Options) error {
 
 	current := NormalizeVersion(opts.CurrentVersion)
 	fmt.Fprintf(stdout, "Current version: %s\n", current)
+
+	detectPath, replacePath, err := resolvePathsForUpgrade(opts.ExecPath)
+	if err != nil {
+		return err
+	}
+	info := DetectInstall(detectPath)
+
+	// Homebrew：默认委托 brew（macOS / Linux）；Force 时走下方原地替换。
+	// 未 Force 时不支持 --version 固定版本，避免静默忽略用户意图。
+	if info.Method == MethodHomebrew && !opts.Force {
+		if pin := strings.TrimSpace(opts.TargetVersion); pin != "" {
+			return fmt.Errorf(
+				"Homebrew installs cannot pin a version via ve upgrade --version; "+
+					"use brew, or force an in-place replace: ve upgrade --force --version %s",
+				NormalizeVersion(pin))
+		}
+		return upgradeViaBrew(stdout, stderr)
+	}
+	// npm：默认只打印升级指引并 return nil（退出码 0），不原地替换、不下载。
+	// 不返回 error，避免 root 再向 stderr 重复打印一行。
+	if info.Method == MethodNPM && !opts.Force {
+		info = withPinnedNPMUpgradeCmd(info, opts.TargetVersion)
+		fmt.Fprint(stdout, FormatManagedInstallMessage(info, opts.TargetVersion))
+		return nil
+	}
 
 	explicitTarget := strings.TrimSpace(opts.TargetVersion) != ""
 	target := NormalizeVersion(opts.TargetVersion)
@@ -72,6 +103,14 @@ func DoUpgrade(opts Options) error {
 	if !explicitTarget && !IsNewer(current, target) {
 		fmt.Fprintf(stdout, "Current version %s is newer than the latest available version %s; refusing to downgrade without --version.\n", current, target)
 		return nil
+	}
+
+	// 仅在确定会进行原地安装时，对托管来源的 Force 给出警告
+	if info.Managed() && opts.Force {
+		fmt.Fprintf(stderr,
+			"Warning: forcing in-place upgrade for a %s install.\n"+
+				"The package manager may overwrite or conflict with this binary later.\n\n",
+			info.DisplayName)
 	}
 
 	if !opts.Yes {
@@ -130,14 +169,9 @@ func DoUpgrade(opts Options) error {
 		return fmt.Errorf("extraction failed: %v", err)
 	}
 
+	// 原地替换使用已解析的真实路径（若可用）
+	execPath := replacePath
 	useWindowsHelper := shouldLaunchWindowsUpgradeHelper(runtime.GOOS, opts.ExecPath)
-	execPath := opts.ExecPath
-	if execPath == "" {
-		execPath, err = ResolveExecPath()
-		if err != nil {
-			return err
-		}
-	}
 	fmt.Fprintf(stdout, "Installing new version to %s ...\n", execPath)
 	if useWindowsHelper {
 		if err := launchWindowsUpgradeHelper(WindowsUpgradeLaunchOptions{
@@ -175,7 +209,7 @@ func DoUpgrade(opts Options) error {
 	// - default upgrade-to-latest: latest == target, avoid immediate re-prompt
 	// - pin/downgrade (--version): re-resolve real latest so we do not poison the
 	//   24h cache with an older "latest" (which would suppress real update notices)
-	refreshVersionCacheAfterInstall(opts.TargetVersion != "", target)
+	refreshVersionCacheAfterInstall(explicitTarget, target)
 
 	fmt.Fprintf(stdout, "\nSuccessfully upgraded Volcengine CLI from %s to %s!\n", current, target)
 	return nil

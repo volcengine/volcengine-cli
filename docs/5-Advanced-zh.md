@@ -177,21 +177,32 @@ tail -n 100 ~/.volcengine/logs/$(date +%Y%m%d%H).log
 
 ## 自升级（ve upgrade）
 
-CLI 支持将当前 `ve` 二进制升级到更新版本，或安装显式指定的版本：
+行为取决于安装来源：
+
+| 安装来源 | 默认行为 |
+|----------|----------|
+| **Homebrew**（macOS/Linux；Homebrew/Linuxbrew/Cellar 路径） | 执行 `brew update` 再 `brew upgrade volcengine-cli`（需网络；`--version` 需配合 `--force`） |
+| **npm**（`node_modules/@volcengine/cli`） | 提示 `npm install -g @volcengine/cli@...`，不原地替换（退出码 0） |
+| **standalone**（Release 解压、源码编译等） | 下载并原地替换当前二进制 |
 
 ```shell
-ve upgrade              # 发现更新版本后交互确认升级
-ve upgrade --yes        # 跳过确认，但仍不会隐式降级
-ve upgrade --version 1.0.49   # 安装指定版本（可降级）
+ve upgrade              # 按安装来源：brew 委托 / npm 提示 / standalone 自升级
+ve upgrade --yes        # standalone 原地升级跳过确认（不会代替包管理器升级）
+ve upgrade --version 1.0.49
+#   standalone：原地固定/降级
+#   npm：仍只打印 npm install -g @volcengine/cli@1.0.49（退出码 0，无需 --force）
+#   Homebrew：不加 --force 会报错；--force 为原地替换（不是 brew 固定版本）
+ve upgrade --force      # npm/Homebrew 原地替换（不推荐；仍需确认除非 --yes）
+ve upgrade --force --version 1.0.49
 ```
 
-未指定 `--version` 时，CLI 只会安装高于当前运行版本的版本；即使 latest manifest 滞后，也不会隐式降级。降级必须显式传入 `--version`。
+standalone 未指定 `--version` 时，只会安装高于当前运行版本的版本；即使 latest manifest 滞后，也不会隐式降级。降级必须显式传入 `--version`。
 
-升级流程：从官方 CDN（`https://cloudcache.volccdn.com/ve`）下载对应平台 zip 和校验文件，校验 SHA256，再原子替换当前可执行文件；失败会保留/回滚到旧版本。任一 CDN 产物不可用时回退 GitHub Releases。Windows 上会由临时 helper 在当前进程退出后完成替换，并通过同一 stdout/stderr 输出最终结果。
+standalone 升级流程：从官方 CDN（`https://cloudcache.volccdn.com/ve`）下载对应平台 zip 和校验文件，校验 SHA256，再原子替换当前可执行文件；失败会保留/回滚到旧版本。任一 CDN 产物不可用时回退 GitHub Releases。Windows 上会由临时 helper 在当前进程退出后完成替换，并通过同一 stdout/stderr 输出最终结果。
 
 ### 版本检测与升级提醒
 
-执行任意 `ve` 命令时，CLI 可能在后台启动一次轻量版本检测（默认 24 小时最多一次，网络超时约 1.5s）。命令退出不会等待仍在进行的检测；若缓存或已完成的检测发现新版本，则向 **stderr** 输出提示，**不会**写入 stdout，以免影响管道解析。
+执行任意 `ve` 命令时，CLI 可能在后台启动一次轻量版本检测（默认 24 小时最多一次，网络超时约 1.5s）。命令退出不会等待仍在进行的检测；若缓存或已完成的检测发现新版本，则向 **stderr** 输出提示（建议命令会按安装来源区分），**不会**写入 stdout，以免影响管道解析。
 
 相关环境变量：
 
@@ -200,6 +211,7 @@ ve upgrade --version 1.0.49   # 安装指定版本（可降级）
 | `VOLCENGINE_CLI_DISABLE_UPDATE_CHECK=1` | 关闭后台版本检测与提醒 |
 | `VOLCENGINE_CLI_UPDATE_CHECK_TTL_HOURS` | 检测缓存 TTL（小时），默认 24 |
 | `VOLCENGINE_CLI_DOWNLOAD_BASE_URL` | 覆盖下载基址（默认 CDN） |
+| `VOLCENGINE_CLI_INSTALL_METHOD` | 覆盖安装来源识别：`standalone` / `npm` / `homebrew` |
 
 检测缓存文件：`~/.volcengine/cli/version_check.json`。
 
