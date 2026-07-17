@@ -40,14 +40,25 @@ func TestRootUsageIncludesServiceTableHeader(t *testing.T) {
 }
 
 func TestServiceAndActionDescriptions(t *testing.T) {
-	if got := formatServiceShort("sts"); !strings.Contains(got, "安全") || !strings.Contains(got, "Security Token Service") {
+	restoreLanguage := setLanguageForTest(LanguageEnglish)
+	defer restoreLanguage()
+
+	if got := formatServiceShort("sts"); got != "Security Token Service" {
 		t.Fatalf("unexpected sts service description: %q", got)
 	}
-	if got := formatActionShort("sts", "GetCallerIdentity"); got != "获取请求者身份信息" {
+	if got := formatActionShort("sts", "GetCallerIdentity"); got != "Get identity information for the request credential" {
 		t.Fatalf("unexpected sts action description: %q", got)
 	}
-	if got := formatActionLong("sts", "GetCallerIdentity"); got != "获取请求者身份信息 - Get identity information for the request credential" {
+	if got := formatActionLong("sts", "GetCallerIdentity"); got != "Get identity information for the request credential" {
 		t.Fatalf("unexpected sts action long description: %q", got)
+	}
+
+	setCurrentLanguage(LanguageSimplifiedChinese)
+	if got := formatServiceShort("sts"); got != "安全凭证服务" {
+		t.Fatalf("unexpected Chinese sts service description: %q", got)
+	}
+	if got := formatActionShort("sts", "GetCallerIdentity"); got != "获取请求者身份信息" {
+		t.Fatalf("unexpected Chinese sts action description: %q", got)
 	}
 }
 
@@ -76,21 +87,34 @@ func TestExplorerDescriptionsLoadFromAssetJSON(t *testing.T) {
 }`)
 	defer restore()
 
-	if got := formatServiceShort("demo"); got != "演示服务 - Demo Service" {
+	restoreLanguage := setLanguageForTest(LanguageEnglish)
+	defer restoreLanguage()
+
+	if got := formatServiceShort("demo"); got != "Demo Service" {
 		t.Fatalf("unexpected service description: %q", got)
 	}
-	if got := formatActionShort("demo", "DoThing"); got != "执行操作" {
+	if got := formatActionShort("demo", "DoThing"); got != "Do thing" {
 		t.Fatalf("unexpected action short: %q", got)
 	}
-	if got := formatActionLong("demo", "DoThing"); got != "执行操作 - Run the demo operation." {
+	if got := formatActionLong("demo", "DoThing"); got != "Run the demo operation." {
 		t.Fatalf("unexpected action long: %q", got)
 	}
-	if got := formatActionLong("demo", "DoOtherThing"); got != "执行其他操作 - Do other thing" {
+	if got := formatActionLong("demo", "DoOtherThing"); got != "Do other thing" {
 		t.Fatalf("unexpected action long with name_en fallback: %q", got)
+	}
+
+	setCurrentLanguage(LanguageSimplifiedChinese)
+	if got := formatServiceShort("demo"); got != "演示服务" {
+		t.Fatalf("unexpected Chinese service description: %q", got)
+	}
+	if got := formatActionLong("demo", "DoThing"); got != "执行演示操作。" {
+		t.Fatalf("unexpected Chinese action long: %q", got)
 	}
 }
 
 func TestActionUsageIncludesLongDescription(t *testing.T) {
+	restoreLanguage := setLanguageForTest(LanguageSimplifiedChinese)
+	defer restoreLanguage()
 	out := actionUsageTemplate("获取请求者身份信息 - Get identity information for the request credential", []string{"InstanceId string"})
 	if !strings.Contains(out, "获取请求者身份信息 - Get identity information for the request credential") {
 		t.Fatalf("action usage missing long description:\n%s", out)
@@ -149,5 +173,5 @@ func TestActionUsageIncludesFixedFlags(t *testing.T) {
 }
 
 func expectedFixedFlagsForTest() []string {
-	return []string{"---profile", "---region", "---endpoint"}
+	return []string{"---profile", "---region", "---endpoint", "---lang"}
 }

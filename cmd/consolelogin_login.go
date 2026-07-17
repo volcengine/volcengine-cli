@@ -70,7 +70,7 @@ func (cl *ConsoleLogin) Login() error {
 	}
 	resolvedRegion, err := resolveConsoleLoginRegion(os.Stdin, os.Stdout, cl.Region)
 	if err != nil {
-		return fmt.Errorf("resolving login region: %w", err)
+		return trErrorf("resolving login region: %w", err)
 	}
 	cl.Region = resolvedRegion
 
@@ -83,14 +83,14 @@ func (cl *ConsoleLogin) Login() error {
 	// 2. Generate PKCE parameters.
 	codeVerifier, err := generateCodeVerifier()
 	if err != nil {
-		return fmt.Errorf("generating code verifier: %w", err)
+		return trErrorf("generating code verifier: %w", err)
 	}
 	codeChallenge := generateCodeChallenge(codeVerifier)
 
 	// 3. Generate state (UUID v4).
 	state, err := generateState()
 	if err != nil {
-		return fmt.Errorf("generating state: %w", err)
+		return trErrorf("generating state: %w", err)
 	}
 
 	// 4. Create the OAuth client.
@@ -120,18 +120,18 @@ func (cl *ConsoleLogin) Login() error {
 		CodeVerifier: codeVerifier,
 	})
 	if err != nil {
-		return fmt.Errorf("exchanging authorization code for token: %w", err)
+		return trErrorf("exchanging authorization code for token: %w", err)
 	}
 
 	// 7. Validate STS credentials from access_token.
 	if _, err := ParseSTSCredentials(tokenResp.AccessToken); err != nil {
-		return fmt.Errorf("parsing STS credentials: %w", err)
+		return trErrorf("parsing STS credentials: %w", err)
 	}
 
 	// 8. Extract login_session from id_token.
 	loginSession, err := extractLoginSession(tokenResp.IDToken)
 	if err != nil {
-		return fmt.Errorf("extracting login session from id_token: %w", err)
+		return trErrorf("extracting login session from id_token: %w", err)
 	}
 
 	// 9. Confirm replacement when the profile is already bound to another login_session.
@@ -146,10 +146,10 @@ func (cl *ConsoleLogin) Login() error {
 	if profile.LoginSession != "" && profile.LoginSession != loginSession {
 		confirmed, err := confirmLoginSessionReplacement(os.Stdin, os.Stdout, cl.Profile, profile.LoginSession, loginSession)
 		if err != nil {
-			return fmt.Errorf("confirming login session replacement: %w", err)
+			return trErrorf("confirming login session replacement: %w", err)
 		}
 		if !confirmed {
-			return fmt.Errorf("login canceled: existing login_session was not replaced")
+			return trErrorf("login canceled: existing login_session was not replaced")
 		}
 	}
 
@@ -168,7 +168,7 @@ func (cl *ConsoleLogin) Login() error {
 		TokenType:    tokenResp.TokenType,
 	}
 	if err := writeLoginCache(cache); err != nil {
-		return fmt.Errorf("writing login cache: %w", err)
+		return trErrorf("writing login cache: %w", err)
 	}
 
 	// 11. Update the CLI config profile.
@@ -184,16 +184,16 @@ func (cl *ConsoleLogin) Login() error {
 	}
 
 	if err := WriteConfigToFile(cfg); err != nil {
-		return fmt.Errorf("writing config: %w", err)
+		return trErrorf("writing config: %w", err)
 	}
 	setRuntimeConfig(cfg)
 
 	// 12. Print success message.
-	fmt.Println("\nSuccessfully logged in!")
-	fmt.Printf("Credentials cached for profile: %s\n", cl.Profile)
+	fmt.Println("\n" + tr("Successfully logged in!"))
+	fmt.Printf(tr("Credentials cached for profile: %s\n"), cl.Profile)
 	issuedAt, _ := time.Parse(time.RFC3339, cache.IssuedAt)
 	expiresAt := issuedAt.Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
-	fmt.Printf("STS credentials expire at: %s\n", expiresAt.Local().Format("2006-01-02 15:04:05"))
+	fmt.Printf(tr("STS credentials expire at: %s\n"), expiresAt.Local().Format("2006-01-02 15:04:05"))
 	return nil
 }
 
@@ -202,16 +202,16 @@ func confirmLoginSessionReplacement(input io.Reader, output io.Writer, profileNa
 		return true, nil
 	}
 	if input == nil {
-		return false, fmt.Errorf("nil input reader")
+		return false, trErrorf("nil input reader")
 	}
 	if output == nil {
 		output = io.Discard
 	}
 
 	reader := bufio.NewReader(input)
-	fmt.Fprintf(output, "Profile %q is currently using login_session %q.\n", profileName, currentLoginSession)
-	fmt.Fprintf(output, "The new login would replace it with %q.\n", newLoginSession)
-	fmt.Fprint(output, "Replace the existing login_session? [y/N]: ")
+	fmt.Fprintf(output, tr("Profile %q is currently using login_session %q.\n"), profileName, currentLoginSession)
+	fmt.Fprintf(output, tr("The new login would replace it with %q.\n"), newLoginSession)
+	fmt.Fprint(output, tr("Replace the existing login_session? [y/N]: "))
 
 	response, err := reader.ReadString('\n')
 	if err != nil && err != io.EOF {
@@ -237,7 +237,7 @@ func resolveConsoleLoginRegion(input io.Reader, output io.Writer, commandRegion 
 // 当前默认值为 cn-beijing，保证新登录 profile 一定具备可用区域。
 func promptForConsoleLoginRegion(input io.Reader, output io.Writer, defaultRegion string) (string, error) {
 	if input == nil {
-		return "", fmt.Errorf("nil input reader")
+		return "", trErrorf("nil input reader")
 	}
 	if output == nil {
 		output = io.Discard
@@ -248,7 +248,7 @@ func promptForConsoleLoginRegion(input io.Reader, output io.Writer, defaultRegio
 		defaultRegion = defaultConsoleLoginRegion
 	}
 
-	fmt.Fprintf(output, "Please enter region [%s]: ", defaultRegion)
+	fmt.Fprintf(output, tr("Please enter region [%s]: "), defaultRegion)
 	reader := bufio.NewReader(input)
 	line, err := reader.ReadString('\n')
 	if err != nil && err != io.EOF {
@@ -275,7 +275,7 @@ func (cl *ConsoleLogin) localAuthorize(
 	// Start the local callback server.
 	cbServer, err := NewCallbackServer()
 	if err != nil {
-		return "", "", fmt.Errorf("starting callback server: %w", err)
+		return "", "", trErrorf("starting callback server: %w", err)
 	}
 	cbServer.Start()
 	defer cbServer.Shutdown()
@@ -292,8 +292,8 @@ func (cl *ConsoleLogin) localAuthorize(
 		RedirectURI:         redirectURI,
 	})
 
-	fmt.Println("Attempting to automatically open the login page in your default browser.")
-	fmt.Println("If the browser does not open, open the following URL:")
+	fmt.Println(tr("Attempting to automatically open the login page in your default browser."))
+	fmt.Println(tr("If the browser does not open, open the following URL:"))
 	fmt.Println(authorizeURL)
 
 	// Best-effort browser open.
@@ -302,7 +302,7 @@ func (cl *ConsoleLogin) localAuthorize(
 	// Wait for the callback with a 10-minute timeout.
 	result, err := cbServer.WaitForCallback(10 * time.Minute)
 	if err != nil {
-		return "", "", fmt.Errorf("waiting for authorization callback: %w", err)
+		return "", "", trErrorf("waiting for authorization callback: %w", err)
 	}
 
 	// Check for errors in the result.
@@ -311,16 +311,16 @@ func (cl *ConsoleLogin) localAuthorize(
 		if result.ErrorDescription != "" {
 			desc = fmt.Sprintf("%s: %s", result.Error, result.ErrorDescription)
 		}
-		return "", "", fmt.Errorf("authorization failed: %s", desc)
+		return "", "", trErrorf("authorization failed: %s", desc)
 	}
 
 	// Validate the state matches.
 	if result.State != state {
-		return "", "", fmt.Errorf("state mismatch: expected %s, got %s (possible CSRF attack)", state, result.State)
+		return "", "", trErrorf("state mismatch: expected %s, got %s (possible CSRF attack)", state, result.State)
 	}
 
 	if result.Code == "" {
-		return "", "", fmt.Errorf("authorization callback did not include an authorization code")
+		return "", "", trErrorf("authorization callback did not include an authorization code")
 	}
 
 	return result.Code, redirectURI, nil
@@ -348,21 +348,21 @@ func (cl *ConsoleLogin) remoteAuthorize(
 		RedirectURI:         redirectURI,
 	})
 
-	fmt.Println("Open the following URL in a browser on any device:")
+	fmt.Println(tr("Open the following URL in a browser on any device:"))
 	fmt.Println()
 	fmt.Println(authorizeURL)
 	fmt.Println()
-	fmt.Println("After completing login, enter the authorization code shown in the browser:")
+	fmt.Println(tr("After completing login, enter the authorization code shown in the browser:"))
 
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Print("Authorization code: ")
+	fmt.Print(tr("Authorization code: "))
 	rawInput, err := reader.ReadString('\n')
 	if err != nil {
-		return "", "", fmt.Errorf("reading authorization code from stdin: %w", err)
+		return "", "", trErrorf("reading authorization code from stdin: %w", err)
 	}
 	rawInput = strings.TrimSpace(rawInput)
 	if rawInput == "" {
-		return "", "", fmt.Errorf("authorization code cannot be empty")
+		return "", "", trErrorf("authorization code cannot be empty")
 	}
 
 	// Base64 decode the input. The browser displays a base64-encoded string
@@ -374,7 +374,7 @@ func (cl *ConsoleLogin) remoteAuthorize(
 		if err != nil {
 			decoded, err = base64.RawURLEncoding.DecodeString(rawInput)
 			if err != nil {
-				return "", "", fmt.Errorf("base64 decoding authorization response: %w", err)
+				return "", "", trErrorf("base64 decoding authorization response: %w", err)
 			}
 		}
 	}
@@ -382,18 +382,18 @@ func (cl *ConsoleLogin) remoteAuthorize(
 	// Parse the decoded query string to extract code and state.
 	params, err := url.ParseQuery(string(decoded))
 	if err != nil {
-		return "", "", fmt.Errorf("parsing decoded authorization response: %w", err)
+		return "", "", trErrorf("parsing decoded authorization response: %w", err)
 	}
 
 	authCode := params.Get("code")
 	if authCode == "" {
-		return "", "", fmt.Errorf("decoded authorization response does not contain a \"code\" parameter")
+		return "", "", trErrorf("decoded authorization response does not contain a \"code\" parameter")
 	}
 
 	// Validate the state to prevent CSRF attacks.
 	respondedState := params.Get("state")
 	if respondedState != state {
-		return "", "", fmt.Errorf("state mismatch: expected %s, got %s (possible CSRF attack)", state, respondedState)
+		return "", "", trErrorf("state mismatch: expected %s, got %s (possible CSRF attack)", state, respondedState)
 	}
 
 	return authCode, redirectURI, nil
@@ -410,18 +410,18 @@ func getLoginCacheDir() (string, error) {
 		// 允许用户通过环境变量显式指定令牌缓存目录。这里直接使用用户传入的目录，
 		// 避免再追加 login/cache 导致实际路径与文档和用户预期不一致。
 		if err := os.MkdirAll(customCacheDir, 0700); err != nil {
-			return "", fmt.Errorf("creating custom cache directory %s: %w", customCacheDir, err)
+			return "", trErrorf("creating custom cache directory %s: %w", customCacheDir, err)
 		}
 		return customCacheDir, nil
 	}
 
 	configDir, err := configFileDirFunc()
 	if err != nil {
-		return "", fmt.Errorf("getting config directory: %w", err)
+		return "", trErrorf("getting config directory: %w", err)
 	}
 	cacheDir := filepath.Join(configDir, "login", "cache")
 	if err := os.MkdirAll(cacheDir, 0700); err != nil {
-		return "", fmt.Errorf("creating cache directory %s: %w", cacheDir, err)
+		return "", trErrorf("creating cache directory %s: %w", cacheDir, err)
 	}
 	return cacheDir, nil
 }
@@ -444,7 +444,7 @@ func loginCacheFilePath(loginSession string) (string, error) {
 func writeLoginCache(cache *LoginTokenCache) (retErr error) {
 	data, err := json.MarshalIndent(cache, "", "  ")
 	if err != nil {
-		return fmt.Errorf("marshalling login cache: %w", err)
+		return trErrorf("marshalling login cache: %w", err)
 	}
 
 	cachePath, err := loginCacheFilePath(cache.LoginSession)
@@ -455,7 +455,7 @@ func writeLoginCache(cache *LoginTokenCache) (retErr error) {
 	dir := filepath.Dir(cachePath)
 	tmpFile, err := os.CreateTemp(dir, ".tmp-login-cache-*")
 	if err != nil {
-		return fmt.Errorf("creating temp file: %w", err)
+		return trErrorf("creating temp file: %w", err)
 	}
 	tmpName := tmpFile.Name()
 	closed := false
@@ -469,17 +469,17 @@ func writeLoginCache(cache *LoginTokenCache) (retErr error) {
 	}()
 
 	if _, err := tmpFile.Write(data); err != nil {
-		return fmt.Errorf("writing temp cache file: %w", err)
+		return trErrorf("writing temp cache file: %w", err)
 	}
 	if err := tmpFile.Close(); err != nil {
-		return fmt.Errorf("closing temp cache file: %w", err)
+		return trErrorf("closing temp cache file: %w", err)
 	}
 	closed = true
 	if err := os.Chmod(tmpName, 0600); err != nil {
-		return fmt.Errorf("setting cache file permissions: %w", err)
+		return trErrorf("setting cache file permissions: %w", err)
 	}
 	if err := os.Rename(tmpName, cachePath); err != nil {
-		return fmt.Errorf("renaming temp cache file: %w", err)
+		return trErrorf("renaming temp cache file: %w", err)
 	}
 	return nil
 }
@@ -494,12 +494,12 @@ func readLoginCache(loginSession string) (*LoginTokenCache, error) {
 
 	data, err := os.ReadFile(cachePath)
 	if err != nil {
-		return nil, fmt.Errorf("reading cache file %s: %w", cachePath, err)
+		return nil, trErrorf("reading cache file %s: %w", cachePath, err)
 	}
 
 	var cache LoginTokenCache
 	if err := json.Unmarshal(data, &cache); err != nil {
-		return nil, fmt.Errorf("parsing cache file %s: %w", cachePath, err)
+		return nil, trErrorf("parsing cache file %s: %w", cachePath, err)
 	}
 	return &cache, nil
 }
@@ -510,12 +510,12 @@ func readLoginCache(loginSession string) (*LoginTokenCache, error) {
 // directly from the trusted signin server over TLS.
 func extractLoginSession(idToken string) (string, error) {
 	if idToken == "" {
-		return "", fmt.Errorf("id_token is empty")
+		return "", trErrorf("id_token is empty")
 	}
 
 	parts := strings.Split(idToken, ".")
 	if len(parts) < 2 {
-		return "", fmt.Errorf("id_token does not have a valid JWT structure")
+		return "", trErrorf("id_token does not have a valid JWT structure")
 	}
 
 	payload := parts[1]
@@ -529,17 +529,17 @@ func extractLoginSession(idToken string) (string, error) {
 
 	decoded, err := base64.URLEncoding.DecodeString(payload)
 	if err != nil {
-		return "", fmt.Errorf("base64-decoding JWT payload: %w", err)
+		return "", trErrorf("base64-decoding JWT payload: %w", err)
 	}
 
 	var claims struct {
 		TRN string `json:"trn"`
 	}
 	if err := json.Unmarshal(decoded, &claims); err != nil {
-		return "", fmt.Errorf("parsing JWT payload JSON: %w", err)
+		return "", trErrorf("parsing JWT payload JSON: %w", err)
 	}
 	if claims.TRN == "" {
-		return "", fmt.Errorf("id_token JWT payload does not contain a \"trn\" claim")
+		return "", trErrorf("id_token JWT payload does not contain a \"trn\" claim")
 	}
 	return claims.TRN, nil
 }
@@ -552,22 +552,22 @@ func extractLoginSession(idToken string) (string, error) {
 
 func EnsureValidLoginToken(cfg *Configure, profileName string) (*STSCredentials, error) {
 	if cfg == nil || cfg.Profiles == nil {
-		return nil, fmt.Errorf("no configuration loaded")
+		return nil, trErrorf("no configuration loaded")
 	}
 
 	// 1. Look up profile and its login_session.
 	profile, ok := cfg.Profiles[profileName]
 	if !ok || profile == nil {
-		return nil, fmt.Errorf("profile %q not found in config", profileName)
+		return nil, trErrorf("profile %q not found in config", profileName)
 	}
 	if profile.LoginSession == "" {
-		return nil, fmt.Errorf("profile %q does not have a login_session; run 've login' first", profileName)
+		return nil, trErrorf("profile %q does not have a login_session; run 've login' first", profileName)
 	}
 
 	// 2. Read the token cache.
 	cache, err := readLoginCache(profile.LoginSession)
 	if err != nil {
-		return nil, fmt.Errorf("no active session. Please run 've login' first")
+		return nil, trErrorf("no active session. Please run 've login' first")
 	}
 
 	// 3. Parse STS credentials from the cached access_token.
@@ -581,13 +581,13 @@ func EnsureValidLoginToken(cfg *Configure, profileName string) (*STSCredentials,
 
 	creds, err := ParseSTSCredentials(accessTokenStr)
 	if err != nil {
-		return nil, fmt.Errorf("parsing cached STS credentials: %w", err)
+		return nil, trErrorf("parsing cached STS credentials: %w", err)
 	}
 
 	// 4. Check whether the credentials have expired using issued_at + expires_in.
 	issuedAt, err := time.Parse(time.RFC3339, cache.IssuedAt)
 	if err != nil {
-		return nil, fmt.Errorf("parsing issued_at %q: %w", cache.IssuedAt, err)
+		return nil, trErrorf("parsing issued_at %q: %w", cache.IssuedAt, err)
 	}
 	expiration := issuedAt.Add(time.Duration(cache.ExpiresIn) * time.Second)
 
@@ -598,7 +598,7 @@ func EnsureValidLoginToken(cfg *Configure, profileName string) (*STSCredentials,
 
 	// 6. Token expired; attempt refresh.
 	if cache.RefreshToken == "" {
-		return nil, fmt.Errorf(
+		return nil, trErrorf(
 			"no refresh token available. Session expired. Please run 've login' to re-authenticate",
 		)
 	}
@@ -619,7 +619,7 @@ func EnsureValidLoginToken(cfg *Configure, profileName string) (*STSCredentials,
 		Scope:        cache.Scope,
 	})
 	if err != nil {
-		return nil, fmt.Errorf(
+		return nil, trErrorf(
 			"failed to refresh session token. Please run 've login' to re-authenticate. %w", err,
 		)
 	}
@@ -627,7 +627,7 @@ func EnsureValidLoginToken(cfg *Configure, profileName string) (*STSCredentials,
 	// 7. Parse new credentials.
 	newCreds, err := ParseSTSCredentials(tokenResp.AccessToken)
 	if err != nil {
-		return nil, fmt.Errorf("parsing refreshed STS credentials: %w", err)
+		return nil, trErrorf("parsing refreshed STS credentials: %w", err)
 	}
 
 	// 8. Update the cache on disk.
@@ -644,7 +644,7 @@ func EnsureValidLoginToken(cfg *Configure, profileName string) (*STSCredentials,
 
 	if err := writeLoginCache(cache); err != nil {
 		// Non-fatal: credentials are still valid in memory.
-		fmt.Fprintf(os.Stderr, "Warning: failed to update login cache: %v\n", err)
+		fmt.Fprintf(os.Stderr, tr("Warning: failed to update login cache: %v\n"), err)
 	}
 
 	return newCreds, nil

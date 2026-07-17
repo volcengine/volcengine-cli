@@ -1,6 +1,5 @@
 /*
 Copyright © 2022 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
@@ -14,8 +13,8 @@ import (
 // completionCmd represents the completion command
 var completionCmd = &cobra.Command{
 	Use:   "completion [bash|zsh|fish|powershell]",
-	Short: "Generate shell autocompletion scripts",
-	Long: fmt.Sprintf(`To load completions:
+	Short: tr("Generate shell autocompletion scripts"),
+	Long: fmt.Sprintf(tr(`To load completions:
 
 Bash:
 
@@ -53,7 +52,7 @@ PowerShell:
   # To load completions for every new session, run:
   PS> %[1]s completion powershell > %[1]s.ps1
   # and source this file from your PowerShell profile.
-`, rootCmd.Root().Name()),
+`), rootCmd.Root().Name()),
 	DisableFlagsInUseLine: true,
 	ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
 	Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
@@ -72,6 +71,7 @@ PowerShell:
 }
 
 func init() {
+	completionCmd.SetUsageTemplate(loginUsageTemplate())
 	rootCmd.AddCommand(completionCmd)
 
 	// Here you will define your flags and configuration settings.

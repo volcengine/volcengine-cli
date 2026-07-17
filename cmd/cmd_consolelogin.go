@@ -16,13 +16,13 @@ func newLoginCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "login",
-		Short: "Log in to Volcengine Console via browser",
-		Long: `Authenticate with Volcengine Console using OAuth 2.0 + PKCE.
+		Short: tr("Log in to Volcengine Console via browser"),
+		Long: tr(`Authenticate with Volcengine Console using OAuth 2.0 + PKCE.
 Opens a browser for authentication and caches temporary STS credentials locally.
 
 Supports two modes:
   - Local (default): Opens browser on the same device
-  - Remote (--remote): For headless environments, displays URL and accepts code input`,
+  - Remote (--remote): For headless environments, displays URL and accepts code input`),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return login.Login()
 		},
@@ -31,10 +31,10 @@ Supports two modes:
 	cmd.SetUsageTemplate(loginUsageTemplate())
 
 	// Register flags.
-	cmd.Flags().StringVarP(&login.Profile, "profile", "p", "default", "Configuration profile name")
-	cmd.Flags().StringVarP(&login.Region, "region", "r", "", "Region (prompts when omitted; empty input defaults to cn-beijing)")
-	cmd.Flags().BoolVar(&login.Remote, "remote", false, "Enable cross-device (remote) login mode")
-	cmd.Flags().StringVar(&login.EndpointURL, "endpoint-url", "https://signin.volcengine.com", "Override signin service endpoint URL")
+	cmd.Flags().StringVarP(&login.Profile, "profile", "p", "default", tr("Configuration profile name"))
+	cmd.Flags().StringVarP(&login.Region, "region", "r", "", tr("Region (prompts when omitted; empty input defaults to cn-beijing)"))
+	cmd.Flags().BoolVar(&login.Remote, "remote", false, tr("Enable cross-device (remote) login mode"))
+	cmd.Flags().StringVar(&login.EndpointURL, "endpoint-url", "https://signin.volcengine.com", tr("Override signin service endpoint URL"))
 
 	return cmd
 }
@@ -44,24 +44,24 @@ func newLogoutCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "logout",
-		Short: "Log out of Volcengine Console and clear cached credentials",
-		Long: `Remove locally cached login credentials for the specified profile or all profiles.
+		Short: tr("Log out of Volcengine Console and clear cached credentials"),
+		Long: tr(`Remove locally cached login credentials for the specified profile or all profiles.
 
-This is a purely local operation — no network requests are made to any server.
+This is a purely local operation - no network requests are made to any server.
 It deletes the cached STS token files from disk and clears the login_session
 from the CLI configuration.
 
 Modes:
   - Default: Logs out the specified profile (or "default" if not specified)
-  - --all:   Logs out all configured console-login profiles with active sessions`,
-		Example: `  # Log out the default profile
+  - --all:   Logs out all configured console-login profiles with active sessions`),
+		Example: tr(`  # Log out the default profile
   ve logout
 
   # Log out a specific profile
   ve logout --profile my-profile
 
   # Log out all profiles and clear all cached login credentials
-  ve logout --all`,
+  ve logout --all`),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return logout.Logout()
 		},
@@ -70,35 +70,38 @@ Modes:
 	cmd.SetUsageTemplate(loginUsageTemplate())
 
 	// Register flags.
-	cmd.Flags().StringVarP(&logout.Profile, "profile", "p", "default", "Configuration profile name")
-	cmd.Flags().BoolVar(&logout.All, "all", false, "Log out all profiles and remove all cached login credentials")
+	cmd.Flags().StringVarP(&logout.Profile, "profile", "p", "default", tr("Configuration profile name"))
+	cmd.Flags().BoolVar(&logout.All, "all", false, tr("Log out all profiles and remove all cached login credentials"))
 
 	return cmd
 }
 
 func loginUsageTemplate() string {
-	return `Usage:{{if .Runnable}}
+	return tr("Usage:") + `{{if .Runnable}}
   {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
   {{.CommandPath}} [command]{{end}}{{if gt (len .Aliases) 0}}
 
-Aliases:
+` + tr("Aliases:") + `
   {{.NameAndAliases}}{{end}}{{if .HasExample}}
 
-Examples:
+` + tr("Examples:") + `
 {{.Example}}{{end}}{{if .HasAvailableSubCommands}}
 
-Available Commands:{{range .Commands}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
+` + tr("Available Commands:") + `{{range .Commands}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
   {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
 
-Flags:
+` + tr("Flags:") + `
 {{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableInheritedFlags}}
 
-Global Flags:
+` + tr("Global Flags:") + `
 {{.InheritedFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasHelpSubCommands}}
 
-Additional help topics:{{range .Commands}}{{if .IsAdditionalHelpTopicCommand}}
+` + tr("Additional help topics:") + `{{range .Commands}}{{if .IsAdditionalHelpTopicCommand}}
   {{rpad .CommandPath .CommandPathPadding}} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableSubCommands}}
 
-Use "{{.CommandPath}} [command] --help" for more information about a command.{{end}}
+` + tr(`Use "{{.CommandPath}} [command] --help" for more information about a command.`) + `{{end}}
+
+` + tr("Fixed Flags:") + `
+  ---lang string    ` + tr("Set the display language for this invocation (EN or ZH).") + `
 `
 }

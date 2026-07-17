@@ -142,14 +142,16 @@ func lookupAssetServiceDescription(service string) (ServiceDescription, bool) {
 
 func formatServiceShort(service string) string {
 	d := getServiceDescription(service)
-	parts := []string{}
-	if d.ServiceCn != "" {
-		parts = append(parts, d.ServiceCn)
+	if currentLanguage == LanguageSimplifiedChinese {
+		if strings.TrimSpace(d.ServiceCn) != "" {
+			return d.ServiceCn
+		}
+		return "火山引擎 " + service + " 服务"
 	}
-	if d.ServiceEn != "" {
-		parts = append(parts, d.ServiceEn)
+	if strings.TrimSpace(d.ServiceEn) != "" && !containsCJK(d.ServiceEn) {
+		return d.ServiceEn
 	}
-	return strings.Join(parts, " - ")
+	return service
 }
 
 func getApiDescription(service, action string) ApiDescription {
@@ -207,37 +209,36 @@ func mergeApiDescription(primary, fallback ApiDescription) ApiDescription {
 
 func formatActionShort(service, action string) string {
 	d := getApiDescription(service, action)
-	if d.NameCn != "" {
-		return d.NameCn
+	if currentLanguage == LanguageSimplifiedChinese {
+		if strings.TrimSpace(d.NameCn) != "" {
+			return d.NameCn
+		}
+		return action
 	}
-	return ""
+	if strings.TrimSpace(d.NameEn) != "" && !containsCJK(d.NameEn) {
+		return d.NameEn
+	}
+	return action
 }
 
 func formatActionLong(service, action string) string {
 	d := getApiDescription(service, action)
-	parts := []string{}
-	if d.NameCn != "" {
-		parts = append(parts, d.NameCn)
+	if currentLanguage == LanguageSimplifiedChinese {
+		if strings.TrimSpace(d.DescriptionCn) != "" {
+			return firstLine(d.DescriptionCn)
+		}
+		if strings.TrimSpace(d.Description) != "" && containsCJK(d.Description) {
+			return firstLine(d.Description)
+		}
+		return formatActionShort(service, action)
 	}
-	if desc := preferredDescription(d); desc != "" {
-		parts = append(parts, firstLine(desc))
-	} else if d.NameEn != "" {
-		parts = append(parts, d.NameEn)
+	if strings.TrimSpace(d.DescriptionEn) != "" && !containsCJK(d.DescriptionEn) {
+		return firstLine(d.DescriptionEn)
 	}
-	return strings.Join(parts, " - ")
-}
-
-func preferredDescription(d ApiDescription) string {
-	if d.DescriptionEn != "" {
-		return d.DescriptionEn
+	if strings.TrimSpace(d.Description) != "" && !containsCJK(d.Description) {
+		return firstLine(d.Description)
 	}
-	if d.Description != "" && !containsCJK(d.Description) {
-		return d.Description
-	}
-	if d.DescriptionCn != "" {
-		return d.DescriptionCn
-	}
-	return d.Description
+	return formatActionShort(service, action)
 }
 
 func firstLine(s string) string {

@@ -97,7 +97,7 @@ func (e *ConsoleOAuthAPIError) Error() string {
 	}
 	suffix += "]"
 
-	return fmt.Sprintf("console oauth request failed: %s %s", msg, suffix)
+	return trf("console oauth request failed: %s %s", msg, suffix)
 }
 
 // IsRetryable reports whether the error is transient and the request should be
@@ -249,13 +249,13 @@ func (c *ConsoleOAuthClient) BuildAuthorizeURL(params *AuthorizeParams) string {
 // are retried.
 func (c *ConsoleOAuthClient) ExchangeToken(ctx context.Context, req *ConsoleTokenRequest) (*ConsoleTokenResponse, error) {
 	if req == nil {
-		return nil, fmt.Errorf("request cannot be nil")
+		return nil, trErrorf("request cannot be nil")
 	}
 	if strings.TrimSpace(req.GrantType) == "" {
-		return nil, fmt.Errorf("grant_type is required")
+		return nil, trErrorf("grant_type is required")
 	}
 	if strings.TrimSpace(req.ClientID) == "" {
-		return nil, fmt.Errorf("client_id is required")
+		return nil, trErrorf("client_id is required")
 	}
 
 	q := url.Values{}
@@ -269,10 +269,10 @@ func (c *ConsoleOAuthClient) ExchangeToken(ctx context.Context, req *ConsoleToke
 	switch req.GrantType {
 	case "authorization_code":
 		if strings.TrimSpace(req.Code) == "" {
-			return nil, fmt.Errorf("code is required for authorization_code grant")
+			return nil, trErrorf("code is required for authorization_code grant")
 		}
 		if strings.TrimSpace(req.CodeVerifier) == "" {
-			return nil, fmt.Errorf("code_verifier is required for authorization_code grant")
+			return nil, trErrorf("code_verifier is required for authorization_code grant")
 		}
 		q.Set("code", req.Code)
 		q.Set("code_verifier", req.CodeVerifier)
@@ -282,12 +282,12 @@ func (c *ConsoleOAuthClient) ExchangeToken(ctx context.Context, req *ConsoleToke
 
 	case "refresh_token":
 		if strings.TrimSpace(req.RefreshToken) == "" {
-			return nil, fmt.Errorf("refresh_token is required for refresh_token grant")
+			return nil, trErrorf("refresh_token is required for refresh_token grant")
 		}
 		q.Set("refresh_token", req.RefreshToken)
 
 	default:
-		return nil, fmt.Errorf("unsupported grant_type: %s", req.GrantType)
+		return nil, trErrorf("unsupported grant_type: %s", req.GrantType)
 	}
 
 	requestBody := q.Encode()
@@ -296,7 +296,7 @@ func (c *ConsoleOAuthClient) ExchangeToken(ctx context.Context, req *ConsoleToke
 	err := doWithRetry(ctx, retryOptions{maxAttempts: consoleTokenRetryAttempts}, func() error {
 		httpReq, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, c.tokenURL, strings.NewReader(requestBody))
 		if reqErr != nil {
-			return fmt.Errorf("failed to build request: %w", reqErr)
+			return trErrorf("failed to build request: %w", reqErr)
 		}
 		httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		if customHeaders := os.Getenv("VOLCENGINE_LOGIN_HEADERS"); customHeaders != "" {
@@ -308,13 +308,13 @@ func (c *ConsoleOAuthClient) ExchangeToken(ctx context.Context, req *ConsoleToke
 		}
 		resp, doErr := c.httpClient.Do(httpReq)
 		if doErr != nil {
-			return fmt.Errorf("request failed: %w", doErr)
+			return trErrorf("request failed: %w", doErr)
 		}
 		defer resp.Body.Close()
 
 		respBytes, readErr := ioutil.ReadAll(resp.Body)
 		if readErr != nil {
-			return fmt.Errorf("failed to read response: %w", readErr)
+			return trErrorf("failed to read response: %w", readErr)
 		}
 
 		requestID := resp.Header.Get("X-Tt-Logid")
@@ -341,7 +341,7 @@ func (c *ConsoleOAuthClient) ExchangeToken(ctx context.Context, req *ConsoleToke
 		// ---------- Success handling ----------
 		if len(respBytes) > 0 {
 			if unmarshalErr := json.Unmarshal(respBytes, &tokenResp); unmarshalErr != nil {
-				return fmt.Errorf(
+				return trErrorf(
 					"failed to decode token response (status %d, requestId: %s): %w",
 					resp.StatusCode, requestID, unmarshalErr,
 				)
@@ -357,7 +357,7 @@ func (c *ConsoleOAuthClient) ExchangeToken(ctx context.Context, req *ConsoleToke
 
 	if tokenResp.AccessToken == "" && tokenResp.TokenType == "" &&
 		tokenResp.RefreshToken == "" && tokenResp.ExpiresIn == 0 {
-		return nil, fmt.Errorf("ExchangeToken succeeded but response was empty")
+		return nil, trErrorf("ExchangeToken succeeded but response was empty")
 	}
 
 	return &tokenResp, nil
@@ -372,22 +372,22 @@ func (c *ConsoleOAuthClient) ExchangeToken(ctx context.Context, req *ConsoleToke
 // a simple bearer token; it is a JSON string containing STS temporary credentials.
 func ParseSTSCredentials(accessToken string) (*STSCredentials, error) {
 	if strings.TrimSpace(accessToken) == "" {
-		return nil, fmt.Errorf("access_token is empty")
+		return nil, trErrorf("access_token is empty")
 	}
 
 	var creds STSCredentials
 	if err := json.Unmarshal([]byte(accessToken), &creds); err != nil {
-		return nil, fmt.Errorf("failed to parse STS credentials from access_token: %w", err)
+		return nil, trErrorf("failed to parse STS credentials from access_token: %w", err)
 	}
 
 	if creds.AccessKeyID == "" {
-		return nil, fmt.Errorf("parsed STS credentials missing access_key_id")
+		return nil, trErrorf("parsed STS credentials missing access_key_id")
 	}
 	if creds.SecretAccessKey == "" {
-		return nil, fmt.Errorf("parsed STS credentials missing secret_access_key")
+		return nil, trErrorf("parsed STS credentials missing secret_access_key")
 	}
 	if creds.SessionToken == "" {
-		return nil, fmt.Errorf("parsed STS credentials missing session_token")
+		return nil, trErrorf("parsed STS credentials missing session_token")
 	}
 
 	return &creds, nil

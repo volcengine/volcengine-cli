@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -520,7 +520,7 @@
 
       // 后端已统一处理 error/Error/error_description 的优先级；浏览器端只根据注入数据切换状态。
       // 所有动态文本都通过 textContent 写入，避免 OAuth 错误内容被浏览器当作 HTML 执行。
-      document.documentElement.lang = textOr(pageData.lang, "zh");
+      document.documentElement.lang = textOr(pageData.lang, "en");
       document.documentElement.dataset.state = hasError ? "error" : "success";
       document.title = hasError
         ? textOr(messages.documentTitleFailure, "火山引擎认证失败")

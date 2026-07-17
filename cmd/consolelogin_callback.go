@@ -21,6 +21,7 @@ var (
 	callbackTemplateOnce sync.Once
 	callbackTemplate     []byte
 	callbackTemplateErr  error
+	renderCallbackPageFn = renderCallbackPage
 )
 
 // AuthorizationResult holds the result received from the OAuth callback
@@ -40,7 +41,7 @@ type CallbackServer struct {
 }
 
 func logCallbackWarning(format string, args ...interface{}) {
-	_, _ = fmt.Fprintf(os.Stderr, "Warning: "+format+"\n", args...)
+	_, _ = fmt.Fprintf(os.Stderr, tr("Warning: ")+tr(format)+"\n", args...)
 }
 
 // NewCallbackServer creates a new local callback server bound to 127.0.0.1
@@ -48,7 +49,7 @@ func logCallbackWarning(format string, args ...interface{}) {
 func NewCallbackServer() (*CallbackServer, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		return nil, fmt.Errorf("failed to create listener: %w", err)
+		return nil, trErrorf("failed to create listener: %w", err)
 	}
 
 	port := listener.Addr().(*net.TCPAddr).Port
@@ -86,7 +87,7 @@ func (s *CallbackServer) Start() {
 			logCallbackWarning("OAuth callback server stopped unexpectedly: %v", err)
 			s.result <- &AuthorizationResult{
 				Error:            "server_error",
-				ErrorDescription: fmt.Sprintf("callback server error: %v", err),
+				ErrorDescription: trf("callback server error: %v", err),
 			}
 		}
 	}()
@@ -99,7 +100,7 @@ func (s *CallbackServer) WaitForCallback(timeout time.Duration) (*AuthorizationR
 	case result := <-s.result:
 		return result, nil
 	case <-time.After(timeout):
-		return nil, fmt.Errorf("timed out waiting for OAuth callback after %v", timeout)
+		return nil, trErrorf("timed out waiting for OAuth callback after %v", timeout)
 	}
 }
 
@@ -114,7 +115,7 @@ func loadCallbackTemplate() ([]byte, error) {
 	callbackTemplateOnce.Do(func() {
 		callbackTemplate, callbackTemplateErr = callbackasset.Asset("callback.html")
 		if callbackTemplateErr != nil {
-			callbackTemplateErr = fmt.Errorf("failed to load callback html template asset: %w", callbackTemplateErr)
+			callbackTemplateErr = trErrorf("failed to load callback html template asset: %w", callbackTemplateErr)
 		}
 	})
 
@@ -132,7 +133,7 @@ func renderCallbackPage(errorMessage, lang string) ([]byte, error) {
 
 	pageData, err := json.Marshal(newCallbackPageData(errorMessage, lang))
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal callback page data: %w", err)
+		return nil, trErrorf("failed to marshal callback page data: %w", err)
 	}
 
 	return bytes.Replace(content, []byte(callbackHTMLPlaceholder), pageData, 1), nil
@@ -177,7 +178,7 @@ func writeFallbackCallbackPage(w http.ResponseWriter, errorMessage, lang string)
 func (s *CallbackServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		logCallbackWarning("received non-GET OAuth callback request: method=%s path=%s", r.Method, r.URL.Path)
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, tr("Method not allowed"), http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -229,7 +230,7 @@ func (s *CallbackServer) handleCallback(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	page, err := renderCallbackPage(errorMessage, lang)
+	page, err := renderCallbackPageFn(errorMessage, lang)
 	if err != nil {
 		logCallbackWarning("failed to render OAuth callback page; fallback page is used: %v", err)
 		writeFallbackCallbackPage(w, errorMessage, lang)

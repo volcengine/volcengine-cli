@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 )
 
@@ -84,18 +83,21 @@ func TestHandleCallbackErrorPriority(t *testing.T) {
 }
 
 func TestNormalizeCallbackLang(t *testing.T) {
+	restoreLanguage := setLanguageForTest(LanguageEnglish)
+	defer restoreLanguage()
+
 	tests := []struct {
 		name string
 		lang string
 		want string
 	}{
-		{name: "default empty lang", lang: "", want: "zh"},
+		{name: "default empty lang", lang: "", want: "en"},
 		{name: "keeps supported English", lang: "en", want: "en"},
 		{name: "maps English region alias", lang: "en-US", want: "en"},
 		{name: "keeps supported Chinese", lang: "zh", want: "zh"},
 		{name: "maps Chinese mainland alias", lang: "zh-CN", want: "zh"},
-		{name: "maps Chinese traditional alias to Chinese", lang: "zh-TW", want: "zh"},
-		{name: "falls back unsupported lang", lang: "ja", want: "zh"},
+		{name: "traditional Chinese is not enabled", lang: "zh-TW", want: "en"},
+		{name: "falls back unsupported lang", lang: "ja", want: "en"},
 	}
 
 	for _, tc := range tests {
@@ -104,6 +106,15 @@ func TestNormalizeCallbackLang(t *testing.T) {
 				t.Fatalf("normalizeCallbackLang(%q) = %q, want %q", tc.lang, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestNormalizeCallbackLangUsesCurrentSimplifiedChinese(t *testing.T) {
+	restoreLanguage := setLanguageForTest(LanguageSimplifiedChinese)
+	defer restoreLanguage()
+
+	if got := normalizeCallbackLang(""); got != "zh" {
+		t.Fatalf("empty callback language = %q, want current CLI language zh", got)
 	}
 }
 
@@ -158,18 +169,18 @@ func TestRenderCallbackPageLocalizesChineseSuccessState(t *testing.T) {
 	}
 }
 
-func TestRenderCallbackPageFallsBackUnsupportedLangToChinese(t *testing.T) {
+func TestRenderCallbackPageFallsBackUnsupportedLangToEnglish(t *testing.T) {
 	page, err := renderCallbackPage("", "unsupported")
 	if err != nil {
 		t.Fatalf("failed to render callback page: %v", err)
 	}
 
 	got := string(page)
-	if !strings.Contains(got, `"lang":"zh"`) {
-		t.Fatalf("unsupported lang should fall back to zh")
+	if !strings.Contains(got, `"lang":"en"`) {
+		t.Fatalf("unsupported lang should fall back to en")
 	}
-	if !strings.Contains(got, `认证成功`) {
-		t.Fatalf("unsupported lang should use Chinese messages")
+	if !strings.Contains(got, `Authentication successful`) {
+		t.Fatalf("unsupported lang should use English messages")
 	}
 }
 
@@ -198,17 +209,12 @@ func TestHandleCallbackFallbackEscapesErrorDetails(t *testing.T) {
 	}
 
 	// Force renderCallbackPage to fail so that fallback HTML is used.
-	savedOnce := callbackTemplateOnce
-	savedTemplate := callbackTemplate
-	savedErr := callbackTemplateErr
-	callbackTemplateOnce = sync.Once{}
-	callbackTemplateOnce.Do(func() {})
-	callbackTemplate = nil
-	callbackTemplateErr = errors.New(`render failure </script><script>alert("xss")</script>`)
+	savedRender := renderCallbackPageFn
+	renderCallbackPageFn = func(string, string) ([]byte, error) {
+		return nil, errors.New(`render failure </script><script>alert("xss")</script>`)
+	}
 	defer func() {
-		callbackTemplateOnce = savedOnce
-		callbackTemplate = savedTemplate
-		callbackTemplateErr = savedErr
+		renderCallbackPageFn = savedRender
 	}()
 
 	req := httptest.NewRequest(http.MethodGet, "/oauth/callback?lang=zh&error=invalid_request&error_description=%3Cscript%3Eboom%3C%2Fscript%3E", nil)

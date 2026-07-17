@@ -7,10 +7,10 @@
 CLI 的基本调用格式：
 
 ```shell
-ve <service> <action> [--Param value ...] [---profile name] [---region region] [---endpoint endpoint]
+ve <service> <action> [--Param value ...] [---profile name] [---region region] [---endpoint endpoint] [---lang language]
 ```
 
-其中 `--Param value` 是 API 参数，`---profile` / `---region` / `---endpoint` 是 CLI 固定参数。
+其中 `--Param value` 是 API 参数，`---profile` / `---region` / `---endpoint` / `---lang` 是 CLI 固定参数。
 
 ## 查看服务和接口
 
@@ -77,6 +77,7 @@ ve rds_mysql ListDBInstanceIPLists --InstanceId mysql-xxxxxx --GroupName default
 | `---profile` | 本次调用使用指定 profile，不修改 current |
 | `---region` | 本次调用覆盖 region |
 | `---endpoint` | 本次调用覆盖 endpoint，并清空 endpoint resolver |
+| `---lang` | 设置本次调用中 CLI 自有帮助、提示和错误的显示语言 |
 
 示例：
 
@@ -95,6 +96,20 @@ ve sts GetCallerIdentity ---region cn-beijing ---endpoint sts.volcengineapi.com
 ```
 
 如果 `---profile` 指向不存在的 profile，会直接报错。
+
+### 显示语言
+
+使用 `---lang EN` 显示英文，使用 `---lang ZH` 显示简体中文。同时支持 `en-US`、`en_US`、`zh-CN`、`zh_CN`、`zh-Hans` 等语言码。不支持的值统一回退英文。
+
+未传 `---lang` 时，CLI 依次读取 `LC_ALL`、`LC_MESSAGES`、`LANG`，均无法识别时回退英文。显式参数优先级最高，且不会写入配置文件。
+
+```shell
+ve ---lang ZH --help
+ve ecs ---lang EN --help
+ve login ---lang zh-CN
+```
+
+语言选择只影响 CLI 自己生成的文案，不翻译或修改 API 响应体和服务端返回内容。
 
 ## JSON 参数
 
@@ -226,10 +241,10 @@ region not set, please set it via profile, ---region flag, or VOLCENGINE_REGION 
 固定参数不支持时：
 
 ```text
----debug is not supported, supported fixed flags: ---profile, ---region, ---endpoint
+---debug is not supported, supported fixed flags: ---profile, ---region, ---endpoint, ---lang
 ```
 
-当前支持的固定参数只有 `---profile`、`---region`、`---endpoint`。
+当前支持的固定参数只有 `---profile`、`---region`、`---endpoint`、`---lang`。
 
 ---
 

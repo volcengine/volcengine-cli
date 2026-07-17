@@ -1,4 +1,4 @@
-﻿package cmd
+package cmd
 
 import (
 	"fmt"
@@ -26,8 +26,8 @@ func init() {
 func newSsoRootCmd() *cobra.Command {
 	ssoCmd := &cobra.Command{
 		Use:   "sso",
-		Short: "Single sign-on (SSO) related operations",
-		Long:  "Manage operations related to single sign-on (SSO), including login, configuration, etc",
+		Short: tr("Single sign-on (SSO) related operations"),
+		Long:  tr("Manage operations related to single sign-on (SSO), including login, configuration, etc"),
 	}
 
 	// 设置自定义 Usage 模板，统一输出格式。
@@ -40,20 +40,20 @@ func newSsoRootCmd() *cobra.Command {
 func newSsoLoginCmd() *cobra.Command {
 	ssoLoginCmd := &cobra.Command{
 		Use:   "login",
-		Short: "Perform SSO login operations",
-		Long: `Login via SSO, obtain the access token and store it in the cache.
+		Short: tr("Perform SSO login operations"),
+		Long: tr(`Login via SSO, obtain the access token and store it in the cache.
 This command requires specifying a configured profile, and this profile must be associated with a valid SS-session.
-After a successful login, the system will automatically store the access token for subsequent operations。`,
-		Example: `  # Login to SSO using the specified profile
+After a successful login, the system will automatically store the access token for subsequent operations.`),
+		Example: tr(`  # Login to SSO using the specified profile
   volcengine-cli sso login --profile my-sso-profile
   # Login to SSO using the specified sso-session
-  volcengine-cli sso login --sso-session my-sso-session`,
+  volcengine-cli sso login --sso-session my-sso-session`),
 		// 设置自定义 Usage 模板。
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// 加载配置，作为本次登录的参数来源。
 			cfg := ctx.config
 			if cfg == nil {
-				return fmt.Errorf("the configuration file cannot be loaded")
+				return trErrorf("the configuration file cannot be loaded")
 			}
 
 			// 读取 profile 与 sso-session 相关参数。
@@ -72,15 +72,15 @@ After a successful login, the system will automatically store the access token f
 			if profileName != "" {
 				profile, ok := cfg.Profiles[profileName]
 				if !ok {
-					return fmt.Errorf("the specified profile was not found: %s", profileName)
+					return trErrorf("the specified profile was not found: %s", profileName)
 				}
 
 				// 校验 profile 类型与 sso-session 配置。
 				if profile.Mode != ModeSSO {
-					return fmt.Errorf("the specified profile is not of sso type")
+					return trErrorf("the specified profile is not of sso type")
 				}
 				if strings.TrimSpace(profile.SsoSessionName) == "" {
-					return fmt.Errorf("the specified profile does not have sso-session configured")
+					return trErrorf("the specified profile does not have sso-session configured")
 				}
 
 				// 组装 SSO 登录参数，优先使用 profile 中配置。
@@ -96,10 +96,10 @@ After a successful login, the system will automatically store the access token f
 				// 分支 2：通过显式 sso-session 登录。
 				ssoSession, ok := cfg.SsoSession[ssoSessionName]
 				if !ok {
-					return fmt.Errorf("the specified sso-session was not found: %s", ssoSessionName)
+					return trErrorf("the specified sso-session was not found: %s", ssoSessionName)
 				}
 				if ssoSession == nil {
-					return fmt.Errorf("the specified sso-session is invalid: %s", ssoSessionName)
+					return trErrorf("the specified sso-session is invalid: %s", ssoSessionName)
 				}
 
 				// 使用 sso-session 中的 StartURL/Region 进行登录。
@@ -114,13 +114,13 @@ After a successful login, the system will automatically store the access token f
 			} else {
 				// 分支 3：未指定 profile 或 sso-session 时，根据配置自动选择。
 				if len(cfg.SsoSession) == 0 {
-					return fmt.Errorf("no sso-session configured")
+					return trErrorf("no sso-session configured")
 				}
 				// 若仅有一个 sso-session，则直接使用该会话。
 				if len(cfg.SsoSession) == 1 {
 					for name, session := range cfg.SsoSession {
 						if session == nil {
-							return fmt.Errorf("the specified sso-session is invalid: %s", name)
+							return trErrorf("the specified sso-session is invalid: %s", name)
 						}
 						sso = &Sso{
 							SsoSessionName: name,
@@ -140,7 +140,7 @@ After a successful login, the system will automatically store the access token f
 						return err
 					}
 					if selectedSession == nil {
-						return fmt.Errorf("the specified sso-session is invalid: %s", selectedName)
+						return trErrorf("the specified sso-session is invalid: %s", selectedName)
 					}
 					sso = &Sso{
 						SsoSessionName: selectedName,
@@ -156,23 +156,23 @@ After a successful login, the system will automatically store the access token f
 			// 执行登录流程，并输出结果。
 			if err := sso.Login(); err != nil {
 				if activeSessionName != "" {
-					fmt.Printf("login failed for sso-session [%s]: %v\n", activeSessionName, err)
+					fmt.Printf(tr("login failed for sso-session [%s]: %v\n"), activeSessionName, err)
 				}
 				return err
 			}
 
 			if activeSessionName != "" {
-				fmt.Printf("login successfully for sso-session [%s]\n", activeSessionName)
+				fmt.Printf(tr("login successfully for sso-session [%s]\n"), activeSessionName)
 			} else {
-				fmt.Println("login successfully")
+				fmt.Println(tr("login successfully"))
 			}
 			return nil
 		},
 	}
 	// 添加 profile/sso-session 以及登录行为控制参数。
-	ssoLoginCmd.Flags().String("profile", "", "Specify the name of the configuration file to be used")
-	ssoLoginCmd.Flags().String("sso-session", "", "Specify the SSO session to use when no profile is provided")
-	ssoLoginCmd.Flags().Bool("no-browser", false, "Do not automatically open the browser during device authorization")
+	ssoLoginCmd.Flags().String("profile", "", tr("Specify the name of the configuration file to be used"))
+	ssoLoginCmd.Flags().String("sso-session", "", tr("Specify the SSO session to use when no profile is provided"))
+	ssoLoginCmd.Flags().Bool("no-browser", false, tr("Do not automatically open the browser during device authorization"))
 
 	// 设置自定义 Usage 模板。
 	ssoLoginCmd.SetUsageTemplate(ssoUsageTemplate())
@@ -184,7 +184,7 @@ After a successful login, the system will automatically store the access token f
 // 返回所选会话名称与对象，若用户取消则返回错误。
 func selectExistingSession(options []sessionOption) (string, *SsoSession, error) {
 	if len(options) == 0 {
-		return "", nil, fmt.Errorf("no sso-session configured")
+		return "", nil, trErrorf("no sso-session configured")
 	}
 
 	// 支持按名称/区域/URL/Scopes 的模糊搜索。
@@ -211,18 +211,18 @@ func selectExistingSession(options []sessionOption) (string, *SsoSession, error)
 		Active:   "> {{ .Name | cyan }}   {{ sessionRegion .Session }}   {{ sessionStart .Session }}",
 		Inactive: "  {{ .Name | faint }}   {{ sessionRegion .Session }}   {{ sessionStart .Session }}",
 		Selected: "[*] {{ .Name }}",
-		Details: `
+		Details: tr(`
 --------- SSO Session ----------
 Name:   {{ .Name }}
 Region: {{ sessionRegion .Session }}
 URL:    {{ sessionStart .Session }}
-Scopes: {{ sessionScopes .Session }}`,
+Scopes: {{ sessionScopes .Session }}`),
 		FuncMap: buildPromptFuncMap(),
 	}
 
 	// 启动交互选择器，允许搜索并回车确认。
 	sel := promptui.Select{
-		Label:             "Select SSO session (type to filter, Enter to choose)",
+		Label:             tr("Select SSO session (type to filter, Enter to choose)"),
 		Items:             options,
 		Searcher:          searcher,
 		Templates:         templates,
@@ -240,13 +240,13 @@ Scopes: {{ sessionScopes .Session }}`,
 	return chosen.Name, chosen.Session, nil
 }
 
-const allSessionsLabel = "All SSO sessions"
+var allSessionsLabel = tr("All SSO sessions")
 
 // selectSessionOrAll 在交互式选择中支持单个会话或“全部会话”。
 // 返回：会话名称、会话对象、是否选择了全部会话、错误。
 func selectSessionOrAll(options []sessionOption) (string, *SsoSession, bool, error) {
 	if len(options) == 0 {
-		return "", nil, false, fmt.Errorf("no sso-session configured")
+		return "", nil, false, trErrorf("no sso-session configured")
 	}
 
 	// 追加 “全部会话” 作为可选项。
@@ -281,12 +281,12 @@ func selectSessionOrAll(options []sessionOption) (string, *SsoSession, bool, err
 		Active:   "{{if isAll .}}> {{ .Name | yellow }}{{else}}> {{ .Name | cyan }}   {{ sessionRegion .Session }}   {{ sessionStart .Session }}{{end}}",
 		Inactive: "{{if isAll .}}  {{ .Name | faint }}{{else}}  {{ .Name | faint }}   {{ sessionRegion .Session }}   {{ sessionStart .Session }}{{end}}",
 		Selected: "[*] {{ .Name }}",
-		Details: `
+		Details: tr(`
 --------- SSO Session ----------
 Name:   {{ .Name }}
 Region: {{ sessionRegion .Session }}
 URL:    {{ sessionStart .Session }}
-Scopes: {{ sessionScopes .Session }}`,
+Scopes: {{ sessionScopes .Session }}`),
 		FuncMap: func() map[string]interface{} {
 			fm := buildPromptFuncMap()
 			fm["isAll"] = func(opt sessionOption) bool {
@@ -298,7 +298,7 @@ Scopes: {{ sessionScopes .Session }}`,
 
 	// 启动交互选择器，返回用户选择。
 	sel := promptui.Select{
-		Label:             "Select SSO session to logout (type to filter, Enter to choose)",
+		Label:             tr("Select SSO session to logout (type to filter, Enter to choose)"),
 		Items:             choices,
 		Searcher:          searcher,
 		Templates:         templates,
@@ -323,7 +323,7 @@ Scopes: {{ sessionScopes .Session }}`,
 // 若部分会话失败，会汇总错误并返回。
 func logoutAllSessions(cfg *Configure) error {
 	if cfg == nil {
-		return fmt.Errorf("the configuration file cannot be loaded")
+		return trErrorf("the configuration file cannot be loaded")
 	}
 
 	// 对会话名称排序，保证输出顺序稳定。
@@ -350,7 +350,7 @@ func logoutAllSessions(cfg *Configure) error {
 		}
 	}
 	if len(failures) > 0 {
-		return fmt.Errorf("failed to logout some sso sessions: %s", strings.Join(failures, "; "))
+		return trErrorf("failed to logout some sso sessions: %s", strings.Join(failures, "; "))
 	}
 
 	return nil
@@ -360,17 +360,17 @@ func logoutAllSessions(cfg *Configure) error {
 func newSsoLogoutCmd() *cobra.Command {
 	ssoLogoutCmd := &cobra.Command{
 		Use:   "logout",
-		Short: "Perform SSO logout operations",
-		Long:  `Logout from SSO by revoking the cached token and clearing local credentials.`,
-		Example: `  # Logout SSO by profile
+		Short: tr("Perform SSO logout operations"),
+		Long:  tr(`Logout from SSO by revoking the cached token and clearing local credentials.`),
+		Example: tr(`  # Logout SSO by profile
   volcengine-cli sso logout --profile my-sso-profile
   # Logout SSO by sso-session
-  volcengine-cli sso logout --sso-session my-sso-session`,
+  volcengine-cli sso logout --sso-session my-sso-session`),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// 读取配置，作为注销目标来源。
 			cfg := ctx.config
 			if cfg == nil {
-				return fmt.Errorf("the configuration file cannot be loaded")
+				return trErrorf("the configuration file cannot be loaded")
 			}
 
 			ssoSessionName := strings.TrimSpace(cmd.Flag("sso-session").Value.String())
@@ -379,7 +379,7 @@ func newSsoLogoutCmd() *cobra.Command {
 				// 指定 sso-session 时，直接注销该会话。
 				session, ok := cfg.SsoSession[ssoSessionName]
 				if !ok {
-					return fmt.Errorf("the specified sso-session was not found: %s", ssoSessionName)
+					return trErrorf("the specified sso-session was not found: %s", ssoSessionName)
 				}
 				sso := &Sso{
 					SsoSessionName: ssoSessionName,
@@ -389,18 +389,18 @@ func newSsoLogoutCmd() *cobra.Command {
 				if err := sso.Logout(); err != nil {
 					return err
 				}
-				fmt.Println("logout successfully")
+				fmt.Println(tr("logout successfully"))
 				return nil
 			}
 
 			// 未指定会话时：根据配置情况自动选择或提示用户选择。
 			if len(cfg.SsoSession) == 0 {
-				return fmt.Errorf("no sso-session configured")
+				return trErrorf("no sso-session configured")
 			}
 			if len(cfg.SsoSession) == 1 {
 				for name, session := range cfg.SsoSession {
 					if session == nil {
-						return fmt.Errorf("the specified sso-session is invalid: %s", name)
+						return trErrorf("the specified sso-session is invalid: %s", name)
 					}
 					sso := &Sso{
 						SsoSessionName: name,
@@ -410,7 +410,7 @@ func newSsoLogoutCmd() *cobra.Command {
 					if err := sso.Logout(); err != nil {
 						return err
 					}
-					fmt.Println("logout successfully")
+					fmt.Println(tr("logout successfully"))
 					return nil
 				}
 			}
@@ -425,11 +425,11 @@ func newSsoLogoutCmd() *cobra.Command {
 				if err := logoutAllSessions(cfg); err != nil {
 					return err
 				}
-				fmt.Println("logout successfully")
+				fmt.Println(tr("logout successfully"))
 				return nil
 			}
 			if selectedSession == nil {
-				return fmt.Errorf("the specified sso-session is invalid: %s", selectedName)
+				return trErrorf("the specified sso-session is invalid: %s", selectedName)
 			}
 
 			// 对单个会话执行注销。
@@ -441,12 +441,12 @@ func newSsoLogoutCmd() *cobra.Command {
 			if err := sso.Logout(); err != nil {
 				return err
 			}
-			fmt.Println("logout successfully")
+			fmt.Println(tr("logout successfully"))
 			return nil
 		},
 	}
 
-	ssoLogoutCmd.Flags().String("sso-session", "", "Specify the SSO session to log out")
+	ssoLogoutCmd.Flags().String("sso-session", "", tr("Specify the SSO session to log out"))
 
 	// 设置自定义Usage模板
 	ssoLogoutCmd.SetUsageTemplate(ssoUsageTemplate())
@@ -456,30 +456,33 @@ func newSsoLogoutCmd() *cobra.Command {
 
 // ssoUsageTemplate 返回 sso 命令族的自定义 Usage 模板。
 func ssoUsageTemplate() string {
-	return `Usage:{{if .Runnable}}
+	return tr("Usage:") + `{{if .Runnable}}
   {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
   {{.CommandPath}} [command]{{end}}{{if gt (len .Aliases) 0}}
 
-Aliases:
+` + tr("Aliases:") + `
   {{.NameAndAliases}}{{end}}{{if .HasExample}}
 
-Examples:
+` + tr("Examples:") + `
 {{.Example}}{{end}}{{if .HasAvailableSubCommands}}
 
-Available Commands:
+` + tr("Available Commands:") + `
 {{range .Commands}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
   {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
 
-Flags:
+` + tr("Flags:") + `
 {{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableInheritedFlags}}
 
-Global Flags:
+` + tr("Global Flags:") + `
 {{.InheritedFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasHelpSubCommands}}
 
-Additional help topics:
+` + tr("Additional help topics:") + `
 {{range .Commands}}{{if .IsAdditionalHelpTopicCommand}}
   {{rpad .CommandPath .CommandPathPadding}} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableSubCommands}}
 
-Use "{{.CommandPath}} [command] --help" for more information about a command.{{end}}
+` + tr(`Use "{{.CommandPath}} [command] --help" for more information about a command.`) + `{{end}}
+
+` + tr("Fixed Flags:") + `
+  ---lang string    ` + tr("Set the display language for this invocation (EN or ZH).") + `
 `
 }

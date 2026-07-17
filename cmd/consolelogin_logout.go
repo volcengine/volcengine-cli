@@ -28,7 +28,7 @@ func (cl *ConsoleLogout) Logout() error {
 func (cl *ConsoleLogout) logoutSingleProfile() error {
 	cfg := runtimeConfig()
 	if cfg == nil || cfg.Profiles == nil {
-		return fmt.Errorf("no configuration found; nothing to log out")
+		return trErrorf("no configuration found; nothing to log out")
 	}
 
 	profileName := cl.Profile
@@ -38,11 +38,11 @@ func (cl *ConsoleLogout) logoutSingleProfile() error {
 
 	profile, ok := cfg.Profiles[profileName]
 	if !ok || profile == nil {
-		return fmt.Errorf("profile %q not found in configuration", profileName)
+		return trErrorf("profile %q not found in configuration", profileName)
 	}
 
 	if profile.Mode != ModeConsoleLogin {
-		return fmt.Errorf(
+		return trErrorf(
 			"profile %q is using %q mode, not %q mode. "+
 				"Only console-login profiles can be logged out with this command",
 			profileName,
@@ -52,13 +52,13 @@ func (cl *ConsoleLogout) logoutSingleProfile() error {
 	}
 
 	if profile.LoginSession == "" {
-		fmt.Printf("Profile %q does not have an active login session. Nothing to do.\n", profileName)
+		fmt.Printf(tr("Profile %q does not have an active login session. Nothing to do.\n"), profileName)
 		return nil
 	}
 
 	// Attempt to delete the cached token file.
 	if err := removeLoginCache(profile.LoginSession); err != nil {
-		return fmt.Errorf("removing cached token for profile %q: %w", profileName, err)
+		return trErrorf("removing cached token for profile %q: %w", profileName, err)
 	}
 
 	// Clear the login_session field in the profile config.
@@ -66,11 +66,11 @@ func (cl *ConsoleLogout) logoutSingleProfile() error {
 	cfg.Profiles[profileName] = profile
 
 	if err := WriteConfigToFile(cfg); err != nil {
-		return fmt.Errorf("updating config after logout: %w", err)
+		return trErrorf("updating config after logout: %w", err)
 	}
 	setRuntimeConfig(cfg)
 
-	fmt.Printf("Successfully logged out of profile %q.\n", profileName)
+	fmt.Printf(tr("Successfully logged out of profile %q.\n"), profileName)
 	printPostLogoutHint()
 	return nil
 }
@@ -82,7 +82,7 @@ func (cl *ConsoleLogout) logoutSingleProfile() error {
 func (cl *ConsoleLogout) logoutAll() error {
 	cfg := runtimeConfig()
 	if cfg == nil || cfg.Profiles == nil {
-		fmt.Println("No configuration found; nothing to log out.")
+		fmt.Println(tr("No configuration found; nothing to log out."))
 		return nil
 	}
 
@@ -96,7 +96,7 @@ func (cl *ConsoleLogout) logoutAll() error {
 
 		// Attempt to delete the cached token file for this profile.
 		if err := removeLoginCache(profile.LoginSession); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to remove cache for profile %q: %v\n", name, err)
+			fmt.Fprintf(os.Stderr, tr("Warning: failed to remove cache for profile %q: %v\n"), name, err)
 			if firstErr == nil {
 				firstErr = err
 			}
@@ -107,21 +107,21 @@ func (cl *ConsoleLogout) logoutAll() error {
 		// Clear login-session in config.
 		profile.LoginSession = ""
 		deletedCount++
-		fmt.Printf("  Logged out profile %q\n", name)
+		fmt.Printf(tr("  Logged out profile %q\n"), name)
 	}
 
 	// Persist config changes (even if some removals failed, clear the ones that succeeded).
 	if err := WriteConfigToFile(cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to update config after logout: %v\n", err)
+		fmt.Fprintf(os.Stderr, tr("Warning: failed to update config after logout: %v\n"), err)
 	} else {
 		setRuntimeConfig(cfg)
 	}
 
 	if deletedCount > 0 {
-		fmt.Printf("\nSuccessfully logged out %d console-login profile(s).\n", deletedCount)
+		fmt.Printf("\n"+tr("Successfully logged out %d console-login profile(s).\n"), deletedCount)
 		printPostLogoutHint()
 	} else {
-		fmt.Println("No console-login profiles with active sessions found. Nothing to do.")
+		fmt.Println(tr("No console-login profiles with active sessions found. Nothing to do."))
 	}
 
 	return firstErr
@@ -132,11 +132,11 @@ func (cl *ConsoleLogout) logoutAll() error {
 func removeLoginCache(loginSession string) error {
 	cachePath, err := loginCacheFilePath(loginSession)
 	if err != nil {
-		return fmt.Errorf("resolving cache file path: %w", err)
+		return trErrorf("resolving cache file path: %w", err)
 	}
 
 	if err := os.Remove(cachePath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("removing %s: %w", cachePath, err)
+		return trErrorf("removing %s: %w", cachePath, err)
 	}
 	return nil
 }
@@ -144,7 +144,7 @@ func removeLoginCache(loginSession string) error {
 // printPostLogoutHint prints a security reminder after logout.
 func printPostLogoutHint() {
 	fmt.Println()
-	fmt.Println("Note: Local cache has been removed for future CLI sessions.")
-	fmt.Println("Already-running tools that loaded temporary STS credentials before logout")
-	fmt.Println("may continue to use them until those credentials expire.")
+	fmt.Println(tr("Note: Local cache has been removed for future CLI sessions."))
+	fmt.Println(tr("Already-running tools that loaded temporary STS credentials before logout"))
+	fmt.Println(tr("may continue to use them until those credentials expire."))
 }
