@@ -66,7 +66,7 @@ ve rds_mysql ListDBInstanceIPLists --InstanceId mysql-xxxxxx --GroupName default
 ---region cn-beijing
 ```
 
-不要写成 `--Param=value` 或 `---region=cn-beijing`。
+不要写成 `--Param=value`、`---region=cn-beijing` 或 `---lang=ZH`。固定参数的名称和值之间必须使用空格。
 
 ## CLI 固定参数
 

@@ -13,14 +13,21 @@ const (
 	LanguageSimplifiedChinese Language = "ZH"
 )
 
-var currentLanguage = detectProcessLanguage()
+type languageResolution struct {
+	args     []string
+	language Language
+	err      error
+}
 
-func detectProcessLanguage() Language {
-	_, language, err := resolveLanguage(os.Args[1:], os.LookupEnv)
+var processLanguageResolution = resolveProcessLanguage()
+var currentLanguage = processLanguageResolution.language
+
+func resolveProcessLanguage() languageResolution {
+	args, language, err := resolveLanguage(os.Args[1:], os.LookupEnv)
 	if err != nil {
-		return languageFromEnvironment(os.LookupEnv)
+		language = languageFromEnvironment(os.LookupEnv)
 	}
-	return language
+	return languageResolution{args: args, language: language, err: err}
 }
 
 func resolveLanguage(args []string, lookupEnv func(string) (string, bool)) ([]string, Language, error) {
@@ -30,17 +37,20 @@ func resolveLanguage(args []string, lookupEnv func(string) (string, bool)) ([]st
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
+		if strings.HasPrefix(arg, "---lang=") {
+			return nil, language, fmt.Errorf("---lang does not support '=' syntax; use '---lang <value>'")
+		}
 		if arg != "---lang" {
 			filtered = append(filtered, arg)
 			continue
 		}
 		if found {
-			return nil, LanguageEnglish, fmt.Errorf("---lang cannot be specified more than once")
+			return nil, language, fmt.Errorf("---lang cannot be specified more than once")
 		}
 		found = true
 
 		if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
-			return nil, LanguageEnglish, fmt.Errorf("---lang requires a value")
+			return nil, language, fmt.Errorf("---lang requires a value")
 		}
 		i++
 		value := args[i]

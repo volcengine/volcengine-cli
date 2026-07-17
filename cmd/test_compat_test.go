@@ -7,6 +7,11 @@ import (
 	"testing"
 )
 
+func TestMain(m *testing.M) {
+	setCurrentLanguage(LanguageEnglish)
+	os.Exit(m.Run())
+}
+
 func tempDirForTest(t *testing.T) string {
 	t.Helper()
 	dir, err := ioutil.TempDir("", "volcengine-cli-test-*")

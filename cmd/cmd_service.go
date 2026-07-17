@@ -12,6 +12,7 @@ func init() {
 }
 
 func generateServiceCommands() {
+	usageTemplate := serviceUsageTemplate()
 	for svc, actionMeta := range rootSupport.SupportAction {
 		apiMetas := rootSupport.SupportTypes[svc]
 		svc := svc
@@ -25,7 +26,7 @@ func generateServiceCommands() {
 			},
 		}
 
-		svcCmd.SetUsageTemplate(serviceUsageTemplate())
+		svcCmd.SetUsageTemplate(usageTemplate)
 		svcCmd.ValidArgs = validActions
 
 		actionCmds := generateActionCmd(svc, actionMeta, apiMetas)

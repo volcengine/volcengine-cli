@@ -26,6 +26,32 @@ func TestLogoutSingleProfile_NonLoginMode(t *testing.T) {
 	}
 }
 
+func TestLogoutSingleProfile_NonLoginModeLocalized(t *testing.T) {
+	restoreLanguage := setLanguageForTest(LanguageSimplifiedChinese)
+	defer restoreLanguage()
+
+	previousConfig := config
+	previousContextConfig := ctx.config
+	setRuntimeConfig(&Configure{Profiles: map[string]*Profile{
+		"test-ak-profile": {
+			Name: "test-ak-profile",
+			Mode: ModeAK,
+		},
+	}})
+	defer func() {
+		config = previousConfig
+		ctx.config = previousContextConfig
+	}()
+
+	err := (&ConsoleLogout{Profile: "test-ak-profile"}).Logout()
+	if err == nil {
+		t.Fatal("expected non-console-login profile to be rejected")
+	}
+	if !strings.Contains(err.Error(), "只有 console-login 配置档案") {
+		t.Fatalf("logout error was not localized: %q", err)
+	}
+}
+
 func TestLogoutAll_NoConfig(t *testing.T) {
 	// When no config exists, logoutAll should not panic and should print a message.
 	cl := &ConsoleLogout{All: true}

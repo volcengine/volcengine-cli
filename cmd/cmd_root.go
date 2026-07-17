@@ -64,13 +64,12 @@ func initRootCmd() {
 }
 
 func Execute() {
-	args, language, err := resolveLanguage(os.Args[1:], os.LookupEnv)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	if processLanguageResolution.err != nil {
+		fmt.Fprintln(os.Stderr, processLanguageResolution.err)
 		os.Exit(1)
 	}
-	setCurrentLanguage(language)
-	rootCmd.SetArgs(args)
+	setCurrentLanguage(processLanguageResolution.language)
+	rootCmd.SetArgs(processLanguageResolution.args)
 	initRootCmd()
 	localizeHelpFlags(rootCmd)
 
@@ -81,12 +80,33 @@ func Execute() {
 }
 
 func localizeHelpFlags(command *cobra.Command) {
+	localizeHelpFlag(command)
+	localCommandNames := map[string]struct{}{
+		"completion": {},
+		"configure":  {},
+		"login":      {},
+		"logout":     {},
+		"sso":        {},
+		"version":    {},
+	}
+	for _, child := range command.Commands() {
+		if _, ok := localCommandNames[child.Name()]; ok {
+			localizeHelpFlagTree(child)
+		}
+	}
+}
+
+func localizeHelpFlagTree(command *cobra.Command) {
+	localizeHelpFlag(command)
+	for _, child := range command.Commands() {
+		localizeHelpFlagTree(child)
+	}
+}
+
+func localizeHelpFlag(command *cobra.Command) {
 	command.InitDefaultHelpFlag()
 	if helpFlag := command.Flags().Lookup("help"); helpFlag != nil {
 		helpFlag.Usage = trf("Show help for %s", command.Name())
-	}
-	for _, child := range command.Commands() {
-		localizeHelpFlags(child)
 	}
 }
 

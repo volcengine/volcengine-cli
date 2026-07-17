@@ -11,10 +11,9 @@ var allowedFixedFlags = map[string]struct{}{
 	"profile":  {},
 	"region":   {},
 	"endpoint": {},
-	"lang":     {},
 }
 
-const supportedFixedFlagsMessage = "---profile, ---region, ---endpoint, ---lang"
+const supportedFixedFlagsMessage = "---profile, ---region, ---endpoint"
 
 type Parser struct {
 	currentIndex int

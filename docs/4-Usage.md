@@ -66,7 +66,7 @@ Parameter names and values are separated by spaces. The supported syntax is:
 ---region cn-beijing
 ```
 
-Do not use `--Param=value` or `---region=cn-beijing`.
+Do not use `--Param=value`, `---region=cn-beijing`, or `---lang=ZH`. Fixed flags require a space between the name and value.
 
 ## CLI Fixed Flags
 

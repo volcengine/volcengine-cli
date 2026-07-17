@@ -96,12 +96,13 @@ Modes:
 	`decoded authorization response does not contain a "code" parameter`: "解码后的授权响应不包含 \"code\" 参数",
 	"no configuration found; nothing to log out":                         "未找到配置，无需退出",
 	"profile %q not found in configuration":                              "配置中未找到配置档案 %q",
-	"removing cached token for profile %q: %w":                           "删除配置档案 %q 的缓存令牌失败：%w",
-	"updating config after logout: %w":                                   "退出后更新配置失败：%w",
-	"resolving cache file path: %w":                                      "解析缓存文件路径失败：%w",
-	"removing %s: %w":                                                    "删除 %s 失败：%w",
-	"Manage CLI profiles and credentials":                                "管理 CLI 配置档案和凭证",
-	"show target profile's information":                                  "显示指定配置档案的信息",
+	"profile %q is using %q mode, not %q mode. Only console-login profiles can be logged out with this command": "配置档案 %q 当前使用 %q 模式，而不是 %q 模式。只有 console-login 配置档案可以使用此命令退出登录",
+	"removing cached token for profile %q: %w": "删除配置档案 %q 的缓存令牌失败：%w",
+	"updating config after logout: %w":         "退出后更新配置失败：%w",
+	"resolving cache file path: %w":            "解析缓存文件路径失败：%w",
+	"removing %s: %w":                          "删除 %s 失败：%w",
+	"Manage CLI profiles and credentials":      "管理 CLI 配置档案和凭证",
+	"show target profile's information":        "显示指定配置档案的信息",
 	`Description:
   show target profile's information
   if no profile name specified, show default profile`: `说明：

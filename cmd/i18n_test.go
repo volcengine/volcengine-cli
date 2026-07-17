@@ -172,6 +172,7 @@ func TestResolveLanguageRejectsMalformedFlag(t *testing.T) {
 	}{
 		{name: "missing value", args: []string{"---lang"}, want: "requires a value"},
 		{name: "duplicate flag", args: []string{"---lang", "EN", "---lang", "ZH"}, want: "specified more than once"},
+		{name: "equals syntax", args: []string{"sts", "---lang=zh", "--help"}, want: "does not support '='"},
 	}
 
 	for _, tt := range tests {
