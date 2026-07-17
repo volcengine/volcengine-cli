@@ -1,6 +1,6 @@
 {
   "name": "@volcengine/skills-setup",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Detect/install ve & arkcli and download volcengine agent skills via npx skills",
   "bin": {
     "skills-setup": "bin/skills-setup"
@@ -22,7 +22,12 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/volcengine/volcengine-cli"
+    "url": "git+https://github.com/volcengine/volcengine-cli.git",
+    "directory": "skills-setup"
+  },
+  "homepage": "https://github.com/volcengine/volcengine-cli/tree/master/skills-setup#readme",
+  "bugs": {
+    "url": "https://github.com/volcengine/volcengine-cli/issues"
   },
   "engines": {
     "node": ">=20"
