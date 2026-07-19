@@ -13,7 +13,7 @@ import (
 func generateCodeVerifier() (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("generate code_verifier failed: %w", err)
+		return "", trErrorf("generate code_verifier failed: %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
@@ -29,7 +29,7 @@ func generateCodeChallenge(verifier string) string {
 func generateState() (string, error) {
 	var uuid [16]byte
 	if _, err := rand.Read(uuid[:]); err != nil {
-		return "", fmt.Errorf("generate state failed: %w", err)
+		return "", trErrorf("generate state failed: %w", err)
 	}
 
 	// 设置 UUID v4 版本位和变体位。

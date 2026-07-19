@@ -188,7 +188,7 @@ VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity
 The supported fixed flags are:
 
 ```text
----profile, ---region, ---endpoint
+---profile, ---region, ---endpoint, ---lang
 ```
 
 ### Why does the CLI say region is missing?

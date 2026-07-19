@@ -319,19 +319,23 @@ func actionUsageTemplate(description string, params []string) string {
 		description += "\n\n"
 	}
 
-	return fmt.Sprintf(`%sUsage:{{if .Runnable}}
+	return fmt.Sprintf(`%s%s{{if .Runnable}}
   {{.CommandPath}} [params]{{end}}{{if .HasExample}}
 
-Examples:
+%s
 {{.Example}}{{end}}
 
-Available Parameters:
+%s
 %s
 
-Fixed Flags:
-  ---profile string    Use a configured profile only for this invocation.
-  ---region string     Override the region only for this invocation.
-  ---endpoint string   Override the endpoint only for this invocation.
+%s
+  ---profile string    %s
+  ---region string     %s
+  ---endpoint string   %s
+  ---lang string       %s
 
-`, description, strings.Join(params, "\n"))
+`, description, tr("Usage:"), tr("Examples:"), tr("Available Parameters:"), strings.Join(params, "\n"),
+		tr("Fixed Flags:"), tr("Use a configured profile only for this invocation."),
+		tr("Override the region only for this invocation."), tr("Override the endpoint only for this invocation."),
+		tr("Set the display language for this invocation (EN or ZH)."))
 }

@@ -46,7 +46,7 @@ func init() {
 func newConfigureRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "configure",
-		Short: "Manage CLI profiles and credentials",
+		Short: tr("Manage CLI profiles and credentials"),
 		Args:  cobra.MatchAll(cobra.OnlyValidArgs),
 		Run: func(cmd *cobra.Command, args []string) {
 			cmd.Usage()
@@ -65,16 +65,16 @@ func newConfigureGetCmd() *cobra.Command {
 			profileName := cmd.Flag("profile").Value.String()
 			return getConfigProfile(profileName)
 		},
-		Short: "show target profile's information",
-		Long: `Description:
+		Short: tr("show target profile's information"),
+		Long: tr(`Description:
   show target profile's information
-  if no profile name specified, show default profile`,
+  if no profile name specified, show default profile`),
 		DisableFlagsInUseLine: true,
 	}
 
 	cmd.SetUsageTemplate(configureActionUsageTemplate())
 
-	cmd.Flags().StringVar(&profileFlags.Name, "profile", "", "target profile name")
+	cmd.Flags().StringVar(&profileFlags.Name, "profile", "", tr("target profile name"))
 	cmd.Flags().BoolP("help", "h", false, "")
 
 	return cmd
@@ -93,8 +93,8 @@ func newConfigureSetCmd() *cobra.Command {
 			}
 			return setConfigProfile(&input)
 		},
-		Short: "add new profile, or modify target profile",
-		Long: `Description:
+		Short: tr("add new profile, or modify target profile"),
+		Long: tr(`Description:
   add new profile, or modify target profile:
       1. if profile not exist, add new;
       2. if profile exist, modify target field
@@ -105,30 +105,30 @@ Examples:
   ve configure set --profile test --region cn-beijing --access-key ak --secret-key sk
   ve configure set --profile test-ram --mode ramrolearn --region cn-beijing --access-key ak --secret-key sk --role-name YourRoleName --account-id 2100000000
   ve configure set --profile test-oidc --mode oidc --region cn-beijing --oidc-token-file /path/to/oidc/token --role-trn trn:iam::2100000000:role/YourRoleName
-  ve configure set --profile test-ecs --mode ecsrole --region cn-beijing --role-name YourEcsRoleName`,
+  ve configure set --profile test-ecs --mode ecsrole --region cn-beijing --role-name YourEcsRoleName`),
 		DisableFlagsInUseLine: true,
 	}
 
 	cmd.SetUsageTemplate(configureActionUsageTemplate())
 
-	cmd.Flags().StringVar(&profileFlags.Name, "profile", "", "target profile name")
-	cmd.Flags().StringVar(&profileFlags.Mode, "mode", "", "credential mode (ak, sso, console-login, ramrolearn, oidc, ecsrole)")
-	cmd.Flags().StringVar(&profileFlags.AccessKey, "access-key", "", "your access key(AK)")
-	cmd.Flags().StringVar(&profileFlags.SecretKey, "secret-key", "", "your secret key(SK)")
-	cmd.Flags().StringVar(&profileFlags.Region, "region", "", "your region")
-	cmd.Flags().StringVar(&profileFlags.Endpoint, "endpoint", "", "endpoint bind with region")
-	cmd.Flags().StringVar(&profileFlags.EndpointResolver, "endpoint-resolver", "", "endpoint resolver (auto-addressing)")
-	cmd.Flags().StringVar(&profileFlags.HTTPProxy, "http-proxy", "", "HTTP proxy URL used by the SDK when SSL is disabled")
-	cmd.Flags().StringVar(&profileFlags.HTTPSProxy, "https-proxy", "", "HTTPS proxy URL used by the SDK")
-	cmd.Flags().StringVar(&profileFlags.SessionToken, "session-token", "", "your session token")
-	cmd.Flags().StringVar(&profileFlags.SsoSessionName, "sso-session", "", "your sso session name")
-	cmd.Flags().StringVar(&profileFlags.AccountId, "account-id", "", "your account id (required for ramrolearn mode)")
-	cmd.Flags().StringVar(&profileFlags.RoleName, "role-name", "", "your role name (required for ramrolearn/ecsrole mode)")
-	cmd.Flags().StringVar(&profileFlags.OidcTokenFile, "oidc-token-file", "", "path to OIDC token file (required for oidc mode)")
-	cmd.Flags().StringVar(&profileFlags.RoleTrn, "role-trn", "", "role TRN (required for oidc mode)")
+	cmd.Flags().StringVar(&profileFlags.Name, "profile", "", tr("target profile name"))
+	cmd.Flags().StringVar(&profileFlags.Mode, "mode", "", tr("credential mode (ak, sso, console-login, ramrolearn, oidc, ecsrole)"))
+	cmd.Flags().StringVar(&profileFlags.AccessKey, "access-key", "", tr("your access key(AK)"))
+	cmd.Flags().StringVar(&profileFlags.SecretKey, "secret-key", "", tr("your secret key(SK)"))
+	cmd.Flags().StringVar(&profileFlags.Region, "region", "", tr("your region"))
+	cmd.Flags().StringVar(&profileFlags.Endpoint, "endpoint", "", tr("endpoint bind with region"))
+	cmd.Flags().StringVar(&profileFlags.EndpointResolver, "endpoint-resolver", "", tr("endpoint resolver (auto-addressing)"))
+	cmd.Flags().StringVar(&profileFlags.HTTPProxy, "http-proxy", "", tr("HTTP proxy URL used by the SDK when SSL is disabled"))
+	cmd.Flags().StringVar(&profileFlags.HTTPSProxy, "https-proxy", "", tr("HTTPS proxy URL used by the SDK"))
+	cmd.Flags().StringVar(&profileFlags.SessionToken, "session-token", "", tr("your session token"))
+	cmd.Flags().StringVar(&profileFlags.SsoSessionName, "sso-session", "", tr("your sso session name"))
+	cmd.Flags().StringVar(&profileFlags.AccountId, "account-id", "", tr("your account id (required for ramrolearn mode)"))
+	cmd.Flags().StringVar(&profileFlags.RoleName, "role-name", "", tr("your role name (required for ramrolearn/ecsrole mode)"))
+	cmd.Flags().StringVar(&profileFlags.OidcTokenFile, "oidc-token-file", "", tr("path to OIDC token file (required for oidc mode)"))
+	cmd.Flags().StringVar(&profileFlags.RoleTrn, "role-trn", "", tr("role TRN (required for oidc mode)"))
 
-	profileFlags.DisableSSL = cmd.Flags().Bool("disable-ssl", false, "disable ssl")
-	profileFlags.UseDualStack = cmd.Flags().Bool("use-dual-stack", false, "use dual-stack endpoints")
+	profileFlags.DisableSSL = cmd.Flags().Bool("disable-ssl", false, tr("disable ssl"))
+	profileFlags.UseDualStack = cmd.Flags().Bool("use-dual-stack", false, tr("use dual-stack endpoints"))
 	cmd.Flags().BoolP("help", "h", false, "")
 
 	cmd.MarkFlagRequired("profile")
@@ -142,43 +142,43 @@ func validateProfileMode(profile *Profile) error {
 	switch mode {
 	case "", ModeAK:
 		if profile.AccessKey == "" {
-			return fmt.Errorf("mode %q requires --access-key", ModeAK)
+			return trErrorf("mode %q requires --access-key", ModeAK)
 		}
 		if profile.SecretKey == "" {
-			return fmt.Errorf("mode %q requires --secret-key", ModeAK)
+			return trErrorf("mode %q requires --secret-key", ModeAK)
 		}
 	case ModeSSO:
 		// sso 模式通过 configure sso 子命令配置，此处不额外校验
 	case ModeConsoleLogin:
 		if profile.LoginSession == "" {
-			return fmt.Errorf("mode %q requires login-session; run 've login' first", ModeConsoleLogin)
+			return trErrorf("mode %q requires login-session; run 've login' first", ModeConsoleLogin)
 		}
 	case ModeRamRoleArn:
 		if profile.AccessKey == "" {
-			return fmt.Errorf("mode %q requires --access-key", ModeRamRoleArn)
+			return trErrorf("mode %q requires --access-key", ModeRamRoleArn)
 		}
 		if profile.SecretKey == "" {
-			return fmt.Errorf("mode %q requires --secret-key", ModeRamRoleArn)
+			return trErrorf("mode %q requires --secret-key", ModeRamRoleArn)
 		}
 		if profile.RoleName == "" {
-			return fmt.Errorf("mode %q requires --role-name", ModeRamRoleArn)
+			return trErrorf("mode %q requires --role-name", ModeRamRoleArn)
 		}
 		if profile.AccountId == "" {
-			return fmt.Errorf("mode %q requires --account-id", ModeRamRoleArn)
+			return trErrorf("mode %q requires --account-id", ModeRamRoleArn)
 		}
 	case ModeOIDC:
 		if profile.OidcTokenFile == "" {
-			return fmt.Errorf("mode %q requires --oidc-token-file", ModeOIDC)
+			return trErrorf("mode %q requires --oidc-token-file", ModeOIDC)
 		}
 		if profile.RoleTrn == "" {
-			return fmt.Errorf("mode %q requires --role-trn", ModeOIDC)
+			return trErrorf("mode %q requires --role-trn", ModeOIDC)
 		}
 	case ModeEcsRole:
 		if profile.RoleName == "" {
-			return fmt.Errorf("mode %q requires --role-name", ModeEcsRole)
+			return trErrorf("mode %q requires --role-name", ModeEcsRole)
 		}
 	default:
-		return fmt.Errorf("unsupported mode %q, supported modes: ak, sso, console-login, ramrolearn, oidc, ecsrole", mode)
+		return trErrorf("unsupported mode %q, supported modes: ak, sso, console-login, ramrolearn, oidc, ecsrole", mode)
 	}
 	return nil
 }
@@ -189,9 +189,9 @@ func newConfigureListCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return listConfigProfiles()
 		},
-		Short: "list all profiles",
-		Long: `Description:
-  list all profiles`,
+		Short: tr("list all profiles"),
+		Long: tr(`Description:
+  list all profiles`),
 		DisableFlagsInUseLine: true,
 	}
 
@@ -209,15 +209,15 @@ func newConfigureDeleteCmd() *cobra.Command {
 			profileName := cmd.Flag("profile").Value.String()
 			return deleteConfigProfile(profileName)
 		},
-		Short: "delete target profile",
-		Long: `Description:
-  delete target profile`,
+		Short: tr("delete target profile"),
+		Long: tr(`Description:
+  delete target profile`),
 		DisableFlagsInUseLine: true,
 	}
 
 	cmd.SetUsageTemplate(configureActionUsageTemplate())
 
-	cmd.Flags().StringVar(&profileFlags.Name, "profile", "", "target profile name")
+	cmd.Flags().StringVar(&profileFlags.Name, "profile", "", tr("target profile name"))
 	cmd.Flags().BoolP("help", "h", false, "")
 
 	cmd.MarkFlagRequired("profile")
@@ -232,15 +232,15 @@ func newConfigureProfileCmd() *cobra.Command {
 			profileName := cmd.Flag("profile").Value.String()
 			return changeConfigProfile(profileName)
 		},
-		Short: "change target profile",
-		Long: `Description:
-  change target profile`,
+		Short: tr("change target profile"),
+		Long: tr(`Description:
+  change target profile`),
 		DisableFlagsInUseLine: true,
 	}
 
 	cmd.SetUsageTemplate(configureActionUsageTemplate())
 
-	cmd.Flags().StringVar(&profileFlags.Name, "profile", "", "target profile name")
+	cmd.Flags().StringVar(&profileFlags.Name, "profile", "", tr("target profile name"))
 	cmd.Flags().BoolP("help", "h", false, "")
 
 	cmd.MarkFlagRequired("profile")
@@ -292,10 +292,10 @@ func newConfigureSsoSessionCmd() *cobra.Command {
 			}
 
 			// 依次采集必须字段：StartURL 与 Region 支持默认值回填。
-			if err := promptForRequiredStringWithDefault(&ssoSessionFlags.StartURL, "Please enter SSO Start URL:", "SSO Start URL", defaultStartURL); err != nil {
+			if err := promptForRequiredStringWithDefault(&ssoSessionFlags.StartURL, tr("Please enter SSO Start URL:"), tr("SSO Start URL"), defaultStartURL); err != nil {
 				return err
 			}
-			if err := promptForRequiredStringWithDefault(&ssoSessionFlags.Region, "Please enter SSO region:", "SSO region", defaultRegion); err != nil {
+			if err := promptForRequiredStringWithDefault(&ssoSessionFlags.Region, tr("Please enter SSO region:"), tr("SSO region"), defaultRegion); err != nil {
 				return err
 			}
 			// 采集并规范化 scopes：支持参数输入或交互式输入，并去重校验。
@@ -316,27 +316,27 @@ func newConfigureSsoSessionCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("SSO session [%s] configured successfully.\n", ssoSessionFlags.Name)
+			fmt.Printf(tr("SSO session [%s] configured successfully.\n"), ssoSessionFlags.Name)
 			return nil
 		},
-		Short: "add or modify SSO session",
-		Long: `Description:
+		Short: tr("add or modify SSO session"),
+		Long: tr(`Description:
   add new SSO session, or modify target SSO session:
       1. if SSO session not exist, add new;
       2. if SSO session exist, modify target field
 
 Examples:
-  ve configure sso-session --name my-sso --start-url https://{custom}.volccloudidentity.com/userportal --region cn-beijing`,
+  ve configure sso-session --name my-sso --start-url https://{custom}.volccloudidentity.com/userportal --region cn-beijing`),
 		DisableFlagsInUseLine: true,
 	}
 
 	cmd.SetUsageTemplate(configureActionUsageTemplate())
 
 	// 同时支持参数式输入，便于脚本化配置。
-	cmd.Flags().StringVar(&ssoSessionFlags.Name, "name", "", "SSO session name")
-	cmd.Flags().StringVar(&ssoSessionFlags.StartURL, "start-url", "", "SSO start URL")
-	cmd.Flags().StringVar(&ssoSessionFlags.Region, "region", "", "SSO region")
-	cmd.Flags().StringSliceVar(&ssoSessionFlags.RegistrationScopes, "registration-scopes", nil, "comma-separated SSO registration scopes (cloudidentity:account:access,offline_access)")
+	cmd.Flags().StringVar(&ssoSessionFlags.Name, "name", "", tr("SSO session name"))
+	cmd.Flags().StringVar(&ssoSessionFlags.StartURL, "start-url", "", tr("SSO start URL"))
+	cmd.Flags().StringVar(&ssoSessionFlags.Region, "region", "", tr("SSO region"))
+	cmd.Flags().StringSliceVar(&ssoSessionFlags.RegistrationScopes, "registration-scopes", nil, tr("comma-separated SSO registration scopes (cloudidentity:account:access,offline_access)"))
 	cmd.Flags().BoolP("help", "h", false, "")
 
 	return cmd
@@ -375,7 +375,7 @@ func promptForRequiredStringWithDefault(target *string, prompt, fieldName, defau
 			return nil
 		}
 		// 兜底提示：空值会被拒绝并重新输入。
-		fmt.Printf("%s cannot be empty\n", fieldName)
+		fmt.Printf(tr("%s cannot be empty\n"), fieldName)
 		*target = ""
 	}
 }
@@ -384,7 +384,7 @@ func promptForRequiredStringWithDefault(target *string, prompt, fieldName, defau
 // 当未提供任何值时会提示用户输入，最终返回去重且校验通过的 scope 列表。
 func promptForRegistrationScopes(current []string) ([]string, error) {
 	if len(current) == 0 {
-		fmt.Printf("Please enter SSO registration scopes (comma-separated, allowed: %s) [%s]:", strings.Join(allowedRegistrationScopes, ", "), strings.Join(defaultRegistrationScopes, ","))
+		fmt.Printf(tr("Please enter SSO registration scopes (comma-separated, allowed: %s) [%s]:"), strings.Join(allowedRegistrationScopes, ", "), strings.Join(defaultRegistrationScopes, ","))
 		reader := bufio.NewReader(os.Stdin)
 		line, _ := reader.ReadString('\n')
 		line = strings.TrimSpace(line)
@@ -408,7 +408,7 @@ func promptForRegistrationScopesWithDefault(current []string, showDefault bool) 
 	} else if defaultValue != "" {
 		label = fmt.Sprintf("[%s]", defaultValue)
 	}
-	fmt.Printf("Please enter SSO registration scopes (comma-separated, allowed: %s) %s:", strings.Join(allowedRegistrationScopes, ", "), label)
+	fmt.Printf(tr("Please enter SSO registration scopes (comma-separated, allowed: %s) %s:"), strings.Join(allowedRegistrationScopes, ", "), label)
 	line, err := readLineAllowEmpty()
 	if err != nil {
 		return nil, err
@@ -436,7 +436,7 @@ func normalizeRegistrationScopes(scopes []string) ([]string, error) {
 			continue
 		}
 		if _, ok := allowedRegistrationScopesSet[scope]; !ok {
-			return nil, fmt.Errorf("invalid SSO registration scope %q, allowed values: %s", scope, strings.Join(allowedRegistrationScopes, ", "))
+			return nil, trErrorf("invalid SSO registration scope %q, allowed values: %s", scope, strings.Join(allowedRegistrationScopes, ", "))
 		}
 		if _, exists := seen[scope]; !exists {
 			seen[scope] = struct{}{}
@@ -479,7 +479,7 @@ func newConfigureSsoCmd() *cobra.Command {
 
 			// 读取 profile 名称：未输入时允许回车留空，稍后由 SSO 信息回填默认值。
 			if strings.TrimSpace(ssoFlags.Name) == "" {
-				fmt.Print("Enter profile name (press Enter to use default: {sso-role-name}-{sso-account-id}): ")
+				fmt.Print(tr("Enter profile name (press Enter to use default: {sso-role-name}-{sso-account-id}): "))
 				line, err := readLineAllowEmpty()
 				if err != nil {
 					return err
@@ -543,23 +543,23 @@ func newConfigureSsoCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("SSO profile [%s] configured successfully.\n", profile.Name)
+			fmt.Printf(tr("SSO profile [%s] configured successfully.\n"), profile.Name)
 			return nil
 		},
-		Short: "configure SSO type profile",
-		Long: `Description:
+		Short: tr("configure SSO type profile"),
+		Long: tr(`Description:
   configure SSO type profile with profile.mode=sso
   this command will guide you through the SSO authorization process
   and save the profile configuration to ~/.volcengine/config.json
-  if the specified SSO session doesn't exist, it will be created automatically`,
+  if the specified SSO session doesn't exist, it will be created automatically`),
 		DisableFlagsInUseLine: true,
 	}
 
 	cmd.SetUsageTemplate(configureActionUsageTemplate())
 
-	cmd.Flags().StringVar(&ssoFlags.Name, "profile", "", "profile name")
-	cmd.Flags().StringVar(&ssoFlags.SsoSessionName, "sso-session", "", "SSO session name")
-	cmd.Flags().Bool("no-browser", false, "Do not automatically open the browser during device authorization")
+	cmd.Flags().StringVar(&ssoFlags.Name, "profile", "", tr("profile name"))
+	cmd.Flags().StringVar(&ssoFlags.SsoSessionName, "sso-session", "", tr("SSO session name"))
+	cmd.Flags().Bool("no-browser", false, tr("Do not automatically open the browser during device authorization"))
 	cmd.Flags().BoolP("help", "h", false, "")
 
 	return cmd
@@ -580,7 +580,7 @@ type sessionOption struct {
 	Session *SsoSession
 }
 
-var errSessionExists = errors.New("SSO session already exists")
+var errSessionExists = errors.New(tr("SSO session already exists"))
 
 // promptSessionName 获取 SSO 会话名称：
 // - 若配置中无会话，直接提示输入并校验非空；
@@ -588,14 +588,14 @@ var errSessionExists = errors.New("SSO session already exists")
 func promptSessionName(cfg *Configure, defaultName string) (string, *SsoSession, error) {
 	if cfg == nil || len(cfg.SsoSession) == 0 {
 		// 没有任何已存在的会话时，直接使用简单输入流程。
-		fmt.Print("Please enter SSO session name:")
+		fmt.Print(tr("Please enter SSO session name:"))
 		name, err := readLineAllowEmpty()
 		if err != nil {
 			return "", nil, err
 		}
 		name = strings.TrimSpace(name)
 		if name == "" {
-			return "", nil, fmt.Errorf("SSO session name cannot be empty")
+			return "", nil, trErrorf("SSO session name cannot be empty")
 		}
 		return name, nil, nil
 	}
@@ -626,7 +626,7 @@ func buildSessionOptions(all map[string]*SsoSession) []sessionOption {
 	return out
 }
 
-const addNewSessionLabel = "<Create new session>"
+var addNewSessionLabel = tr("<Create new session>")
 
 // runSessionSelect 使用 promptui 提供交互式会话选择：
 // - 支持搜索过滤；
@@ -665,17 +665,17 @@ func runSessionSelect(cfg *Configure, options []sessionOption, defaultName strin
 		Active:   "{{if isNew .}}▸ {{ .Name | green }}{{else}}▸ {{ .Name | cyan }}   {{ sessionRegion .Session }}   {{ sessionStart .Session }}{{end}}",
 		Inactive: "{{if isNew .}}  {{ .Name | faint }}{{else}}  {{ .Name | faint }}   {{ sessionRegion .Session }}   {{ sessionStart .Session }}{{end}}",
 		Selected: "{{if isNew .}}✔ {{ .Name }}{{else}}✔ {{ .Name }}{{end}}",
-		Details: `
+		Details: tr(`
 --------- SSO Session ----------
 Name:   {{ .Name }}
 Region: {{ sessionRegion .Session }}
 URL:    {{ sessionStart .Session }}
-Scopes: {{ sessionScopes .Session }}`,
+Scopes: {{ sessionScopes .Session }}`),
 		FuncMap: buildPromptFuncMap(),
 	}
 
 	sel := promptui.Select{
-		Label:             "Select or create SSO session (type to filter, Enter to choose)",
+		Label:             tr("Select or create SSO session (type to filter, Enter to choose)"),
 		Items:             choices,
 		Searcher:          searcher,
 		Templates:         templates,
@@ -696,12 +696,12 @@ Scopes: {{ sessionScopes .Session }}`,
 			defaultNewName = lastSearchInput
 		}
 		newNamePrompt := promptui.Prompt{
-			Label:     "Enter new SSO session name",
+			Label:     tr("Enter new SSO session name"),
 			Default:   defaultNewName,
 			AllowEdit: true,
 			Validate: func(input string) error {
 				if strings.TrimSpace(input) == "" {
-					return fmt.Errorf("SSO session name cannot be empty")
+					return trErrorf("SSO session name cannot be empty")
 				}
 				if _, ok := cfg.SsoSession[input]; ok {
 					return fmt.Errorf("%w: %s", errSessionExists, input)
@@ -758,14 +758,14 @@ func createSsoSessionInSso(sessionName string, cfg *Configure) (*SsoSession, err
 	}
 
 	// 读取 StartURL，空值直接报错。
-	fmt.Print("Please enter SSO start URL:")
+	fmt.Print(tr("Please enter SSO start URL:"))
 	fmt.Scanln(&newSession.StartURL)
 	if newSession.StartURL == "" {
-		return nil, fmt.Errorf("SSO start URL cannot be empty")
+		return nil, trErrorf("SSO start URL cannot be empty")
 	}
 
 	// 读取 Region，空值直接报错。
-	fmt.Print("Please enter SSO region [cn-beijing]:")
+	fmt.Print(tr("Please enter SSO region [cn-beijing]:"))
 	fmt.Scanln(&newSession.Region)
 	if newSession.Region == "" {
 		newSession.Region = defaultSsoRegion
@@ -783,54 +783,60 @@ func createSsoSessionInSso(sessionName string, cfg *Configure) (*SsoSession, err
 	// 写入配置文件，确保会话持久化。
 	err = WriteConfigToFile(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to save SSO session configuration: %v", err)
+		return nil, trErrorf("failed to save SSO session configuration: %v", err)
 	}
 
 	return newSession, nil
 }
 
 func configureUsageTemplate() string {
-	return `Usage:{{if .HasAvailableSubCommands}}
+	return tr("Usage:") + `{{if .HasAvailableSubCommands}}
   {{.CommandPath}} [command]{{end}}{{if .HasAvailableSubCommands}}{{$cmds := .Commands}}{{if eq (len .Groups) 0}}
 
-Available Commands:{{range $cmds}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
+` + tr("Available Commands:") + `{{range $cmds}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
   {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{else}}{{range $group := .Groups}}
 
 {{.Title}}{{range $cmds}}{{if (and (eq .GroupID $group.ID) (or .IsAvailableCommand (eq .Name "help")))}}
   {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
 
-Flags:
+` + tr("Flags:") + `
 {{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableSubCommands}}
 
-Use "{{.CommandPath}} [command] --help" for more information about a command.{{end}}
+` + tr(`Use "{{.CommandPath}} [command] --help" for more information about a command.`) + `{{end}}
+
+` + tr("Fixed Flags:") + `
+  ---lang string    ` + tr("Set the display language for this invocation (EN or ZH).") + `
 `
 }
 
 func configureActionUsageTemplate() string {
-	return `Usage:{{if .Runnable}}
+	return tr("Usage:") + `{{if .Runnable}}
   {{.UseLine}} [params]{{end}}{{if .HasExample}}
 
-Examples:
+` + tr("Examples:") + `
 {{.Example}}{{end}}{{if .HasAvailableSubCommands}}{{$cmds := .Commands}}{{if eq (len .Groups) 0}}
 
-Available Commands:{{range $cmds}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
+` + tr("Available Commands:") + `{{range $cmds}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
   {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{else}}{{range $group := .Groups}}
 
 {{.Title}}{{range $cmds}}{{if (and (eq .GroupID $group.ID) (or .IsAvailableCommand (eq .Name "help")))}}
   {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{if not .AllChildCommandsHaveGroup}}
 
-Additional Commands:{{range $cmds}}{{if (and (eq .GroupID "") (or .IsAvailableCommand (eq .Name "help")))}}
+` + tr("Additional Commands:") + `{{range $cmds}}{{if (and (eq .GroupID "") (or .IsAvailableCommand (eq .Name "help")))}}
   {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
 
-Flags:
+` + tr("Flags:") + `
 {{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableInheritedFlags}}
 
-Global Flags:
+` + tr("Global Flags:") + `
 {{.InheritedFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasHelpSubCommands}}
 
-Additional help topics:{{range .Commands}}{{if .IsAdditionalHelpTopicCommand}}
+` + tr("Additional help topics:") + `{{range .Commands}}{{if .IsAdditionalHelpTopicCommand}}
   {{rpad .CommandPath .CommandPathPadding}} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableSubCommands}}
 
-Use "{{.CommandPath}} [command] --help" for more information about a command.{{end}}
+` + tr(`Use "{{.CommandPath}} [command] --help" for more information about a command.`) + `{{end}}
+
+` + tr("Fixed Flags:") + `
+  ---lang string    ` + tr("Set the display language for this invocation (EN or ZH).") + `
 `
 }

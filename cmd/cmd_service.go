@@ -12,6 +12,7 @@ func init() {
 }
 
 func generateServiceCommands() {
+	usageTemplate := serviceUsageTemplate()
 	for svc, actionMeta := range rootSupport.SupportAction {
 		apiMetas := rootSupport.SupportTypes[svc]
 		svc := svc
@@ -25,7 +26,7 @@ func generateServiceCommands() {
 			},
 		}
 
-		svcCmd.SetUsageTemplate(serviceUsageTemplate())
+		svcCmd.SetUsageTemplate(usageTemplate)
 		svcCmd.ValidArgs = validActions
 
 		actionCmds := generateActionCmd(svc, actionMeta, apiMetas)
@@ -79,22 +80,23 @@ func runServiceCmd(cmd *cobra.Command, svc string, validActions []string, args [
 }
 
 func serviceUsageTemplate() string {
-	return `Usage:{{if .Runnable}}
+	return tr("Usage:") + `{{if .Runnable}}
   {{.CommandPath}} [action]{{end}} [params] {{if .HasAvailableSubCommands}}{{$cmds := .Commands}}{{if eq (len .Groups) 0}}
 
-Available Actions:
-  Action                  Description
+` + tr("Available Actions:") + `
+  ` + tr("Action") + `                  ` + tr("Description") + `
   ------                  -----------{{range $cmds}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
   {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{else}}{{range $group := .Groups}}
 
 {{.Title}}{{range $cmds}}{{if (and (eq .GroupID $group.ID) (or .IsAvailableCommand (eq .Name "help")))}}
   {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
 
-Use "{{.CommandPath}} [action] --help" for more information about a action.{{end}}
+` + tr(`Use "{{.CommandPath}} [action] --help" for more information about an action.`) + `{{end}}
 
-Fixed Flags:
-  ---profile string    Use a configured profile only for this invocation.
-  ---region string     Override the region only for this invocation.
-  ---endpoint string   Override the endpoint only for this invocation.
+` + tr("Fixed Flags:") + `
+  ---profile string    ` + tr("Use a configured profile only for this invocation.") + `
+  ---region string     ` + tr("Override the region only for this invocation.") + `
+  ---endpoint string   ` + tr("Override the endpoint only for this invocation.") + `
+  ---lang string       ` + tr("Set the display language for this invocation (EN or ZH).") + `
 `
 }

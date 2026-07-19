@@ -339,12 +339,12 @@ func getConfigProfile(profileName string) error {
 
 	// 若配置为空则初始化基础结构。
 	if cfg = ctx.config; cfg == nil {
-		fmt.Println("no profile created")
+		fmt.Println(tr("no profile created"))
 		return nil
 	}
 
 	if profileName == "" {
-		fmt.Printf("no profile name specified, show current profile: [%v]\n", cfg.Current)
+		fmt.Printf(tr("no profile name specified, show current profile: [%v]\n"), cfg.Current)
 		profileName = cfg.Current
 	}
 
@@ -368,11 +368,11 @@ func listConfigProfiles() error {
 
 	// 若配置为空则初始化基础结构。
 	if cfg = ctx.config; cfg == nil {
-		fmt.Println("no profile created")
+		fmt.Println(tr("no profile created"))
 		return nil
 	}
 
-	fmt.Printf("*** current profile: %v ***\n", ctx.config.Current)
+	fmt.Printf(tr("*** current profile: %v ***\n"), ctx.config.Current)
 	for _, profile := range ctx.config.Profiles {
 		util.ShowJson(profile.ToMap(), config.EnableColor)
 	}
@@ -387,19 +387,19 @@ func deleteConfigProfile(profileName string) error {
 
 	// 若配置为空则初始化基础结构。
 	if cfg = ctx.config; cfg == nil {
-		return fmt.Errorf("configuration profile %v not found", profileName)
+		return trErrorf("configuration profile %v not found", profileName)
 	}
 
 	// check if the target profileFlags exists
 	if _, exist = cfg.Profiles[profileName]; !exist {
-		return fmt.Errorf("configuration profile %v not found", profileName)
+		return trErrorf("configuration profile %v not found", profileName)
 	}
 
 	// delete profileFlags and write change to config file
 	delete(cfg.Profiles, profileName)
 	if profileName == cfg.Current {
 		cfg.SetRandomCurrentProfile()
-		fmt.Printf("delete current profile, set new current profile to [%v]\n", cfg.Current)
+		fmt.Printf(tr("delete current profile, set new current profile to [%v]\n"), cfg.Current)
 	}
 
 	// 写入配置文件，完成持久化。
@@ -414,12 +414,12 @@ func changeConfigProfile(profileName string) error {
 
 	// 若配置为空则初始化基础结构。
 	if cfg = ctx.config; cfg == nil {
-		return fmt.Errorf("configuration profile %v not found", profileName)
+		return trErrorf("configuration profile %v not found", profileName)
 	}
 
 	// check if the target profileFlags exists
 	if _, exist = cfg.Profiles[profileName]; !exist {
-		return fmt.Errorf("configuration profile %v not found", profileName)
+		return trErrorf("configuration profile %v not found", profileName)
 	}
 
 	// if not change,skip it

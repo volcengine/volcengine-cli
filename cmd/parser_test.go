@@ -74,6 +74,11 @@ func TestParserRejectsUnsupportedFixedFlags(t *testing.T) {
 			args: []string{"---debug-log-file", "./ve-debug.log"},
 			want: "---debug-log-file is not supported",
 		},
+		{
+			name: "language is handled before action parsing",
+			args: []string{"---lang", "ZH"},
+			want: "---lang is not supported",
+		},
 	}
 
 	for _, tt := range tests {

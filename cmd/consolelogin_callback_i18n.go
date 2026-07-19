@@ -2,7 +2,7 @@ package cmd
 
 import "strings"
 
-const callbackDefaultLang = "zh"
+const callbackFallbackLang = "en"
 
 // callbackPageMessages 保存 OAuth callback 页面上的固定文案。
 // OAuth 服务端返回的错误内容保持原文展示，避免排障时和服务端日志无法对齐。
@@ -45,41 +45,21 @@ var callbackMessagesByLang = map[string]callbackPageMessages{
 	},
 }
 
-var callbackLangAliases = map[string]string{
-	"en":         "en",
-	"en-us":      "en",
-	"en-gb":      "en",
-	"zh":         "zh",
-	"zh-cn":      "zh",
-	"zh-hans":    "zh",
-	"zh-hans-cn": "zh",
-	"zh-tw":      "zh",
-	"zh-hk":      "zh",
-	"zh-mo":      "zh",
-	"zh-hant":    "zh",
-	"zh-hant-tw": "zh",
-}
-
 // normalizeCallbackLang 将 URL 参数中的语言码归一成页面支持的规范语言码。
-// 当前回调页只支持中文和英文；未知语言统一回退中文，避免页面渲染空文案。
+// 未显式传入时跟随本次 CLI 语言；不支持的语言统一回退英文。
 func normalizeCallbackLang(lang string) string {
-	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(lang), "_", "-"))
-	if normalized == "" {
-		return callbackDefaultLang
-	}
-
-	if canonical, ok := callbackLangAliases[normalized]; ok {
-		return canonical
-	}
-
-	// 仅对中文、英文的地区变体做保守回退，例如 zh-SG -> zh、en-AU -> en。
-	if base := strings.Split(normalized, "-")[0]; base != "" {
-		if canonical, ok := callbackLangAliases[base]; ok {
-			return canonical
+	if strings.TrimSpace(lang) == "" {
+		if currentLanguage == LanguageSimplifiedChinese {
+			return "zh"
 		}
+		return callbackFallbackLang
 	}
 
-	return callbackDefaultLang
+	language, supported := normalizeLanguage(lang)
+	if supported && language == LanguageSimplifiedChinese {
+		return "zh"
+	}
+	return callbackFallbackLang
 }
 
 func callbackMessagesForLang(lang string) callbackPageMessages {
@@ -87,7 +67,7 @@ func callbackMessagesForLang(lang string) callbackPageMessages {
 	if ok {
 		return messages
 	}
-	return callbackMessagesByLang[callbackDefaultLang]
+	return callbackMessagesByLang[callbackFallbackLang]
 }
 
 func newCallbackPageData(errorMessage, lang string) callbackPageData {

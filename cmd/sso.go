@@ -65,14 +65,14 @@ var _ SSOService = (*Sso)(nil)
 // 统一读取/校验配置中的 SSO session。
 func (s *Sso) loadSsoSession(cfg *Configure) (*SsoSession, error) {
 	if cfg == nil {
-		return nil, fmt.Errorf("the configuration file cannot be loaded")
+		return nil, trErrorf("the configuration file cannot be loaded")
 	}
 	if strings.TrimSpace(s.SsoSessionName) == "" {
-		return nil, fmt.Errorf("the SSO session must be specified")
+		return nil, trErrorf("the SSO session must be specified")
 	}
 	session, exists := cfg.SsoSession[s.SsoSessionName]
 	if !exists {
-		return nil, fmt.Errorf("there is no SSO session named %s in the configuration file", s.SsoSessionName)
+		return nil, trErrorf("there is no SSO session named %s in the configuration file", s.SsoSessionName)
 	}
 	return session, nil
 }
@@ -96,10 +96,10 @@ func (s *Sso) applySessionDefaults(session *SsoSession) {
 // EnsureValidStsToken 确保 SSO 模式下的 STS Token 有效（过期或缺失则刷新）。
 func (s *Sso) EnsureValidStsToken(ctx *Context) error {
 	if ctx == nil || ctx.config == nil {
-		return fmt.Errorf("failed to refresh stsToken: failed to obtain the config in ctx")
+		return trErrorf("failed to refresh stsToken: failed to obtain the config in ctx")
 	}
 	if s == nil || s.Profile == nil {
-		return fmt.Errorf("failed to refresh stsToken: profile is nil")
+		return trErrorf("failed to refresh stsToken: profile is nil")
 	}
 
 	if s.SsoSessionName == "" {
@@ -121,12 +121,12 @@ func (s *Sso) EnsureValidStsToken(ctx *Context) error {
 	}
 	s.applySessionDefaults(ssoSession)
 	if strings.TrimSpace(s.StartURL) == "" {
-		return fmt.Errorf("the start URL of SSO session %s is not configured", s.SsoSessionName)
+		return trErrorf("the start URL of SSO session %s is not configured", s.SsoSessionName)
 	}
 
 	roleCredentials, err := s.GetRoleCredentials()
 	if err != nil {
-		return fmt.Errorf("failed to get role credentials: %w", err)
+		return trErrorf("failed to get role credentials: %w", err)
 	}
 
 	s.Profile.AccessKey = roleCredentials.AccessKeyID
@@ -172,7 +172,7 @@ func writeJSONFileAtomic(path string, perm os.FileMode, payload interface{}) (re
 	dir := filepath.Dir(path)
 	tempFile, err := os.CreateTemp(dir, ".tmp-*")
 	if err != nil {
-		return fmt.Errorf("failed to create temp file: %w", err)
+		return trErrorf("failed to create temp file: %w", err)
 	}
 	tempName := tempFile.Name()
 	defer func() {
@@ -183,18 +183,18 @@ func writeJSONFileAtomic(path string, perm os.FileMode, payload interface{}) (re
 	}()
 
 	if err := tempFile.Chmod(perm); err != nil {
-		retErr = fmt.Errorf("failed to set cache file permissions: %w", err)
+		retErr = trErrorf("failed to set cache file permissions: %w", err)
 		return retErr
 	}
 
 	encoder := json.NewEncoder(tempFile)
 	if err := encoder.Encode(payload); err != nil {
-		retErr = fmt.Errorf("failed to write cache file: %w", err)
+		retErr = trErrorf("failed to write cache file: %w", err)
 		return retErr
 	}
 
 	if err := tempFile.Close(); err != nil {
-		retErr = fmt.Errorf("failed to close cache file: %w", err)
+		retErr = trErrorf("failed to close cache file: %w", err)
 		return retErr
 	}
 
@@ -205,7 +205,7 @@ func writeJSONFileAtomic(path string, perm os.FileMode, payload interface{}) (re
 				return nil
 			}
 		}
-		retErr = fmt.Errorf("failed to replace cache file: %w", err)
+		retErr = trErrorf("failed to replace cache file: %w", err)
 		return retErr
 	}
 
@@ -234,7 +234,7 @@ func (s *Sso) readTokenCache() (*SsoTokenCache, error) {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("failed to open the cache file: %v", err)
+		return nil, trErrorf("failed to open the cache file: %v", err)
 	}
 
 	var token SsoTokenCache
@@ -301,7 +301,7 @@ func (f *DeviceCodeFetcher) registrationClientCacheKey() (string, error) {
 
 	data, err := json.Marshal(keyPayload)
 	if err != nil {
-		return "", fmt.Errorf("failed to build registration cache key: %w", err)
+		return "", trErrorf("failed to build registration cache key: %w", err)
 	}
 	sum := sha1.Sum(data)
 	return fmt.Sprintf("%x", sum), nil
@@ -332,18 +332,18 @@ func (f *DeviceCodeFetcher) loadClientRegistration() (*RegisterClientResponse, e
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("failed to open client cache file: %v", err)
+		return nil, trErrorf("failed to open client cache file: %v", err)
 	}
 	defer func(file *os.File) {
 		err := file.Close()
 		if err != nil {
-			fmt.Printf("failed to close the client cache file: %v", err)
+			fmt.Printf(tr("failed to close the client cache file: %v"), err)
 		}
 	}(file)
 
 	var cached clientRegistrationCache
 	if err := json.NewDecoder(file).Decode(&cached); err != nil {
-		return nil, fmt.Errorf("failed to read the client cache: %v", err)
+		return nil, trErrorf("failed to read the client cache: %v", err)
 	}
 	if cached.ClientID == "" || cached.ClientSecret == "" {
 		return nil, nil
@@ -360,14 +360,14 @@ func (f *DeviceCodeFetcher) loadClientRegistration() (*RegisterClientResponse, e
 // cacheClientRegistration 将客户端注册信息写入缓存文件。
 func (f *DeviceCodeFetcher) cacheClientRegistration(client *RegisterClientResponse, clientName string) error {
 	if client == nil || client.ClientID == "" || client.ClientSecret == "" {
-		return fmt.Errorf("client registration is empty")
+		return trErrorf("client registration is empty")
 	}
 	cacheDir, err := f.sso.getSsoCacheDir()
 	if err != nil {
 		return err
 	}
 	if err := os.MkdirAll(cacheDir, 0700); err != nil {
-		return fmt.Errorf("failed to create the cache directory: %v", err)
+		return trErrorf("failed to create the cache directory: %v", err)
 	}
 	_ = os.Chmod(cacheDir, 0700)
 	filePath, err := f.registrationClientCachePath()
@@ -403,7 +403,7 @@ func (f *DeviceCodeFetcher) loadCachedToken() (*SsoTokenCache, error) {
 // persistClientCredentials 将客户端凭据写入 token 缓存。
 func (f *DeviceCodeFetcher) persistClientCredentials(client *RegisterClientResponse, cached *SsoTokenCache) error {
 	if client == nil {
-		return fmt.Errorf("client registration is empty")
+		return trErrorf("client registration is empty")
 	}
 	token := cached
 	if token == nil {
@@ -430,13 +430,13 @@ func (f *DeviceCodeFetcher) registerClient(ctx context.Context, cached *SsoToken
 		Scopes:     f.sso.Scopes,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to register client: %w", err)
+		return nil, trErrorf("failed to register client: %w", err)
 	}
 	if err := f.cacheClientRegistration(resp, clientName); err != nil {
-		return nil, fmt.Errorf("failed to persist client registration: %w", err)
+		return nil, trErrorf("failed to persist client registration: %w", err)
 	}
 	if err := f.persistClientCredentials(resp, cached); err != nil {
-		return nil, fmt.Errorf("failed to cache client credentials: %w", err)
+		return nil, trErrorf("failed to cache client credentials: %w", err)
 	}
 	return resp, nil
 }
@@ -497,10 +497,10 @@ func (f *DeviceCodeFetcher) loadClientForRefresh(cached *SsoTokenCache) (*Regist
 		return nil, err
 	}
 	if client == nil || client.ClientID == "" || client.ClientSecret == "" {
-		return nil, fmt.Errorf("SSO access token cannot be refreshed because client credentials are missing; please log in using the `sso login` command")
+		return nil, trErrorf("SSO access token cannot be refreshed because client credentials are missing; please log in using the `sso login` command")
 	}
 	if clientSecretExpired(client.ClientSecretExpiresAt) {
-		return nil, fmt.Errorf("SSO access token cannot be refreshed because client registration has expired; please log in using the `sso login` command")
+		return nil, trErrorf("SSO access token cannot be refreshed because client registration has expired; please log in using the `sso login` command")
 	}
 	return client, nil
 }
@@ -508,7 +508,7 @@ func (f *DeviceCodeFetcher) loadClientForRefresh(cached *SsoTokenCache) (*Regist
 // storeToken 将获取的 token 组装为缓存对象并写入磁盘。
 func (f *DeviceCodeFetcher) storeToken(resp *CreateTokenResponse, client *RegisterClientResponse) (*SsoTokenCache, error) {
 	if client == nil {
-		return nil, fmt.Errorf("client registration is required to store token")
+		return nil, trErrorf("client registration is required to store token")
 	}
 	expiresAt := time.Now().Add(time.Duration(resp.ExpiresIn) * time.Second).Format(time.RFC3339)
 	token := &SsoTokenCache{
@@ -531,7 +531,7 @@ func (f *DeviceCodeFetcher) storeToken(resp *CreateTokenResponse, client *Regist
 
 func (f *DeviceCodeFetcher) createToken(ctx context.Context, grantType string, refreshToken string, deviceCode string, client *RegisterClientResponse) (*CreateTokenResponse, error) {
 	if client == nil {
-		return nil, fmt.Errorf("client registration is required to create token")
+		return nil, trErrorf("client registration is required to create token")
 	}
 	req := &CreateTokenRequest{
 		GrantType:    grantType,
@@ -550,7 +550,7 @@ func (f *DeviceCodeFetcher) createToken(ctx context.Context, grantType string, r
 // refreshToken 使用 refresh_token 换取新的 access token。
 func (f *DeviceCodeFetcher) refreshToken(ctx context.Context, refreshToken string, client *RegisterClientResponse) (*SsoTokenCache, error) {
 	if client == nil {
-		return nil, fmt.Errorf("client registration is required to refresh token")
+		return nil, trErrorf("client registration is required to refresh token")
 	}
 	resp, err := f.createToken(ctx, "refresh_token", refreshToken, "", client)
 	if err != nil {
@@ -613,7 +613,7 @@ func classifyCreateTokenError(err error) (createTokenErrorAction, bool) {
 // performDeviceAuthorization 发起设备码授权流程并轮询获取 token。
 func (f *DeviceCodeFetcher) performDeviceAuthorization(ctx context.Context, client *RegisterClientResponse) (*SsoTokenCache, error) {
 	if client == nil {
-		return nil, fmt.Errorf("client registration is required to start device authorization")
+		return nil, trErrorf("client registration is required to start device authorization")
 	}
 
 	authResp, err := f.oauth.StartDeviceAuthorization(ctx, &StartDeviceAuthorizationRequest{
@@ -623,7 +623,7 @@ func (f *DeviceCodeFetcher) performDeviceAuthorization(ctx context.Context, clie
 		PortalUrl:    f.sso.StartURL,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to start device authorization: %w", err)
+		return nil, trErrorf("failed to start device authorization: %w", err)
 	}
 
 	verificationURIComplete := authResp.VerificationURIComplete
@@ -632,19 +632,19 @@ func (f *DeviceCodeFetcher) performDeviceAuthorization(ctx context.Context, clie
 	}
 
 	if verificationURIComplete == "" {
-		return nil, fmt.Errorf("failed to start device authorization: verificationURI is empty")
+		return nil, trErrorf("failed to start device authorization: verificationURI is empty")
 	}
 
 	if f.noBrowser {
 		if verificationURIComplete != "" {
-			fmt.Printf("To authorize, open the following URL in your browser:\n\n%s\n", verificationURIComplete)
+			fmt.Printf(tr("To authorize, open the following URL in your browser:\n\n%s\n"), verificationURIComplete)
 		}
 	} else {
 		if verificationURIComplete != "" {
-			fmt.Printf("Attempting to open your default browser.\n")
-			fmt.Printf("If the browser does not open or you want to authorize from another device, open the following URL:\n\n%s\n", verificationURIComplete)
+			fmt.Printf("%s\n", tr("Attempting to open your default browser."))
+			fmt.Printf(tr("If the browser does not open or you want to authorize from another device, open the following URL:\n\n%s\n"), verificationURIComplete)
 			if err := util.OpenBrowser(verificationURIComplete); err != nil {
-				fmt.Printf("Failed to open the browser automatically: %v\n", err)
+				fmt.Printf(tr("Failed to open the browser automatically: %v\n"), err)
 			}
 		}
 	}
@@ -656,7 +656,7 @@ func (f *DeviceCodeFetcher) performDeviceAuthorization(ctx context.Context, clie
 	expiresIn := time.Duration(authResp.ExpiresIn) * time.Second
 	deadline := time.Now().Add(expiresIn)
 
-	fmt.Printf("Please complete authorization promptly to avoid timeout. This device code expires in %d seconds.\n", authResp.ExpiresIn)
+	fmt.Printf(tr("Please complete authorization promptly to avoid timeout. This device code expires in %d seconds.\n"), authResp.ExpiresIn)
 
 	// 轮询直到授权完成或设备码过期。
 	for time.Now().Before(deadline) {
@@ -672,13 +672,13 @@ func (f *DeviceCodeFetcher) performDeviceAuthorization(ctx context.Context, clie
 					return nil, errors.New(action.Message)
 				}
 			}
-			return nil, fmt.Errorf("failed to poll access token: %w", err)
+			return nil, trErrorf("failed to poll access token: %w", err)
 		}
 
 		return f.storeToken(tokenResp, client)
 	}
 
-	return nil, fmt.Errorf("authorization has timed out. Please try again")
+	return nil, trErrorf("authorization has timed out. Please try again")
 }
 
 // GetToken 协调设备码流程、refresh token 刷新及缓存复用。
@@ -749,13 +749,13 @@ func (f *DeviceCodeFetcher) GetValidTokenForBusiness() (*SsoTokenCache, error) {
 		return nil, err
 	}
 	if cached == nil || strings.TrimSpace(cached.AccessToken) == "" {
-		return nil, fmt.Errorf("no cached access token found; please log in using the `sso login` command")
+		return nil, trErrorf("no cached access token found; please log in using the `sso login` command")
 	}
 	if !tokenNeedsRefresh(cached.ExpiresAt) {
 		return cached, nil
 	}
 	if strings.TrimSpace(cached.RefreshToken) == "" {
-		return nil, fmt.Errorf("SSO access token cannot be refreshed because refresh token is missing; please log in using the `sso login` command")
+		return nil, trErrorf("SSO access token cannot be refreshed because refresh token is missing; please log in using the `sso login` command")
 	}
 	client, err := f.loadClientForRefresh(cached)
 	if err != nil {
@@ -763,7 +763,7 @@ func (f *DeviceCodeFetcher) GetValidTokenForBusiness() (*SsoTokenCache, error) {
 	}
 	token, err := f.refreshToken(ctx, cached.RefreshToken, client)
 	if err != nil {
-		return nil, fmt.Errorf("failed to refresh SSO access token; please log in using the `sso login` command: %w", err)
+		return nil, trErrorf("failed to refresh SSO access token; please log in using the `sso login` command: %w", err)
 	}
 	return token, nil
 }
@@ -771,18 +771,18 @@ func (f *DeviceCodeFetcher) GetValidTokenForBusiness() (*SsoTokenCache, error) {
 // SetProfile 通过 SSO 登录并写入配置文件。
 func (s *Sso) SetProfile() error {
 	if !s.UseDeviceCode {
-		return fmt.Errorf("currently, only device code authentication is supported")
+		return trErrorf("currently, only device code authentication is supported")
 	}
 
 	fetcher := newDeviceCodeFetcher(s)
 	token, err := fetcher.GetToken()
 	if err != nil {
-		return fmt.Errorf("failed to obtain the access token: %v", err)
+		return trErrorf("failed to obtain the access token: %v", err)
 	}
 
 	accountId, roleName, err := s.chooseAccountAndRole(token)
 	if err != nil {
-		return fmt.Errorf("failed to select the account and role: %v", err)
+		return trErrorf("failed to select the account and role: %v", err)
 	}
 
 	s.Profile.Mode = ModeSSO
@@ -811,7 +811,7 @@ func (s *Sso) SetProfile() error {
 	if err := WriteConfigToFile(cfg); err != nil {
 		return err
 	}
-	fmt.Printf("SSO profile [%s] has been configured successfully\n", s.Profile.Name)
+	fmt.Printf(tr("SSO profile [%s] has been configured successfully\n"), s.Profile.Name)
 	return nil
 }
 
@@ -823,7 +823,7 @@ func (s *Sso) setAccessTokenToCache(startURL, sessionName string, token *SsoToke
 	}
 
 	if err := os.MkdirAll(cacheDir, 0700); err != nil {
-		return fmt.Errorf("failed to create the cache directory: %v", err)
+		return trErrorf("failed to create the cache directory: %v", err)
 	}
 	_ = os.Chmod(cacheDir, 0700)
 
@@ -836,7 +836,7 @@ func (s *Sso) setAccessTokenToCache(startURL, sessionName string, token *SsoToke
 // chooseAccountAndRole 交互式选择账号与角色。
 func (s *Sso) chooseAccountAndRole(token *SsoTokenCache) (string, string, error) {
 	if token == nil || strings.TrimSpace(token.AccessToken) == "" {
-		return "", "", fmt.Errorf("access token is empty, please login again")
+		return "", "", trErrorf("access token is empty, please login again")
 	}
 
 	var client PortalClientAPI = newPortalClientForSSO(s.Region)
@@ -847,7 +847,7 @@ func (s *Sso) chooseAccountAndRole(token *SsoTokenCache) (string, string, error)
 		return "", "", err
 	}
 	if len(accounts) == 0 {
-		return "", "", fmt.Errorf("no available accounts found for the current user")
+		return "", "", trErrorf("no available accounts found for the current user")
 	}
 
 	account, err := selectSsoAccount(accounts)
@@ -860,7 +860,7 @@ func (s *Sso) chooseAccountAndRole(token *SsoTokenCache) (string, string, error)
 		return "", "", err
 	}
 	if len(roles) == 0 {
-		return "", "", fmt.Errorf("no roles available under account %s", account.AccountID)
+		return "", "", trErrorf("no roles available under account %s", account.AccountID)
 	}
 
 	role, err := selectSsoRole(roles)
@@ -875,7 +875,7 @@ func (s *Sso) chooseAccountAndRole(token *SsoTokenCache) (string, string, error)
 func (s *Sso) GetRoleCredentials() (*RoleCredentials, error) {
 	accessToken, err := s.GetValidAccessToken()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get access token: %w", err)
+		return nil, trErrorf("failed to get access token: %w", err)
 	}
 
 	var client PortalClientAPI = newPortalClientForSSO(s.Region)
@@ -886,7 +886,7 @@ func (s *Sso) GetRoleCredentials() (*RoleCredentials, error) {
 		RoleName:    s.Profile.RoleName,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get role credentials: %w", err)
+		return nil, trErrorf("failed to get role credentials: %w", err)
 	}
 
 	return &resp.RoleCredentials, nil
@@ -905,7 +905,7 @@ func (s *Sso) fetchAllAccounts(ctx context.Context, client PortalClientAPI, acce
 			NextToken:   nextToken,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to list accounts: %w", err)
+			return nil, trErrorf("failed to list accounts: %w", err)
 		}
 		accounts = append(accounts, resp.AccountList...)
 		if strings.TrimSpace(resp.NextToken) == "" {
@@ -930,7 +930,7 @@ func (s *Sso) fetchAllRoles(ctx context.Context, client PortalClientAPI, accessT
 			NextToken:   nextToken,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to list roles for account %s: %w", accountID, err)
+			return nil, trErrorf("failed to list roles for account %s: %w", accountID, err)
 		}
 		roles = append(roles, resp.RoleList...)
 		if strings.TrimSpace(resp.NextToken) == "" {
@@ -961,14 +961,14 @@ func promptSelectAccount(accounts []AccountInfo) (AccountInfo, error) {
 		Active:   "> {{ .AccountName | cyan }} ({{ .AccountID | faint }})",
 		Inactive: "  {{ .AccountName | faint }} ({{ .AccountID | faint }})",
 		Selected: "[*] {{ .AccountName }} ({{ .AccountID }})",
-		Details: `
+		Details: tr(`
 --------- Account ----------
 Name:   {{ .AccountName }}
-ID:     {{ .AccountID }}`,
+ID:     {{ .AccountID }}`),
 	}
 
 	sel := promptui.Select{
-		Label:             "Select account (type to filter, Enter to choose)",
+		Label:             tr("Select account (type to filter, Enter to choose)"),
 		Items:             accounts,
 		Templates:         templates,
 		Searcher:          searcher,
@@ -1003,14 +1003,14 @@ func promptSelectRole(roles []RoleInfo) (RoleInfo, error) {
 		Active:   "> {{ .RoleName | cyan }} ({{ .AccountID | faint }})",
 		Inactive: "  {{ .RoleName | faint }} ({{ .AccountID | faint }})",
 		Selected: "[*] {{ .RoleName }} ({{ .AccountID }})",
-		Details: `
+		Details: tr(`
 --------- Role ----------
 Name:    {{ .RoleName }}
-Account: {{ .AccountID }}`,
+Account: {{ .AccountID }}`),
 	}
 
 	sel := promptui.Select{
-		Label:             "Select role (type to filter, Enter to choose)",
+		Label:             tr("Select role (type to filter, Enter to choose)"),
 		Items:             roles,
 		Templates:         templates,
 		Searcher:          searcher,
@@ -1057,18 +1057,18 @@ func (s *Sso) generateCacheFileName(startURL, sessionName string) string {
 func (s *Sso) GetAccessToken() (string, error) {
 	tokenCache, err := s.readTokenCache()
 	if err != nil {
-		return "", fmt.Errorf("failed to read access token cache: %w", err)
+		return "", trErrorf("failed to read access token cache: %w", err)
 	}
 	if tokenCache == nil || strings.TrimSpace(tokenCache.AccessToken) == "" {
-		return "", fmt.Errorf("no cached access token found; please log in using the `sso login` command")
+		return "", trErrorf("no cached access token found; please log in using the `sso login` command")
 	}
 
 	expTime, err := time.Parse(time.RFC3339, tokenCache.ExpiresAt)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse access token expiry: %w", err)
+		return "", trErrorf("failed to parse access token expiry: %w", err)
 	}
 	if time.Now().After(expTime) {
-		return "", fmt.Errorf("your access token has expired. Please log in again using the `sso login` command")
+		return "", trErrorf("your access token has expired. Please log in again using the `sso login` command")
 	}
 
 	return tokenCache.AccessToken, nil
@@ -1088,10 +1088,10 @@ func (s *Sso) GetValidAccessToken() (string, error) {
 // Login 执行 SSO 登录并写入缓存。
 func (s *Sso) Login() error {
 	if !s.UseDeviceCode {
-		return fmt.Errorf("currently, only device code authentication is supported")
+		return trErrorf("currently, only device code authentication is supported")
 	}
 	if strings.TrimSpace(s.SsoSessionName) == "" {
-		return fmt.Errorf("the SSO information is incomplete. Please configure the profile first")
+		return trErrorf("the SSO information is incomplete. Please configure the profile first")
 	}
 
 	config := ctx.config
@@ -1103,15 +1103,15 @@ func (s *Sso) Login() error {
 	s.applySessionDefaults(ssoSession)
 
 	if strings.TrimSpace(s.StartURL) == "" {
-		return fmt.Errorf("the start URL of SSO session %s is not configured", s.SsoSessionName)
+		return trErrorf("the start URL of SSO session %s is not configured", s.SsoSessionName)
 	}
 	if strings.TrimSpace(s.Region) == "" {
-		return fmt.Errorf("the SSO information is incomplete. Please configure the profile first")
+		return trErrorf("the SSO information is incomplete. Please configure the profile first")
 	}
 
 	fetcher := newDeviceCodeFetcher(s)
 	if _, err := fetcher.GetFreshTokenForLogin(); err != nil {
-		return fmt.Errorf("failed to obtain the access token: %v", err)
+		return trErrorf("failed to obtain the access token: %v", err)
 	}
 	return nil
 }
@@ -1125,7 +1125,7 @@ func (s *Sso) Logout() error {
 	}
 	s.applySessionDefaults(ssoSession)
 	if strings.TrimSpace(s.StartURL) == "" {
-		return fmt.Errorf("the sign-in URL of SSO session %s is not configured", s.SsoSessionName)
+		return trErrorf("the sign-in URL of SSO session %s is not configured", s.SsoSessionName)
 	}
 
 	tokenCache, err := s.readTokenCache()
@@ -1156,12 +1156,12 @@ func (s *Sso) Logout() error {
 // revokeCachedToken 仅撤销 refresh token；access token 无需 revoke。
 func (s *Sso) revokeCachedToken(tokenCache *SsoTokenCache) error {
 	if tokenCache == nil {
-		return fmt.Errorf("token cache is empty")
+		return trErrorf("token cache is empty")
 	}
 	clientID := strings.TrimSpace(tokenCache.ClientId)
 	clientSecret := strings.TrimSpace(tokenCache.ClientSecret)
 	if clientID == "" || clientSecret == "" {
-		return fmt.Errorf("client credentials are missing in the cache, please login first")
+		return trErrorf("client credentials are missing in the cache, please login first")
 	}
 
 	token := strings.TrimSpace(tokenCache.RefreshToken)
@@ -1180,14 +1180,14 @@ func (s *Sso) revokeCachedToken(tokenCache *SsoTokenCache) error {
 // clearCachedToken 删除 token 缓存文件。
 func (s *Sso) clearCachedToken(tokenCache *SsoTokenCache) error {
 	if tokenCache == nil {
-		return fmt.Errorf("token cache is empty")
+		return trErrorf("token cache is empty")
 	}
 	filePath, err := s.tokenCacheFilePath()
 	if err != nil {
 		return err
 	}
 	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove token cache file: %v", err)
+		return trErrorf("failed to remove token cache file: %v", err)
 	}
 	return nil
 }
@@ -1195,7 +1195,7 @@ func (s *Sso) clearCachedToken(tokenCache *SsoTokenCache) error {
 // clearProfileStsCredentials 清理当前会话相关 profile 的临时凭据。
 func (s *Sso) clearProfileStsCredentials(cfg *Configure) error {
 	if cfg == nil {
-		return fmt.Errorf("the configuration file cannot be loaded")
+		return trErrorf("the configuration file cannot be loaded")
 	}
 	updated := false
 	for name, profile := range cfg.Profiles {
