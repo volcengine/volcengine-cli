@@ -373,6 +373,10 @@ check("npxArgvForSource defaults", () => {
 // --- resolveBundleUrl ------------------------------------------------------
 check("resolveBundleUrl priority: flag > env > default", () => {
   assert.strictEqual(
+    DEFAULT_BUNDLE_URL,
+    "https://cloudcache.volccdn.com/ve/skills/v1.4.0/volcengine-skill-bundle.zip"
+  );
+  assert.strictEqual(
     resolveBundleUrl({ bundleUrl: BUNDLE_URL }, { SKILLS_BUNDLE_URL: "http://env/x.zip" }),
     BUNDLE_URL
   );
@@ -790,8 +794,9 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
   assert.strictEqual(pkg.dependencies, undefined);
   assert.strictEqual(
     pkg.repository.url,
-    "https://github.com/volcengine/volcengine-cli"
+    "git+https://github.com/volcengine/volcengine-cli.git"
   );
+  assert.strictEqual(pkg.repository.directory, "skills-setup");
   passed += 1;
 
   const fs = require("fs");

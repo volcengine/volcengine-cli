@@ -30,7 +30,7 @@ const SKILL_REPOS = ["volcengine/volcengine-skills"];
 // `skills add <dir>`. Override with --bundle-url or the SKILLS_BUNDLE_URL env
 // var; use a local zip with --bundle-file.
 const DEFAULT_BUNDLE_URL =
-  "https://cloudcache.volccdn.com/ve/skills/v1.3.0/volcengine-skills-bundle.zip";
+  "https://cloudcache.volccdn.com/ve/skills/v1.4.0/volcengine-skill-bundle.zip";
 
 // Default agents targeted by `skills add` when the caller does not pass
 // `--agent`. We enumerate the supported agents explicitly instead of using the
