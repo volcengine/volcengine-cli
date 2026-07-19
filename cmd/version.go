@@ -18,7 +18,7 @@ var clientVersionAndUserAgentHandler = request.NamedHandler{
 
 const clientName = "volcengine-cli"
 
-var clientVersion = "1.0.50"
+var clientVersion = "1.0.51"
 
 type envGetter func(string) string
 
