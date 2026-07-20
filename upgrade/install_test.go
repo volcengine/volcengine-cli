@@ -1,8 +1,6 @@
 package upgrade
 
 import (
-	"io/ioutil"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -18,15 +16,10 @@ func TestNormalizeInstallPath(t *testing.T) {
 }
 
 func TestDetectInstall_PathTable(t *testing.T) {
-	// 隔离 env / 标记文件，只测路径启发式
+	// 隔离 env，只测路径启发式
 	origEnv := installLookupEnv
-	origMarker := readInstallMarker
-	defer func() {
-		installLookupEnv = origEnv
-		readInstallMarker = origMarker
-	}()
+	defer func() { installLookupEnv = origEnv }()
 	installLookupEnv = func(string) string { return "" }
-	readInstallMarker = func(string) (string, bool) { return "", false }
 
 	tests := []struct {
 		path string
@@ -81,12 +74,7 @@ func TestPathHasSegment(t *testing.T) {
 
 func TestDetectInstall_EnvOverridesPath(t *testing.T) {
 	origEnv := installLookupEnv
-	origMarker := readInstallMarker
-	defer func() {
-		installLookupEnv = origEnv
-		readInstallMarker = origMarker
-	}()
-	readInstallMarker = func(string) (string, bool) { return "", false }
+	defer func() { installLookupEnv = origEnv }()
 	installLookupEnv = func(k string) string {
 		if k == EnvInstallMethod {
 			return "npm"
@@ -100,36 +88,15 @@ func TestDetectInstall_EnvOverridesPath(t *testing.T) {
 	}
 }
 
-func TestDetectInstall_MarkerOverridesPath(t *testing.T) {
-	origEnv := installLookupEnv
-	origMarker := readInstallMarker
-	defer func() {
-		installLookupEnv = origEnv
-		readInstallMarker = origMarker
-	}()
-	installLookupEnv = func(string) string { return "" }
-	readInstallMarker = func(string) (string, bool) { return "homebrew", true }
-
-	info := detectInstall("/tmp/ve")
-	if info.Method != MethodHomebrew || info.DetectedBy != DetectedByMarker {
-		t.Fatalf("got %+v", info)
-	}
-}
-
 func TestDetectInstall_InvalidEnvFallsThrough(t *testing.T) {
 	origEnv := installLookupEnv
-	origMarker := readInstallMarker
-	defer func() {
-		installLookupEnv = origEnv
-		readInstallMarker = origMarker
-	}()
+	defer func() { installLookupEnv = origEnv }()
 	installLookupEnv = func(k string) string {
 		if k == EnvInstallMethod {
 			return "not-a-real-method"
 		}
 		return ""
 	}
-	readInstallMarker = func(string) (string, bool) { return "", false }
 
 	info := detectInstall("/usr/local/lib/node_modules/@volcengine/cli/bin/ve")
 	if info.Method != MethodNPM || info.DetectedBy != DetectedByPath {
@@ -137,20 +104,16 @@ func TestDetectInstall_InvalidEnvFallsThrough(t *testing.T) {
 	}
 }
 
-func TestDetectInstall_EnvWinsOverMarker(t *testing.T) {
+func TestDetectInstall_EnvWinsOverPath(t *testing.T) {
 	origEnv := installLookupEnv
-	origMarker := readInstallMarker
-	defer func() {
-		installLookupEnv = origEnv
-		readInstallMarker = origMarker
-	}()
+	defer func() { installLookupEnv = origEnv }()
 	installLookupEnv = func(k string) string {
 		if k == EnvInstallMethod {
 			return "standalone"
 		}
 		return ""
 	}
-	readInstallMarker = func(string) (string, bool) { return "npm", true }
+	// Path looks like npm, env forces standalone
 	info := detectInstall("/usr/local/lib/node_modules/@volcengine/cli/bin/ve")
 	if info.Method != MethodStandalone || info.DetectedBy != DetectedByEnv {
 		t.Fatalf("got %+v", info)
@@ -159,35 +122,15 @@ func TestDetectInstall_EnvWinsOverMarker(t *testing.T) {
 
 func TestDetectInstall_LinuxbrewEnvAlias(t *testing.T) {
 	origEnv := installLookupEnv
-	origMarker := readInstallMarker
-	defer func() {
-		installLookupEnv = origEnv
-		readInstallMarker = origMarker
-	}()
+	defer func() { installLookupEnv = origEnv }()
 	installLookupEnv = func(k string) string {
 		if k == EnvInstallMethod {
 			return "linuxbrew"
 		}
 		return ""
 	}
-	readInstallMarker = func(string) (string, bool) { return "", false }
 	info := detectInstall("/tmp/ve")
 	if info.Method != MethodHomebrew || info.DetectedBy != DetectedByEnv {
-		t.Fatalf("got %+v", info)
-	}
-}
-
-func TestDetectInstall_InvalidMarkerFallsThrough(t *testing.T) {
-	origEnv := installLookupEnv
-	origMarker := readInstallMarker
-	defer func() {
-		installLookupEnv = origEnv
-		readInstallMarker = origMarker
-	}()
-	installLookupEnv = func(string) string { return "" }
-	readInstallMarker = func(string) (string, bool) { return "not-real", true }
-	info := detectInstall("/tmp/ve")
-	if info.Method != MethodStandalone {
 		t.Fatalf("got %+v", info)
 	}
 }
@@ -204,33 +147,39 @@ func TestNPMUpgradeCommand(t *testing.T) {
 func TestFormatManagedInstallMessage_NPM(t *testing.T) {
 	info := npmInfo("/path/to/node_modules/@volcengine/cli/bin/ve")
 	msg := FormatManagedInstallMessage(info, "")
-	for _, want := range []string{"npm", "npm install -g @volcengine/cli@latest", "ve upgrade --force", "/path/to/"} {
+	for _, want := range []string{"npm", "npm install -g @volcengine/cli@latest", "/path/to/"} {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("missing %q in:\n%s", want, msg)
 		}
 	}
+	assertNoUpgradeForceGuidance(t, msg)
 	msgPin := FormatManagedInstallMessage(info, "1.0.50")
 	if !strings.Contains(msgPin, "npm install -g @volcengine/cli@1.0.50") {
 		t.Fatalf("pin msg: %s", msgPin)
 	}
+	assertNoUpgradeForceGuidance(t, msgPin)
 }
 
-func TestDefaultReadInstallMarker(t *testing.T) {
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "ve")
-	marker := filepath.Join(dir, InstallMarkerFile)
-	if err := writeFile(marker, "npm\n"); err != nil {
-		t.Fatal(err)
+func TestFormatManagedInstallMessage_Homebrew(t *testing.T) {
+	info := homebrewInfo("/opt/homebrew/bin/ve")
+	msg := FormatManagedInstallMessage(info, "1.0.50")
+	for _, want := range []string{"Homebrew", "brew upgrade", HomebrewFormula, "/opt/homebrew/bin/ve"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("missing %q in:\n%s", want, msg)
+		}
 	}
-	got, ok := defaultReadInstallMarker(bin)
-	if !ok || got != "npm" {
-		t.Fatalf("got %q ok=%v", got, ok)
+	// pinVersion only rewrites npm commands; brew guidance stays unpinned.
+	if strings.Contains(msg, "1.0.50") {
+		t.Fatalf("homebrew message should ignore pinVersion:\n%s", msg)
 	}
-	if _, ok := defaultReadInstallMarker(filepath.Join(dir, "missing", "ve")); ok {
-		t.Fatal("expected no marker")
-	}
+	assertNoUpgradeForceGuidance(t, msg)
 }
 
-func writeFile(path, content string) error {
-	return ioutil.WriteFile(path, []byte(content), 0644)
+// assertNoUpgradeForceGuidance ensures managed-install UX never points users at
+// the removed "ve upgrade --force" escape hatch.
+func assertNoUpgradeForceGuidance(t *testing.T, msg string) {
+	t.Helper()
+	if strings.Contains(msg, "--force") || strings.Contains(msg, "ve upgrade --force") {
+		t.Fatalf("message should not mention --force / ve upgrade --force:\n%s", msg)
+	}
 }

@@ -181,7 +181,7 @@ Behavior depends on how `ve` was installed:
 
 | Install source | Default action |
 |----------------|----------------|
-| **Homebrew** (macOS/Linux; Homebrew/Linuxbrew/Cellar paths) | `brew update` then `brew upgrade volcengine-cli` (network required; `--version` needs `--force`) |
+| **Homebrew** (macOS/Linux; Homebrew/Linuxbrew/Cellar paths) | `brew update` then `brew upgrade volcengine-cli` (network required; `--version` not supported) |
 | **npm** (`node_modules/@volcengine/cli`) | Prints `npm install -g @volcengine/cli@...`; no in-place replace (exit 0) |
 | **standalone** (Release zip, source build, etc.) | Download and replace the current binary in place |
 
@@ -190,10 +190,8 @@ ve upgrade              # source-aware: brew / npm guidance / standalone self-up
 ve upgrade --yes        # skip confirmation for standalone in-place (never implies package-manager upgrade)
 ve upgrade --version 1.0.49
 #   standalone: pin/downgrade in place
-#   npm: prints "npm install -g @volcengine/cli@1.0.49" (exit 0; --force not required)
-#   Homebrew: errors unless --force (in-place replace; not a brew pin)
-ve upgrade --force      # npm/Homebrew in-place replace (not recommended; still prompts unless --yes)
-ve upgrade --force --version 1.0.49
+#   npm: prints "npm install -g @volcengine/cli@1.0.49" (exit 0)
+#   Homebrew: errors (use brew to manage versions)
 ```
 
 For standalone installs, without `--version` the CLI installs only a version newer than the running binary; a stale manifest cannot trigger an implicit downgrade. Downgrades require an explicit `--version`.

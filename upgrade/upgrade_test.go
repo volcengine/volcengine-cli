@@ -203,7 +203,7 @@ func TestDoUpgrade_AlreadyLatest(t *testing.T) {
 	}
 }
 
-func TestDoUpgrade_NPMBlocksWithoutForce(t *testing.T) {
+func TestDoUpgrade_NPMPrintsGuidance(t *testing.T) {
 	// 强制识别为 npm，不依赖真实目录布局
 	orig := detectInstallFunc
 	defer func() { detectInstallFunc = orig }()
@@ -241,8 +241,12 @@ func TestDoUpgrade_NPMBlocksWithoutForce(t *testing.T) {
 	if downloadHit {
 		t.Fatal("npm path must not download")
 	}
-	if !strings.Contains(stdout.String(), "npm install -g @volcengine/cli@9.9.9") {
-		t.Fatalf("stdout should pin version: %s", stdout.String())
+	out := stdout.String()
+	if !strings.Contains(out, "npm install -g @volcengine/cli@9.9.9") {
+		t.Fatalf("stdout should pin version: %s", out)
+	}
+	if strings.Contains(out, "--force") {
+		t.Fatalf("npm guidance must not mention --force:\n%s", out)
 	}
 }
 
@@ -276,8 +280,18 @@ func TestDoUpgrade_HomebrewRejectsVersionPin(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for brew + --version")
 	}
-	if !strings.Contains(err.Error(), "--version") {
+	msg := err.Error()
+	if !strings.Contains(msg, "--version") {
 		t.Fatalf("err: %v", err)
+	}
+	if !strings.Contains(msg, "1.0.40") {
+		t.Fatalf("error should include pinned version: %v", err)
+	}
+	if !strings.Contains(msg, "brew") {
+		t.Fatalf("error should direct users to brew: %v", err)
+	}
+	if strings.Contains(msg, "--force") {
+		t.Fatalf("error must not suggest --force: %v", err)
 	}
 	if brewCalled {
 		t.Fatal("brew must not run when --version is rejected")
@@ -325,96 +339,6 @@ func TestDoUpgrade_HomebrewDelegatesToBrew(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Homebrew upgrade complete") {
 		t.Fatal(stdout.String())
-	}
-}
-
-func TestDoUpgrade_HomebrewForceInPlace(t *testing.T) {
-	// Homebrew + --force 应跳过 brew，走 CDN 原地替换
-	origDetect := detectInstallFunc
-	defer func() { detectInstallFunc = origDetect }()
-	detectInstallFunc = func(path string) InstallInfo {
-		return homebrewInfo(path)
-	}
-
-	payload := []byte("forced-homebrew-binary")
-	binName := BinaryName()
-	zipBuf := &bytes.Buffer{}
-	zw := zip.NewWriter(zipBuf)
-	w, err := zw.Create(binName)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := w.Write(payload); err != nil {
-		t.Fatal(err)
-	}
-	if err := zw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	zipBytes := zipBuf.Bytes()
-	sum := sha256.Sum256(zipBytes)
-	hexSum := hex.EncodeToString(sum[:])
-	version := "9.9.8"
-	archive := ArchiveName(version, runtime.GOOS, runtime.GOARCH)
-	checksumName := ChecksumName(version)
-	sumsBody := fmt.Sprintf("%s  %s\n", hexSum, archive)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/v"+version+"/"+archive, func(w http.ResponseWriter, r *http.Request) {
-		w.Write(zipBytes)
-	})
-	mux.HandleFunc("/v"+version+"/"+checksumName, func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, sumsBody)
-	})
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-	os.Setenv(EnvDownloadBaseURL, srv.URL)
-	defer os.Unsetenv(EnvDownloadBaseURL)
-	SetHTTPClient(srv.Client())
-	defer SetHTTPClient(&http.Client{Timeout: DefaultHTTPTimeout})
-
-	brewCalled := false
-	origExec := execCommand
-	defer func() { execCommand = origExec }()
-	execCommand = func(name string, arg ...string) *exec.Cmd {
-		if name == "brew" {
-			brewCalled = true
-		}
-		if runtime.GOOS == "windows" {
-			return exec.Command("cmd", "/C", "echo "+version)
-		}
-		return exec.Command("echo", version)
-	}
-
-	dir := t.TempDir()
-	execPath := filepath.Join(dir, binName)
-	if err := ioutil.WriteFile(execPath, []byte("old"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	var stdout, stderr bytes.Buffer
-	err = DoUpgrade(Options{
-		CurrentVersion: "1.0.0",
-		TargetVersion:  version,
-		Yes:            true,
-		Force:          true,
-		Stdout:         &stdout,
-		Stderr:         &stderr,
-		ExecPath:       execPath,
-	})
-	if err != nil {
-		t.Fatalf("DoUpgrade: %v\n%s", err, stdout.String())
-	}
-	if brewCalled {
-		t.Fatal("brew must not run with --force")
-	}
-	if !strings.Contains(stderr.String(), "forcing in-place") {
-		t.Fatalf("stderr: %s", stderr.String())
-	}
-	got, err := ioutil.ReadFile(execPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(got, payload) {
-		t.Fatalf("content: %q", got)
 	}
 }
 

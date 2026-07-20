@@ -83,7 +83,6 @@ func newUpgradeCleanupCmd() *cobra.Command {
 func newUpgradeCmd() *cobra.Command {
 	var (
 		yes           bool
-		force         bool
 		targetVersion string
 	)
 
@@ -94,16 +93,14 @@ func newUpgradeCmd() *cobra.Command {
 
 Install-source behavior:
   - Homebrew (macOS/Linux): delegates to "brew update" and "brew upgrade volcengine-cli"
-    (requires network; --version is not supported without --force)
+    (requires network; --version is not supported for Homebrew installs)
   - npm (@volcengine/cli): prints "npm install -g @volcengine/cli@..." guidance (no in-place replace)
   - standalone (Release/source): downloads from CDN/GitHub and replaces the current binary
 
 For standalone installs, checks the latest release (CDN version manifest, then GitHub)
 and installs it after confirmation. The default path never downgrades. Use
 --yes to skip the prompt, or --version to install a specific release
-(including an explicit downgrade). Use --force to force an in-place binary
-replace even when installed via npm or Homebrew (not recommended; required with
---version on Homebrew installs).
+(including an explicit downgrade).
 
 Standalone downloads prefer https://cloudcache.volccdn.com/ve and verify SHA256
 checksums before replacing the current binary. On Windows, a temporary helper
@@ -114,7 +111,6 @@ finishes replacement after the running process exits.`,
 				CurrentVersion: clientVersion,
 				TargetVersion:  targetVersion,
 				Yes:            yes,
-				Force:          force,
 				Stdout:         cmd.OutOrStdout(),
 				Stderr:         cmd.ErrOrStderr(),
 				Stdin:          cmd.InOrStdin(),
@@ -130,7 +126,6 @@ Flags:
 `)
 
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation prompt")
-	cmd.Flags().BoolVar(&force, "force", false, "Allow in-place binary replace for package-manager installs (not recommended)")
 	cmd.Flags().StringVar(&targetVersion, "version", "", "Install a specific version (e.g. 1.0.49)")
 	return cmd
 }

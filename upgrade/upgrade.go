@@ -21,9 +21,6 @@ type Options struct {
 	TargetVersion string
 	// Yes 跳过交互确认。
 	Yes bool
-	// Force 允许在 npm/Homebrew 等托管安装下仍做原地二进制替换。
-	// 不隐含 Yes。默认：Homebrew 委托 brew；npm 仅打印升级指引。
-	Force bool
 	// Stdout / Stderr 面向用户的输出，默认 os.Stdout/Stderr。
 	Stdout io.Writer
 	Stderr io.Writer
@@ -36,8 +33,8 @@ type Options struct {
 }
 
 // DoUpgrade 按安装来源升级 CLI：
-//   - Homebrew：委托 brew update / brew upgrade（除非 Force）
-//   - npm：打印 npm 升级命令并成功返回（除非 Force 走原地替换）
+//   - Homebrew：委托 brew update / brew upgrade
+//   - npm：打印 npm 升级命令并成功返回
 //   - standalone：从 CDN/GitHub 下载并原地替换当前二进制
 func DoUpgrade(opts Options) error {
 	stdout := opts.Stdout
@@ -62,20 +59,19 @@ func DoUpgrade(opts Options) error {
 	}
 	info := DetectInstall(detectPath)
 
-	// Homebrew：默认委托 brew（macOS / Linux）；Force 时走下方原地替换。
-	// 未 Force 时不支持 --version 固定版本，避免静默忽略用户意图。
-	if info.Method == MethodHomebrew && !opts.Force {
+	// Homebrew：委托 brew（macOS / Linux）。
+	// 不支持 --version 固定版本，避免静默忽略用户意图。
+	if info.Method == MethodHomebrew {
 		if pin := strings.TrimSpace(opts.TargetVersion); pin != "" {
 			return fmt.Errorf(
-				"Homebrew installs cannot pin a version via ve upgrade --version; "+
-					"use brew, or force an in-place replace: ve upgrade --force --version %s",
+				"Homebrew installs cannot pin a version via ve upgrade --version %s; use brew instead",
 				NormalizeVersion(pin))
 		}
 		return upgradeViaBrew(stdout, stderr)
 	}
-	// npm：默认只打印升级指引并 return nil（退出码 0），不原地替换、不下载。
+	// npm：只打印升级指引并 return nil（退出码 0），不原地替换、不下载。
 	// 不返回 error，避免 root 再向 stderr 重复打印一行。
-	if info.Method == MethodNPM && !opts.Force {
+	if info.Method == MethodNPM {
 		info = withPinnedNPMUpgradeCmd(info, opts.TargetVersion)
 		fmt.Fprint(stdout, FormatManagedInstallMessage(info, opts.TargetVersion))
 		return nil
@@ -103,14 +99,6 @@ func DoUpgrade(opts Options) error {
 	if !explicitTarget && !IsNewer(current, target) {
 		fmt.Fprintf(stdout, "Current version %s is newer than the latest available version %s; refusing to downgrade without --version.\n", current, target)
 		return nil
-	}
-
-	// 仅在确定会进行原地安装时，对托管来源的 Force 给出警告
-	if info.Managed() && opts.Force {
-		fmt.Fprintf(stderr,
-			"Warning: forcing in-place upgrade for a %s install.\n"+
-				"The package manager may overwrite or conflict with this binary later.\n\n",
-			info.DisplayName)
 	}
 
 	if !opts.Yes {

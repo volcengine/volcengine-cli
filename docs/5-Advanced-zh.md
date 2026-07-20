@@ -181,7 +181,7 @@ tail -n 100 ~/.volcengine/logs/$(date +%Y%m%d%H).log
 
 | 安装来源 | 默认行为 |
 |----------|----------|
-| **Homebrew**（macOS/Linux；Homebrew/Linuxbrew/Cellar 路径） | 执行 `brew update` 再 `brew upgrade volcengine-cli`（需网络；`--version` 需配合 `--force`） |
+| **Homebrew**（macOS/Linux；Homebrew/Linuxbrew/Cellar 路径） | 执行 `brew update` 再 `brew upgrade volcengine-cli`（需网络；不支持 `--version`） |
 | **npm**（`node_modules/@volcengine/cli`） | 提示 `npm install -g @volcengine/cli@...`，不原地替换（退出码 0） |
 | **standalone**（Release 解压、源码编译等） | 下载并原地替换当前二进制 |
 
@@ -190,10 +190,8 @@ ve upgrade              # 按安装来源：brew 委托 / npm 提示 / standalon
 ve upgrade --yes        # standalone 原地升级跳过确认（不会代替包管理器升级）
 ve upgrade --version 1.0.49
 #   standalone：原地固定/降级
-#   npm：仍只打印 npm install -g @volcengine/cli@1.0.49（退出码 0，无需 --force）
-#   Homebrew：不加 --force 会报错；--force 为原地替换（不是 brew 固定版本）
-ve upgrade --force      # npm/Homebrew 原地替换（不推荐；仍需确认除非 --yes）
-ve upgrade --force --version 1.0.49
+#   npm：仍只打印 npm install -g @volcengine/cli@1.0.49（退出码 0）
+#   Homebrew：报错（请用 brew 管理版本）
 ```
 
 standalone 未指定 `--version` 时，只会安装高于当前运行版本的版本；即使 latest manifest 滞后，也不会隐式降级。降级必须显式传入 `--version`。

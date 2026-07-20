@@ -5,9 +5,7 @@ package upgrade
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -15,10 +13,6 @@ const (
 	// EnvInstallMethod 覆盖安装来源识别（测试或排障用）。
 	// 取值：standalone、npm、homebrew（大小写不敏感）；linuxbrew 视为 homebrew。
 	EnvInstallMethod = "VOLCENGINE_CLI_INSTALL_METHOD"
-
-	// InstallMarkerFile 可选标记文件，放在二进制同目录，内容为安装来源标识（一行）。
-	// 可由打包脚本写入；识别时优先级高于路径启发式。
-	InstallMarkerFile = ".ve-install-source"
 
 	// HomebrewFormula Homebrew 公式名，委托 brew 升级时使用。
 	HomebrewFormula = "volcengine-cli"
@@ -44,7 +38,6 @@ type DetectedBy string
 
 const (
 	DetectedByEnv     DetectedBy = "env"     // 环境变量覆盖
-	DetectedByMarker  DetectedBy = "marker"  // 旁路标记文件
 	DetectedByPath    DetectedBy = "path"    // 可执行路径启发式
 	DetectedByDefault DetectedBy = "default" // 默认 standalone
 )
@@ -70,18 +63,15 @@ type Detector interface {
 	Info(execPath string) InstallInfo
 }
 
-// DetectContext 识别过程中的上下文（环境变量、标记文件内容等）。
+// DetectContext 识别过程中的上下文（环境变量等）。
 type DetectContext struct {
 	ExecPath  string
-	Marker    string
 	LookupEnv func(string) string
 }
 
 var (
 	// detectInstallFunc 非空时覆盖 DetectInstall，仅测试使用。
 	detectInstallFunc func(string) InstallInfo
-	// readInstallMarker 读取二进制旁的标记文件。
-	readInstallMarker = defaultReadInstallMarker
 	// installLookupEnv 读取环境变量，测试可替换。
 	installLookupEnv = os.Getenv
 )
@@ -103,9 +93,6 @@ func detectInstall(execPath string) InstallInfo {
 	if ctx.LookupEnv == nil {
 		ctx.LookupEnv = os.Getenv
 	}
-	if m, ok := readInstallMarker(execPath); ok {
-		ctx.Marker = m
-	}
 
 	// 优先级 1：环境变量强制指定来源
 	if v := strings.ToLower(strings.TrimSpace(ctx.LookupEnv(EnvInstallMethod))); v != "" {
@@ -113,13 +100,7 @@ func detectInstall(execPath string) InstallInfo {
 			return info
 		}
 	}
-	// 优先级 2：二进制旁标记文件
-	if ctx.Marker != "" {
-		if info, ok := infoForMethod(Method(strings.ToLower(strings.TrimSpace(ctx.Marker))), execPath, DetectedByMarker); ok {
-			return info
-		}
-	}
-	// 优先级 3：路径启发式（按 defaultDetectors 顺序）
+	// 优先级 2：路径启发式（按 defaultDetectors 顺序）
 	norm := normalizeInstallPath(execPath)
 	for _, d := range defaultDetectors {
 		if d.Match(norm) {
@@ -128,7 +109,7 @@ func detectInstall(execPath string) InstallInfo {
 			return info
 		}
 	}
-	// 优先级 4：默认独立安装
+	// 优先级 3：默认独立安装
 	return standaloneInfo(execPath, DetectedByDefault)
 }
 
@@ -210,47 +191,8 @@ func FormatManagedInstallMessage(info InstallInfo, pinVersion string) string {
 	if info.Method == MethodNPM {
 		cmd = NPMUpgradeCommand(pinVersion)
 	}
-	fmt.Fprintf(&b, "  %s\n\n", cmd)
-	b.WriteString("To force an in-place binary replace anyway (not recommended):\n")
-	b.WriteString("  ve upgrade --force\n")
-	b.WriteString("  ve upgrade --force --version <ver>   # pin / downgrade in place\n")
+	fmt.Fprintf(&b, "  %s\n", cmd)
 	return b.String()
-}
-
-// ErrManagedInstall 表示托管安装不允许默认原地升级（保留类型便于扩展；当前 npm 路径返回 nil）。
-type ErrManagedInstall struct {
-	Info InstallInfo
-}
-
-func (e *ErrManagedInstall) Error() string {
-	if e == nil {
-		return "install method does not allow in-place upgrade"
-	}
-	return fmt.Sprintf("install method %q does not allow in-place upgrade; use: %s", e.Info.Method, e.Info.UpgradeCmd)
-}
-
-// defaultReadInstallMarker 读取二进制同目录下的来源标记文件。
-func defaultReadInstallMarker(execPath string) (string, bool) {
-	if strings.TrimSpace(execPath) == "" {
-		return "", false
-	}
-	markerPath := filepath.Join(filepath.Dir(execPath), InstallMarkerFile)
-	data, err := ioutil.ReadFile(markerPath)
-	if err != nil {
-		return "", false
-	}
-	line := strings.TrimSpace(string(data))
-	if line == "" {
-		return "", false
-	}
-	// 只取第一行非空内容
-	if i := strings.IndexAny(line, "\r\n"); i >= 0 {
-		line = strings.TrimSpace(line[:i])
-	}
-	if line == "" {
-		return "", false
-	}
-	return line, true
 }
 
 // upgradeViaBrew 将升级委托给 Homebrew：先 brew update，再 brew upgrade <公式名>。

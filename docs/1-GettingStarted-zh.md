@@ -34,7 +34,7 @@ ve --help
 npm install -g @volcengine/cli@latest
 ```
 
-`ve upgrade` 会识别 npm 安装，并提示上述命令，而不会默认原地替换二进制。仅在明确需要时使用 `ve upgrade --force` 强制原地替换（不推荐）。
+`ve upgrade` 会识别 npm 安装，并提示上述命令，而不会原地替换二进制。
 
 **Release 解压**或**源码编译**（standalone）可使用：
 

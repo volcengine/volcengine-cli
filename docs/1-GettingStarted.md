@@ -34,7 +34,7 @@ To upgrade an **npm** install, use npm so the package metadata stays consistent:
 npm install -g @volcengine/cli@latest
 ```
 
-`ve upgrade` detects npm installs and prints this guidance instead of replacing the binary in place. Use `ve upgrade --force` only if you intentionally want an in-place replace (not recommended).
+`ve upgrade` detects npm installs and prints this guidance instead of replacing the binary in place.
 
 For **Release binaries** or **source builds** (standalone):
 
