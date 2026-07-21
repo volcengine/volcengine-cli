@@ -72,6 +72,9 @@ func DoUpgrade(opts Options) error {
 	// npm：只打印升级指引并 return nil（退出码 0），不原地替换、不下载。
 	// 不返回 error，避免 root 再向 stderr 重复打印一行。
 	if info.Method == MethodNPM {
+		if err := rejectOlderTarget(current, opts.TargetVersion); err != nil {
+			return err
+		}
 		info = withPinnedNPMUpgradeCmd(info, opts.TargetVersion)
 		fmt.Fprint(stdout, FormatManagedInstallMessage(info, opts.TargetVersion))
 		return nil
@@ -96,8 +99,12 @@ func DoUpgrade(opts Options) error {
 		fmt.Fprintf(stdout, "You are already using version %s.\n", current)
 		return nil
 	}
-	if !explicitTarget && !IsNewer(current, target) {
-		fmt.Fprintf(stdout, "Current version %s is newer than the latest available version %s; refusing to downgrade without --version.\n", current, target)
+	// Never install an older or non-newer target: default path and explicit --version alike.
+	if !IsNewer(current, target) {
+		if explicitTarget {
+			return errTargetNotNewer(current, target)
+		}
+		fmt.Fprintf(stdout, "Current version %s is newer than the latest available version %s; no upgrade available.\n", current, target)
 		return nil
 	}
 
@@ -195,12 +202,47 @@ func DoUpgrade(opts Options) error {
 
 	// Refresh version-check cache after install:
 	// - default upgrade-to-latest: latest == target, avoid immediate re-prompt
-	// - pin/downgrade (--version): re-resolve real latest so we do not poison the
-	//   24h cache with an older "latest" (which would suppress real update notices)
+	// - pin (--version): re-resolve real latest so we do not poison the
+	//   24h cache with a pinned "latest" (which would suppress real update notices)
 	refreshVersionCacheAfterInstall(explicitTarget, target)
 
 	fmt.Fprintf(stdout, "\nSuccessfully upgraded Volcengine CLI from %s to %s!\n", current, target)
 	return nil
+}
+
+// rejectOlderTarget validates an optional pin and rejects targets that are not
+// strictly newer than current. Empty pin means "latest" and is allowed (resolved
+// later on the standalone path; npm unpinned guidance is also allowed).
+func rejectOlderTarget(current, pin string) error {
+	pin = strings.TrimSpace(pin)
+	if pin == "" {
+		return nil
+	}
+	if err := ValidateVersion(pin); err != nil {
+		return fmt.Errorf("invalid target version: %v", err)
+	}
+	target := NormalizeVersion(pin)
+	if SameVersion(current, target) || IsNewer(current, target) {
+		return nil
+	}
+	return errTargetNotNewer(current, target)
+}
+
+// errTargetNotNewer explains why a pin/target cannot be installed.
+// When both sides are semver and target is strictly older, the message says
+// "older"; otherwise it says the target is "not newer" (covers opaque/incomparable tags).
+func errTargetNotNewer(current, target string) error {
+	current = NormalizeVersion(current)
+	target = NormalizeVersion(target)
+	releases := OfficialReleasesURL()
+	if isStrictlyOlder(current, target) {
+		return fmt.Errorf(
+			"refusing to install older version %s (current is %s); reinstall from %s if you need a previous release",
+			target, current, releases)
+	}
+	return fmt.Errorf(
+		"refusing to install version %s (current is %s): target must be newer than the running binary; reinstall from %s if you need a previous release",
+		target, current, releases)
 }
 
 func refreshVersionCacheAfterInstall(pinned bool, installed string) {

@@ -189,12 +189,12 @@ Behavior depends on how `ve` was installed:
 ve upgrade              # source-aware: brew / npm guidance / standalone self-upgrade
 ve upgrade --yes        # skip confirmation for standalone in-place (never implies package-manager upgrade)
 ve upgrade --version 1.0.49
-#   standalone: pin/downgrade in place
-#   npm: prints "npm install -g @volcengine/cli@1.0.49" (exit 0)
+#   standalone: install that version in place (must be newer than current; no downgrade)
+#   npm: prints "npm install -g @volcengine/cli@1.0.49" (exit 0; rejected if older than current)
 #   Homebrew: errors (use brew to manage versions)
 ```
 
-For standalone installs, without `--version` the CLI installs only a version newer than the running binary; a stale manifest cannot trigger an implicit downgrade. Downgrades require an explicit `--version`.
+For standalone installs, only a version **newer** than the running binary is installed: without `--version` the CLI upgrades to latest (a stale manifest never rolls back); with `--version` the pin must still be newer than current. To use an older build, reinstall from the official release page.
 
 Standalone flow: download the platform zip and checksum from the official CDN (`https://cloudcache.volccdn.com/ve`), verify SHA256, then atomically replace the running binary. On failure the previous binary is kept/restored. If either CDN artifact is unavailable, the CLI falls back to GitHub Releases. On Windows, a temporary helper completes replacement after the running process exits and reports the final result through the same stdout/stderr streams.
 

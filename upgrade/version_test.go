@@ -68,6 +68,25 @@ func TestSameVersion(t *testing.T) {
 	}
 }
 
+func TestIsStrictlyOlder(t *testing.T) {
+	if !isStrictlyOlder("2.0.0", "1.0.0") {
+		t.Fatal("expected 1.0.0 older than 2.0.0")
+	}
+	if isStrictlyOlder("1.0.0", "2.0.0") {
+		t.Fatal("expected 2.0.0 not older than 1.0.0")
+	}
+	if isStrictlyOlder("1.0.0", "1.0.0") {
+		t.Fatal("same version is not strictly older")
+	}
+	// Incomparable / opaque: cannot prove older.
+	if isStrictlyOlder("1.0.50", "dev-build") {
+		t.Fatal("opaque target must not be treated as strictly older")
+	}
+	if isStrictlyOlder("dev-build", "1.0.50") {
+		t.Fatal("opaque current vs semver target is not strictly-older of target")
+	}
+}
+
 func TestValidateVersion(t *testing.T) {
 	if err := ValidateVersion("1.0.49"); err != nil {
 		t.Fatal(err)

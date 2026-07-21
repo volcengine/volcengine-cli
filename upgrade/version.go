@@ -79,6 +79,17 @@ func SameVersion(a, b string) bool {
 	return NormalizeVersion(a) == NormalizeVersion(b)
 }
 
+// isStrictlyOlder reports whether target is strictly older than current when
+// both parse as semver. Opaque/incomparable pairs return false.
+func isStrictlyOlder(current, target string) bool {
+	c, cok := parseSemver(ensureVPrefix(current))
+	t, tok := parseSemver(ensureVPrefix(target))
+	if !cok || !tok {
+		return false
+	}
+	return compareSemver(c, t) > 0
+}
+
 type semver struct {
 	major, minor, patch int
 	pre                 string // without leading '-'

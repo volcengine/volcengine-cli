@@ -189,12 +189,12 @@ tail -n 100 ~/.volcengine/logs/$(date +%Y%m%d%H).log
 ve upgrade              # 按安装来源：brew 委托 / npm 提示 / standalone 自升级
 ve upgrade --yes        # standalone 原地升级跳过确认（不会代替包管理器升级）
 ve upgrade --version 1.0.49
-#   standalone：原地固定/降级
-#   npm：仍只打印 npm install -g @volcengine/cli@1.0.49（退出码 0）
+#   standalone：原地安装指定版本（必须高于当前版本；禁止降级）
+#   npm：仍只打印 npm install -g @volcengine/cli@1.0.49（退出码 0；目标低于当前时拒绝）
 #   Homebrew：报错（请用 brew 管理版本）
 ```
 
-standalone 未指定 `--version` 时，只会安装高于当前运行版本的版本；即使 latest manifest 滞后，也不会隐式降级。降级必须显式传入 `--version`。
+standalone 只会安装**高于**当前运行版本的版本：未指定 `--version` 时升到 latest（manifest 滞后也不会回退）；指定 `--version` 时也必须比当前新。若需要更旧的版本，请从官方 Release 页重新下载安装。
 
 standalone 升级流程：从官方 CDN（`https://cloudcache.volccdn.com/ve`）下载对应平台 zip 和校验文件，校验 SHA256，再原子替换当前可执行文件；失败会保留/回滚到旧版本。任一 CDN 产物不可用时回退 GitHub Releases。Windows 上会由临时 helper 在当前进程退出后完成替换，并通过同一 stdout/stderr 输出最终结果。
 

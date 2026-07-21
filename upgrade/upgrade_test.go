@@ -104,7 +104,7 @@ func TestDoUpgrade_InstallsTargetVersion(t *testing.T) {
 
 	var stdout bytes.Buffer
 	err = DoUpgrade(Options{
-		CurrentVersion: "10.0.0",
+		CurrentVersion: "1.0.0",
 		TargetVersion:  version,
 		Yes:            true,
 		Stdout:         &stdout,

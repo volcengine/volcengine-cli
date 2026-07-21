@@ -98,9 +98,9 @@ Install-source behavior:
   - standalone (Release/source): downloads from CDN/GitHub and replaces the current binary
 
 For standalone installs, checks the latest release (CDN version manifest, then GitHub)
-and installs it after confirmation. The default path never downgrades. Use
---yes to skip the prompt, or --version to install a specific release
-(including an explicit downgrade).
+and installs it after confirmation. Downgrades are never performed: both the default
+path and an explicit --version refuse targets older than the running binary. Use
+--yes to skip the prompt, or --version to install a specific newer release.
 
 Standalone downloads prefer https://cloudcache.volccdn.com/ve and verify SHA256
 checksums before replacing the current binary. On Windows, a temporary helper
@@ -126,6 +126,6 @@ Flags:
 `)
 
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation prompt")
-	cmd.Flags().StringVar(&targetVersion, "version", "", "Install a specific version (e.g. 1.0.49)")
+	cmd.Flags().StringVar(&targetVersion, "version", "", "Install a specific newer version (e.g. 1.0.49); older versions are rejected")
 	return cmd
 }
