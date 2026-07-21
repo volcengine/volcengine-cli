@@ -79,15 +79,10 @@ func doAction(ctx *Context, serviceName, action string) error {
 		return fmt.Errorf("%s.%s is unsupport action", serviceName, action)
 	}
 
-	apiInfo := rootSupport.GetApiInfo(serviceName, action)
 	apiMeta := rootSupport.GetApiMeta(serviceName, action)
-	method, err := resolveActionHTTPMethod(ctx, apiInfo)
+	method, contentType, err := resolveCallStyle(ctx, serviceName, action)
 	if err != nil {
 		return err
-	}
-	contentType := ""
-	if apiInfo != nil && apiInfo.ContentType != "" {
-		contentType = apiInfo.ContentType
 	}
 	version := apiVersionForCall(ctx, serviceName)
 	jsonBody := strings.ToLower(contentType) == "application/json"
@@ -193,7 +188,7 @@ func executeInvocation(ctx *Context, p invocationParams, buildInput func() (invo
 	return nil
 }
 
-// resolveActionHTTPMethod 决定正常路径的 HTTP 方法：元数据优先，显式 ---method 可覆盖。
+// resolveActionHTTPMethod 决定 HTTP 方法（正常路径与 force 共用）：元数据优先，显式 ---method 可覆盖。
 func resolveActionHTTPMethod(ctx *Context, apiInfo *ApiInfo) (string, error) {
 	method := "GET"
 	if apiInfo != nil && apiInfo.Method != "" {

@@ -350,6 +350,56 @@ func TestBuildForceInvocationInputUsesActionInputWithMetadata(t *testing.T) {
 	t.Fatal("expected at least one application/json action in metadata")
 }
 
+func TestBuildForceInvocationInputKeepsStringMetaLiteralForNonJSON(t *testing.T) {
+	// With ApiMeta, force must match doAction: string-typed params stay literals even if JSON-looking.
+	for _, svc := range rootSupport.GetAllSvc() {
+		for _, action := range rootSupport.GetAllAction(svc) {
+			apiInfo := rootSupport.GetApiInfo(svc, action)
+			if apiInfo != nil && strings.ToLower(apiInfo.ContentType) == "application/json" {
+				continue
+			}
+			meta := rootSupport.GetApiMeta(svc, action)
+			if meta == nil || meta.Request == nil {
+				continue
+			}
+			var stringParam string
+			for name, mt := range meta.Request.MetaTypes {
+				if mt != nil && mt.TypeName == "string" && !strings.Contains(name, ".") {
+					stringParam = name
+					break
+				}
+			}
+			if stringParam == "" {
+				continue
+			}
+			jsonLooking := `{"k":"v"}`
+			c := NewContext()
+			parser := NewParser([]string{"--" + stringParam, jsonLooking})
+			if _, err := parser.ReadArgs(c); err != nil {
+				t.Fatalf("ReadArgs: %v", err)
+			}
+			ct := ""
+			if apiInfo != nil {
+				ct = apiInfo.ContentType
+			}
+			built, err := buildForceInvocationInput(c, svc, action, ct)
+			if err != nil {
+				t.Fatalf("buildForceInvocationInput: %v", err)
+			}
+			input, ok := built.value.(map[string]interface{})
+			if !ok {
+				t.Fatalf("expected map input, got %#v", built.value)
+			}
+			if got, ok := input[stringParam].(string); !ok || got != jsonLooking {
+				t.Fatalf("force+meta string param %s.%s %q should stay literal string, got %#v",
+					svc, action, stringParam, input[stringParam])
+			}
+			return
+		}
+	}
+	t.Skip("no non-JSON action with string meta param in bundled metadata")
+}
+
 func TestBuildForceInputOmitsFixedFlags(t *testing.T) {
 	c := NewContext()
 	parser := NewParser([]string{

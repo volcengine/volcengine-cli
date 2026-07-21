@@ -8,6 +8,9 @@
 //  2. cmd_service.runServiceCmd：已知 service、action 未匹配子命令时
 //  3. cmd_action action RunE：已知 action 子命令且带 ---force（可覆盖 ---version/---method）
 //
+// 共享调用前处理见 invocation.go；profile/endpoint 解析真相见 sdk_client.go
+// （selectInvocationProfile / resolveClientEndpoint / hasEffectiveFixedEndpoint）。
+//
 // 固定参数（三横线）的白名单与 Usage 文案见 parser.go（allowedFixedFlags / fixedFlagsHelp）。
 // force 路径额外约定：
 //
@@ -30,53 +33,12 @@ import (
 // errNotGenericInvoke 表示当前参数不应走未知 service 兜底路径，应交给 cobra 正常分发。
 var errNotGenericInvoke = errors.New("not a generic force invoke")
 
-// resetInvocationContext 清空单次调用的 flag 集合。
-// ctx 为进程级全局变量，每次解析参数前必须重置，避免多次调用 flag 残留。
-func resetInvocationContext() {
-	if ctx == nil {
-		return
-	}
-	ctx.fixedFlags = NewFlagSet()
-	ctx.dynamicFlags = NewFlagSet()
-}
-
-func parseInvocationArgs(args []string) ([]string, error) {
-	resetInvocationContext()
-	parser := NewParser(args)
-	return parser.ReadArgs(ctx)
-}
-
-func parseInvocationFlags(args []string) error {
-	_, err := parseInvocationArgs(args)
-	return err
-}
-
 // isForceEnabled 判断 ---force 是否生效。---force 为纯开关，出现即启用。
 func isForceEnabled(c *Context) bool {
 	if c == nil || c.fixedFlags == nil {
 		return false
 	}
 	return c.fixedFlags.GetByName("force") != nil
-}
-
-// apiVersionForCall 返回本次调用使用的 API 版本：优先 ---version，否则回落到内置元数据。
-func apiVersionForCall(c *Context, serviceName string) string {
-	if v := forceAPIVersion(c); v != "" {
-		return v
-	}
-	return rootSupport.GetVersion(serviceName)
-}
-
-// forceAPIVersion 读取 ---version，即 OpenAPI 接口版本（写入 SDK ClientInfo.Version）。
-func forceAPIVersion(c *Context) string {
-	if c == nil || c.fixedFlags == nil {
-		return ""
-	}
-	f := c.fixedFlags.GetByName("version")
-	if f == nil {
-		return ""
-	}
-	return strings.TrimSpace(f.GetValue())
 }
 
 // validateForceCall 校验 force 模式最低要求：---force 已启用，且能解析到 API 版本。
@@ -97,147 +59,6 @@ func validateForceCall(c *Context, serviceName string) error {
 		return fmt.Errorf("endpoint is required for unlisted service %q: set ---endpoint, or configure endpoint in the profile / VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)", serviceName)
 	}
 	return nil
-}
-
-// explicitHTTPMethod 读取显式指定的 ---method，仅允许 GET/POST；空串表示未指定、由元数据或默认值决定。
-func explicitHTTPMethod(c *Context) (string, error) {
-	if c == nil || c.fixedFlags == nil {
-		return "", nil
-	}
-	f := c.fixedFlags.GetByName("method")
-	if f == nil {
-		return "", nil
-	}
-	method := strings.ToUpper(strings.TrimSpace(f.GetValue()))
-	if method == "" {
-		return "", nil
-	}
-	if method != "GET" && method != "POST" {
-		return "", fmt.Errorf("---method value %q is not supported, please set method in {GET|POST}", method)
-	}
-	return method, nil
-}
-
-// resolveCallStyle 决定调用的 Method/ContentType：method 走 resolveActionHTTPMethod，contentType 取自元数据。
-func resolveCallStyle(ctx *Context, serviceName, action string) (method, contentType string, err error) {
-	apiInfo := rootSupport.GetApiInfo(serviceName, action)
-	method, err = resolveActionHTTPMethod(ctx, apiInfo)
-	if err != nil {
-		return "", "", err
-	}
-	if apiInfo != nil && apiInfo.ContentType != "" {
-		contentType = apiInfo.ContentType
-	}
-	return method, contentType, nil
-}
-
-func explicitEndpointFromContext(c *Context) string {
-	if c == nil || c.fixedFlags == nil {
-		return ""
-	}
-	f := c.fixedFlags.GetByName("endpoint")
-	if f == nil {
-		return ""
-	}
-	return strings.TrimSpace(f.GetValue())
-}
-
-func isAutoAddressingEndpoint(s string) bool {
-	return strings.ToLower(strings.TrimSpace(s)) == "auto-addressing"
-}
-
-// resolveInvocationProfileName 与 NewSimpleClient 一致：---profile > Current > env。
-func resolveInvocationProfileName(c *Context) string {
-	if c == nil {
-		return ""
-	}
-	name := ""
-	if c.config != nil {
-		name, _ = defaultProfileNameWithSource(c.config)
-	}
-	if c.fixedFlags != nil {
-		if f := c.fixedFlags.GetByName("profile"); f != nil {
-			if v := strings.TrimSpace(f.GetValue()); v != "" {
-				name = v
-			}
-		}
-	}
-	return name
-}
-
-// validateProfileIfSpecified 在指定 ---profile 时与 NewSimpleClient 一致地校验 profile 存在。
-func validateProfileIfSpecified(c *Context) error {
-	if c == nil || c.fixedFlags == nil || c.config == nil {
-		return nil
-	}
-	f := c.fixedFlags.GetByName("profile")
-	if f == nil {
-		return nil
-	}
-	name := strings.TrimSpace(f.GetValue())
-	if name == "" {
-		return nil
-	}
-	if c.config.Profiles[name] == nil {
-		return fmt.Errorf("profile %q not found", name)
-	}
-	return nil
-}
-
-// profileOrEnvEndpoint 读取与 NewSimpleClient 一致的 profile/env endpoint 字符串（不含 ---endpoint）。
-// profile 存在但 endpoint 为空时回落 VOLCENGINE_ENDPOINT。
-func profileOrEnvEndpoint(c *Context) string {
-	if c != nil && c.config != nil {
-		name := resolveInvocationProfileName(c)
-		if name != "" {
-			if p := c.config.Profiles[name]; p != nil {
-				if e := strings.TrimSpace(p.Endpoint); e != "" {
-					return e
-				}
-			}
-		}
-	}
-	return strings.TrimSpace(os.Getenv("VOLCENGINE_ENDPOINT"))
-}
-
-// profileOrEnvEndpointResolver 读取 profile/env 的 endpoint-resolver（不含被 ---endpoint 清空的情况）。
-func profileOrEnvEndpointResolver(c *Context) string {
-	if c != nil && c.config != nil {
-		name := resolveInvocationProfileName(c)
-		if name != "" {
-			if p := c.config.Profiles[name]; p != nil {
-				if r := strings.TrimSpace(p.EndpointResolver); r != "" {
-					return strings.ToLower(r)
-				}
-			}
-		}
-	}
-	return strings.ToLower(strings.TrimSpace(os.Getenv("VOLCENGINE_ENDPOINT_RESOLVER")))
-}
-
-// hasEffectiveFixedEndpoint 判断按 NewSimpleClient 规则是否会落到固定 host（非 standard resolver）。
-// 与 client 对齐：---endpoint 优先并清空 resolver；resolver=standard 时忽略 profile/env host；
-// auto-addressing 视为走 standard resolver，对未收录 service 不算可用固定 host。
-func hasEffectiveFixedEndpoint(c *Context) bool {
-	if ep := explicitEndpointFromContext(c); ep != "" {
-		return !isAutoAddressingEndpoint(ep)
-	}
-	if profileOrEnvEndpointResolver(c) == "standard" {
-		return false
-	}
-	ep := profileOrEnvEndpoint(c)
-	return ep != "" && !isAutoAddressingEndpoint(ep)
-}
-
-// dispatchServiceAction 统一 service 级 action 分发：force 优先，否则已知 action 走正常路径。
-func dispatchServiceAction(ctx *Context, svc, action string, known bool) error {
-	if isForceEnabled(ctx) {
-		return doForceAction(ctx, svc, action)
-	}
-	if known {
-		return doAction(ctx, svc, action)
-	}
-	return fmt.Errorf("%q is not a supported action of %q", action, svc)
 }
 
 // buildForceInput 将双横线 API 参数（dynamicFlags）组装为请求体/查询参数。
@@ -284,17 +105,21 @@ func doForceAction(ctx *Context, serviceName, action string) error {
 	})
 }
 
-// buildForceInvocationInput 组装 force 路径请求体；有元数据的 application/json action 复用 buildActionInput。
+// buildForceInvocationInput 组装 force 路径请求体。
+// 有 ApiMeta 时与 doAction 相同，一律走 buildActionInput（含 isStringParam / --body 语义）；
+// 无元数据时才用 buildForceInput 宽松解析。
 func buildForceInvocationInput(ctx *Context, serviceName, action, contentType string) (invocationInput, error) {
 	jsonBody := strings.ToLower(contentType) == "application/json"
-	if jsonBody {
-		if apiMeta := rootSupport.GetApiMeta(serviceName, action); apiMeta != nil {
-			input, fromBody, err := buildActionInput(ctx.dynamicFlags.flags, apiMeta, jsonBody)
-			if err != nil {
-				return invocationInput{}, err
-			}
-			return invocationInput{value: input, jsonBody: jsonBody, fromBody: fromBody}, nil
+	if apiMeta := rootSupport.GetApiMeta(serviceName, action); apiMeta != nil {
+		var flags []*Flag
+		if ctx != nil && ctx.dynamicFlags != nil {
+			flags = ctx.dynamicFlags.flags
 		}
+		input, fromBody, err := buildActionInput(flags, apiMeta, jsonBody)
+		if err != nil {
+			return invocationInput{}, err
+		}
+		return invocationInput{value: input, jsonBody: jsonBody, fromBody: fromBody}, nil
 	}
 	return invocationInput{value: buildForceInput(ctx), jsonBody: jsonBody, fromBody: false}, nil
 }
