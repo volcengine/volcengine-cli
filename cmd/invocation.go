@@ -1,6 +1,6 @@
-// invocation.go holds shared pre-call plumbing used by normal and force paths:
-// context reset, arg parsing, API version / method flags, call-style resolution,
-// and service-level action dispatch. SDK execute path remains in cmd_action.go.
+// invocation.go 存放正常路径与 force 路径共用的“调用前”处理：
+// context 重置、参数解析、API 版本 / method 固定参数、call-style 解析、
+// service 级 action 分发。真正发 SDK 请求的 executeInvocation 仍在 cmd_action.go。
 package cmd
 
 import (
@@ -18,12 +18,16 @@ func resetInvocationContext() {
 	ctx.dynamicFlags = NewFlagSet()
 }
 
+// parseInvocationArgs 重置 context 后解析参数，返回位置参数（如 action 名）。
+// 固定三横线 flag 进入 fixedFlags，双横线 API 参数进入 dynamicFlags。
 func parseInvocationArgs(args []string) ([]string, error) {
 	resetInvocationContext()
 	parser := NewParser(args)
 	return parser.ReadArgs(ctx)
 }
 
+// parseInvocationFlags 与 parseInvocationArgs 相同，但只关心解析错误、丢弃位置参数。
+// 用于已知 action 子命令（位置参数已由 cobra 消费）的 flag 解析。
 func parseInvocationFlags(args []string) error {
 	_, err := parseInvocationArgs(args)
 	return err

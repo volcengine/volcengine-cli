@@ -144,6 +144,7 @@ func isRegisteredRootSubcommand(name string) bool {
 	return false
 }
 
+// argsContainHelp 判断参数列表中是否出现 -h / --help。
 func argsContainHelp(args []string) bool {
 	for _, a := range args {
 		if a == "-h" || a == "--help" {
@@ -153,6 +154,7 @@ func argsContainHelp(args []string) bool {
 	return false
 }
 
+// printUnknownServiceHelp 打印未收录 service 的用法提示（要求 ---force / ---version / 固定 endpoint）。
 func printUnknownServiceHelp(serviceName string) error {
 	_, err := fmt.Fprintf(os.Stdout, `Usage:
   ve %s <action> [--Param value ...] [fixed flags]

@@ -33,11 +33,13 @@ type SdkClientInfo struct {
 	ContentType string
 }
 
-// selectInvocationProfile resolves profile for a call: ---profile > Current > env.
-// Empty Current with no env does NOT fall back to a default profile; profile is nil
-// and the caller uses the default credential chain.
-// When ---profile names a missing profile, returns an error.
-// When c.config is nil, profile flags are ignored (same as historical NewSimpleClient).
+// selectInvocationProfile 解析本次调用使用的 profile。
+// 优先级：---profile > config.Current > 环境变量（VOLCENGINE_PROFILE / VOLCSTACK_PROFILE）。
+// 注意：
+//   - Current 为空且无 env 时不会回落到某个“默认 profile”，profile 为 nil，走默认凭证链；
+//   - ---profile 指定了不存在的名字时返回 error；
+//   - c.config 为 nil 时忽略 profile 相关 flag（与历史 NewSimpleClient 行为一致）。
+// 返回值 name/source 供 debug 日志使用；profile 为 nil 表示未选中有效 profile。
 func selectInvocationProfile(c *Context) (name, source string, profile *Profile, err error) {
 	source = "default-chain"
 	if c == nil || c.config == nil {
@@ -63,14 +65,14 @@ func selectInvocationProfile(c *Context) (name, source string, profile *Profile,
 	return name, source, profile, nil
 }
 
-// validateProfileIfSpecified fails when ---profile names a missing profile.
-// Same rule as NewSimpleClient; used by force preflight before client creation.
+// validateProfileIfSpecified 在指定了 ---profile 时校验该 profile 是否存在。
+// 规则与 NewSimpleClient 一致；force 预检在创建 client 之前调用，以便尽早给出明确错误。
 func validateProfileIfSpecified(c *Context) error {
 	_, _, _, err := selectInvocationProfile(c)
 	return err
 }
 
-// explicitEndpointFlag returns non-empty ---endpoint (trimmed), or "".
+// explicitEndpointFlag 读取 ---endpoint：去空白后非空则返回，否则返回 ""（表示未设置）。
 func explicitEndpointFlag(c *Context) string {
 	if c == nil || c.fixedFlags == nil {
 		return ""
@@ -82,12 +84,15 @@ func explicitEndpointFlag(c *Context) string {
 	return strings.TrimSpace(f.GetValue())
 }
 
+// isAutoAddressingEndpoint 判断 endpoint 是否为 auto-addressing 特殊值（大小写不敏感）。
+// 该值表示走 SDK standard resolver，而不是固定 host。
 func isAutoAddressingEndpoint(s string) bool {
 	return strings.ToLower(strings.TrimSpace(s)) == "auto-addressing"
 }
 
-// endpointSourcesFromProfileAndEnv returns host/resolver before ---endpoint override.
-// Profile endpoint empty falls back to VOLCENGINE_ENDPOINT; same for resolver.
+// endpointSourcesFromProfileAndEnv 读取 ---endpoint 覆盖之前的 host/resolver 来源。
+// 有 profile 时：profile 字段优先，字段为空再回落 VOLCENGINE_ENDPOINT / VOLCENGINE_ENDPOINT_RESOLVER；
+// 无 profile 时：直接读环境变量。
 func endpointSourcesFromProfileAndEnv(profile *Profile) (endpoint, resolver string) {
 	if profile != nil {
 		endpoint = strings.TrimSpace(profile.Endpoint)
@@ -104,9 +109,11 @@ func endpointSourcesFromProfileAndEnv(profile *Profile) (endpoint, resolver stri
 		strings.TrimSpace(os.Getenv("VOLCENGINE_ENDPOINT_RESOLVER"))
 }
 
-// resolveClientEndpoint applies full endpoint priority used by NewSimpleClient:
+// resolveClientEndpoint 按 NewSimpleClient 完整优先级解析最终 host/resolver：
 //
-//	explicit ---endpoint (clears resolver) > profile/env resolver+host > SDK default
+//	显式 ---endpoint（非空时清空 resolver）
+//	> profile/env 的 resolver + host
+//	> （由调用方再交给 classifyEndpoint / SDK 默认解析）
 func resolveClientEndpoint(c *Context, profile *Profile) (endpoint, resolver string) {
 	endpoint, resolver = endpointSourcesFromProfileAndEnv(profile)
 	if ep := explicitEndpointFlag(c); ep != "" {
@@ -115,18 +122,26 @@ func resolveClientEndpoint(c *Context, profile *Profile) (endpoint, resolver str
 	return endpoint, resolver
 }
 
-// endpointMode is how resolved host/resolver are applied to the SDK config.
-// Shared by NewSimpleClient apply path and force fixed-host preflight.
+// endpointMode 表示 resolveClientEndpoint 结果在 SDK 上的落地方式。
+// NewSimpleClient 应用配置与 force 未收录 service 的固定 host 预检共用此分类。
 type endpointMode int
 
 const (
+	// endpointModeSDKDefault：无固定 host、无 standard resolver，交给 SDK 按 service+region 解析。
 	endpointModeSDKDefault endpointMode = iota
+	// endpointModeStandardResolver：使用 standard endpoint resolver（含 auto-addressing）。
 	endpointModeStandardResolver
+	// endpointModeFixedHost：使用显式固定 host（WithEndpoint）。
 	endpointModeFixedHost
 )
 
-// classifyEndpoint interprets host+resolver after resolveClientEndpoint.
-// standard resolver ignores host; auto-addressing is treated as standard resolver.
+// classifyEndpoint 解释 resolveClientEndpoint 得到的 host+resolver，输出唯一落地模式。
+// 规则：
+//   - resolver=standard → standard（忽略 host）；
+//   - host 为空 → SDK 默认；
+//   - host 为 auto-addressing → standard；
+//   - 其它非空 host → 固定 host。
+// 必须同时被 NewSimpleClient 与 hasEffectiveFixedEndpoint 使用，避免双源漂移。
 func classifyEndpoint(endpoint, resolver string) endpointMode {
 	if strings.ToLower(strings.TrimSpace(resolver)) == "standard" {
 		return endpointModeStandardResolver
@@ -140,12 +155,13 @@ func classifyEndpoint(endpoint, resolver string) endpointMode {
 	return endpointModeFixedHost
 }
 
-// hasEffectiveFixedEndpoint reports whether NewSimpleClient would land a fixed host.
-// Used by force unlisted-service preflight; must stay aligned with classifyEndpoint.
+// hasEffectiveFixedEndpoint 判断按 NewSimpleClient 规则最终是否会落到固定 host。
+// 供 force 未收录 service 预检使用；内部依赖 classifyEndpoint，不得再写第二套判断。
+// 若 profile 选择报错则返回 false（validateForceCall 会先校验 profile 并返回明确错误）。
 func hasEffectiveFixedEndpoint(c *Context) bool {
 	_, _, profile, err := selectInvocationProfile(c)
 	if err != nil {
-		// validateForceCall checks profile first; other callers treat as non-fixed.
+		// validateForceCall 会先校验 profile；其它调用方视为“无固定 host”。
 		return false
 	}
 	endpoint, resolver := resolveClientEndpoint(c, profile)
