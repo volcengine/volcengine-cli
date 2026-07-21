@@ -285,6 +285,20 @@ check("buildNpmInstallArgs", () => {
     "@volcengine/cli@latest",
   ]);
 });
+check("buildNpmInstallArgs forces only global ark-cli updates", () => {
+  assert.deepStrictEqual(
+    buildNpmInstallArgs("@volcengine/ark-cli", { scope: "global", update: true }),
+    ["install", "-g", "@volcengine/ark-cli@latest", "--force"]
+  );
+  assert.deepStrictEqual(
+    buildNpmInstallArgs("@volcengine/cli", { scope: "global", update: true }),
+    ["install", "-g", "@volcengine/cli@latest"]
+  );
+  assert.deepStrictEqual(
+    buildNpmInstallArgs("@volcengine/ark-cli", { scope: "local", update: true }),
+    ["install", "@volcengine/ark-cli@latest"]
+  );
+});
 
 // --- buildSkillsAddArgs (local dir source) ---------------------------------
 check("buildSkillsAddArgs defaults (all skills / built-in agent list)", () => {
@@ -458,6 +472,12 @@ check("planSetup --update forces reinstall of present binaries", () => {
     "install",
     "-g",
     "@volcengine/cli@latest",
+  ]);
+  assert.deepStrictEqual(update.installs[1].args, [
+    "install",
+    "-g",
+    "@volcengine/ark-cli@latest",
+    "--force",
   ]);
 });
 check("planSetup local scope", () => {

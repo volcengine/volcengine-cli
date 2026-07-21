@@ -247,9 +247,20 @@ function buildNpmInstallArgs(pkg, options) {
   // Always pin to `@latest` so a reinstall/update pulls the newest published
   // version (npm otherwise treats an existing satisfying version as up-to-date).
   const target = pkg + "@latest";
-  return options.scope === "local"
+  const args = options.scope === "local"
     ? ["install", target]
     : ["install", "-g", target];
+
+  // npm can reject an ark-cli update with EEXIST when its global bin already
+  // exists. Limit the overwrite escape hatch to that exact update scenario.
+  if (
+    options.update &&
+    options.scope !== "local" &&
+    pkg === "@volcengine/ark-cli"
+  ) {
+    args.push("--force");
+  }
+  return args;
 }
 
 // Build `skills add <source> ...` where source is a LOCAL directory (the
