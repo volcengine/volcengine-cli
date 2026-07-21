@@ -233,14 +233,15 @@ CLI 内置了部分云产品的元数据，正常调用时会校验 service 和 
 | --- | --- | --- |
 | `---force` | 是 | 纯开关型参数，出现即表示启用；不接受 `true`/`false` 等后续赋值 |
 | `---version` | 视 service | **未收录 service 时必填**；**已收录 service 可省略**，回落内置元数据版本。也可用于覆盖元数据中的 API 版本 |
-| `---endpoint` | 视 service | **未收录 service 时必填**；已收录 service 可省略，CLI 会结合 service 元数据与 `---region` 推断（忽略 profile endpoint） |
+| `---endpoint` | 视 service | 与正常调用相同：`---endpoint` > `endpoint-resolver=standard` > profile/env endpoint >（已收录）按 service+region 解析。**未收录**需要最终生效的**固定 host**（`endpoint-resolver=standard` 或 `auto-addressing` 不够） |
 | `---method` | 否 | HTTP 方法：`GET` 或 `POST`；正常路径与 force 路径规则一致：显式值优先 → action 元数据 → 默认 `GET` |
 | `---region` | 视凭证配置 | 与正常调用相同，必须能解析到 region |
 
 注意：
 
 - `---version` 指 **OpenAPI 接口版本**，不是 CLI 工具版本。查看 CLI 版本请用 `ve version` 或 `ve -v`。
-- 未收录 service 必须显式提供 `---endpoint`，因为 CLI 没有可用于解析接入地址的 service 元数据。
+- **endpoint 解析与是否 `---force` 无关**，与正常调用同一套规则。
+- 未收录 service 没有元数据可推 host：需要固定 host（`---endpoint`，或 profile/`VOLCENGINE_ENDPOINT` 在**未**设置 `endpoint-resolver=standard` 时）。仅配置 `endpoint-resolver=standard` / `auto-addressing` 不够。
 - 已收录 service 在 force 模式下可不传 `---version`，行为与正常路径一致（如 `ve sts GetCallerIdentity ---force`）。
 - `---method` 在正常路径与 force 路径使用相同解析顺序：显式 `---method` 覆盖元数据；未指定时优先用已收录 action 的 Method；均无则默认 `GET`（不因 `---force` 而改变）。
 - force 相关控制参数均使用 **三横线** `---`，与 API 业务参数的双横线 `--` 区分。
@@ -308,16 +309,16 @@ ve newservice
 ---version is required when using ---force for service "newservice"
 ```
 
-未收录 service 缺少 `---endpoint`：
+未收录 service 且无可用**固定** endpoint（未传 `---endpoint`，或仅有 `endpoint-resolver=standard` / `auto-addressing`）：
 
 ```text
----endpoint is required when using ---force for unlisted service "newservice"
+endpoint is required for unlisted service "newservice": set ---endpoint, or configure endpoint in the profile / VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)
 ```
 
 未收录 service 且未加 `---force`：
 
 ```text
-unknown service "newservice": use ---force with ---version and ---endpoint to call unlisted APIs
+unknown service "newservice": use ---force with ---version, and a fixed endpoint via ---endpoint or profile/VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)
 ```
 
 ## 常见问题

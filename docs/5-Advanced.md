@@ -213,6 +213,8 @@ Environment variables:
 
 Cache file: `~/.volcengine/cli/version_check.json`.
 
+<a id="force-invocation"></a>
+
 ## Force Invocation
 
 The CLI ships with metadata for a subset of cloud products. In normal mode it validates that the service and action exist. If a product or API is not yet bundled, or local metadata lags behind the service, you may see `unsupported action` or `unknown command`. Use `---force` to skip service/action validation and issue an RPC call directly.
@@ -231,14 +233,15 @@ Unknown API parameters already pass through in normal mode. `---force` mainly re
 | --- | --- | --- |
 | `---force` | Yes | Presence-only switch; enables force mode when present; does not accept `true`/`false` values |
 | `---version` | Depends on service | **Required for unlisted services**; **optional for bundled services**, falling back to metadata. Can also override the bundled API version |
-| `---endpoint` | Depends on service | **Required for unlisted services**; optional for bundled services, where it can be inferred from service metadata and `---region` (profile endpoint is ignored) |
+| `---endpoint` | Depends on service | Same as normal calls: `---endpoint` > `endpoint-resolver=standard` > profile/env endpoint > (bundled) resolve by service+region. **Unlisted** services need an effective **fixed host** (`endpoint-resolver=standard` or `auto-addressing` alone is not enough) |
 | `---method` | No | HTTP method: `GET` or `POST`; same on normal and force paths: explicit value → action metadata → default `GET` |
 | `---region` | Depends on config | Same as normal calls; a region must be resolvable |
 
 Notes:
 
 - `---version` is the **OpenAPI version**, not the CLI tool version. Use `ve version` or `ve -v` for the CLI version.
-- Unlisted services require an explicit `---endpoint` because the CLI has no service metadata from which to resolve one.
+- **Endpoint resolution is independent of `---force`** and matches normal invocation rules.
+- Unlisted services have no metadata host: you need a fixed host (`---endpoint`, or profile/`VOLCENGINE_ENDPOINT` when `endpoint-resolver` is **not** `standard`). `endpoint-resolver=standard` or `auto-addressing` alone is not enough.
 - Bundled services can omit `---version` in force mode, same as normal calls (e.g. `ve sts GetCallerIdentity ---force`).
 - `---method` uses the same resolution order on normal and force paths: explicit `---method` overrides metadata; otherwise bundled action `Method`; otherwise defaults to `GET` (`---force` does not change this).
 - Force control flags use **three hyphens** `---`, separate from API parameters with `--`.
@@ -306,16 +309,16 @@ Missing `---version` for an unlisted service:
 ---version is required when using ---force for service "newservice"
 ```
 
-Missing `---endpoint` for an unlisted service:
+Missing **fixed** endpoint for an unlisted service (no effective host — e.g. no `---endpoint`, or only `endpoint-resolver=standard` / `auto-addressing`):
 
 ```text
----endpoint is required when using ---force for unlisted service "newservice"
+endpoint is required for unlisted service "newservice": set ---endpoint, or configure endpoint in the profile / VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)
 ```
 
 Unlisted service without `---force`:
 
 ```text
-unknown service "newservice": use ---force with ---version and ---endpoint to call unlisted APIs
+unknown service "newservice": use ---force with ---version, and a fixed endpoint via ---endpoint or profile/VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)
 ```
 
 ## FAQ

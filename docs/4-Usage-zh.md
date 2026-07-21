@@ -79,7 +79,7 @@ ve rds_mysql ListDBInstanceIPLists --InstanceId mysql-xxxxxx --GroupName default
 | `---endpoint` | 本次调用覆盖 endpoint，并清空 endpoint resolver |
 | `---lang` | 设置本次调用中 CLI 自有帮助、提示和错误的显示语言 |
 | `---version` | 指定本次调用的 **API 版本**；未指定时使用内置元数据中的 service 版本（与根命令 `ve -v` / `ve --version` 的 CLI 版本无关） |
-| `---force` | 跳过 service/action 元数据校验，强制调用未收录或新发布的接口；**未收录 service** 须同时提供 `---version` 和 `---endpoint`，已收录 service 可回落元数据 |
+| `---force` | 跳过 service/action 元数据校验，强制调用未收录或新发布的接口；**未收录 service** 须提供 `---version` 与固定 endpoint（`---endpoint` 或非 standard 下的 profile/`VOLCENGINE_ENDPOINT`）；已收录 service 可回落元数据 |
 | `---method` | 指定 HTTP 方法（`GET`/`POST`）；正常路径与 `---force` 路径规则一致：显式值优先，否则用 action 元数据，均无则默认 `GET` |
 
 示例：
@@ -189,7 +189,7 @@ ve ecs DescribeInstances --NewServerSideParam value
 
 ## 未收录 service / action
 
-CLI 会校验 service 和 action 是否在内置元数据中。若调用的 **service 或 action 尚未收录**，需使用 `---force` 跳过校验；未收录 service 还须显式指定 `---version` 和 `---endpoint`，因为 CLI 无法从元数据中解析这些值。已收录 service 在 force 模式下可省略这些覆盖参数并使用元数据。详见 [高级用法：强制泛化调用](5-Advanced-zh.md#force-invocation)。
+CLI 会校验 service 和 action 是否在内置元数据中。若调用的 **service 或 action 尚未收录**，需使用 `---force` 跳过校验；未收录 service 还须指定 `---version`，并提供**固定** endpoint（`---endpoint`，或未启用 `endpoint-resolver=standard` 时的 profile / `VOLCENGINE_ENDPOINT`），因为 CLI 无法从元数据中解析接入地址。已收录 service 在 force 模式下可省略这些覆盖参数并使用元数据与正常 endpoint 规则。详见 [高级用法：强制泛化调用](5-Advanced-zh.md#force-invocation)。
 
 ```shell
 ve newservice DescribeNewResource \

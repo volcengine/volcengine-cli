@@ -61,10 +61,12 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		// it goes to the default credential chain instead.
 		profileName, profileSource = defaultProfileNameWithSource(ctx.config)
 		overrideProfile := false
-		if f := ctx.fixedFlags.GetByName("profile"); f != nil && f.GetValue() != "" {
-			profileName = f.GetValue()
-			profileSource = "flag"
-			overrideProfile = true
+		if f := ctx.fixedFlags.GetByName("profile"); f != nil {
+			if v := strings.TrimSpace(f.GetValue()); v != "" {
+				profileName = v
+				profileSource = "flag"
+				overrideProfile = true
+			}
 		}
 		currentProfile = ctx.config.Profiles[profileName]
 		if overrideProfile && currentProfile == nil {
@@ -100,13 +102,13 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		if region == "" {
 			region = os.Getenv("VOLCENGINE_REGION")
 		}
-		endpoint = currentProfile.Endpoint
+		endpoint = strings.TrimSpace(currentProfile.Endpoint)
 		if endpoint == "" {
-			endpoint = os.Getenv("VOLCENGINE_ENDPOINT")
+			endpoint = strings.TrimSpace(os.Getenv("VOLCENGINE_ENDPOINT"))
 		}
-		endpointResolver = currentProfile.EndpointResolver
+		endpointResolver = strings.TrimSpace(currentProfile.EndpointResolver)
 		if endpointResolver == "" {
-			endpointResolver = os.Getenv("VOLCENGINE_ENDPOINT_RESOLVER")
+			endpointResolver = strings.TrimSpace(os.Getenv("VOLCENGINE_ENDPOINT_RESOLVER"))
 		}
 		httpProxy = currentProfile.HTTPProxy
 		httpsProxy = currentProfile.HTTPSProxy
@@ -126,8 +128,8 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		creds = defaults.NewDefaultCredentialProvider()
 
 		region = os.Getenv("VOLCENGINE_REGION")
-		endpoint = os.Getenv("VOLCENGINE_ENDPOINT")
-		endpointResolver = os.Getenv("VOLCENGINE_ENDPOINT_RESOLVER")
+		endpoint = strings.TrimSpace(os.Getenv("VOLCENGINE_ENDPOINT"))
+		endpointResolver = strings.TrimSpace(os.Getenv("VOLCENGINE_ENDPOINT_RESOLVER"))
 		ssl := os.Getenv("VOLCENGINE_DISABLE_SSL")
 		if ssl == "true" || ssl == "false" {
 			disableSSl, _ = strconv.ParseBool(ssl)
@@ -143,11 +145,13 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		region = f.GetValue()
 	}
 
-	// 仅当用户显式传入 ---endpoint 时才覆盖；force 模式下不应回落到 profile/env endpoint。
-	explicitEndpoint := ""
-	if f := ctx.fixedFlags.GetByName("endpoint"); f != nil && f.GetValue() != "" {
-		explicitEndpoint = f.GetValue()
-		endpointResolver = ""
+	// ---endpoint 运行时覆盖 endpoint（与 master 一致；与是否 ---force 无关）
+	// 空白字符串视为未设置，避免覆盖 profile/env。
+	if f := ctx.fixedFlags.GetByName("endpoint"); f != nil {
+		if v := strings.TrimSpace(f.GetValue()); v != "" {
+			endpoint = v
+			endpointResolver = ""
+		}
 	}
 
 	if region == "" {
@@ -163,27 +167,21 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		WithDisableSSL(disableSSl)
 
 	resolverValue := strings.ToLower(strings.TrimSpace(endpointResolver))
-	// endpoint 优先级：
+	// endpoint 优先级（与 master 一致）：
 	//   显式 ---endpoint（传入时会清空 endpoint_resolver）
-	// > profile endpoint_resolver=standard（未显式 ---endpoint 时）
-	// > invocation 层请求 standard resolver（force 且无显式 endpoint）
-	// > profile/env endpoint（正常模式）
-	switch {
-	case resolverValue == "standard":
+	// > profile/env endpoint_resolver=standard
+	// > profile/env endpoint
+	// > SDK 默认按 service+region 解析
+	switch resolverValue {
+	case "standard":
 		config.WithEndpointResolver(endpoints.NewStandardEndpointResolver())
-	case explicitEndpoint != "":
-		if strings.ToLower(strings.TrimSpace(explicitEndpoint)) == "auto-addressing" {
-			config.WithEndpointResolver(endpoints.NewStandardEndpointResolver())
-		} else {
-			config.WithEndpoint(explicitEndpoint)
-		}
-	case ctx.useStandardEndpointResolver:
-		config.WithEndpointResolver(endpoints.NewStandardEndpointResolver())
-	case endpoint != "":
-		if strings.ToLower(strings.TrimSpace(endpoint)) == "auto-addressing" {
-			config.WithEndpointResolver(endpoints.NewStandardEndpointResolver())
-		} else {
-			config.WithEndpoint(endpoint)
+	default:
+		if endpoint != "" {
+			if strings.ToLower(strings.TrimSpace(endpoint)) == "auto-addressing" {
+				config.WithEndpointResolver(endpoints.NewStandardEndpointResolver())
+			} else {
+				config.WithEndpoint(endpoint)
+			}
 		}
 	}
 
@@ -198,13 +196,7 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 	}
 
 	debugEndpoint := endpoint
-	if explicitEndpoint != "" {
-		if strings.ToLower(strings.TrimSpace(explicitEndpoint)) == "auto-addressing" {
-			debugEndpoint = "standard-resolver"
-		} else {
-			debugEndpoint = explicitEndpoint
-		}
-	} else if ctx.useStandardEndpointResolver || resolverValue == "standard" {
+	if resolverValue == "standard" {
 		debugEndpoint = "standard-resolver"
 	} else if endpoint != "" && strings.ToLower(strings.TrimSpace(endpoint)) == "auto-addressing" {
 		debugEndpoint = "standard-resolver"

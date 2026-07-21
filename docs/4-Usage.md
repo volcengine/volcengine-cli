@@ -79,7 +79,7 @@ Fixed flags use three hyphens `---` and do not conflict with API parameters:
 | `---endpoint` | Override endpoint for this invocation and clear endpoint resolver |
 | `---lang` | Set the language of CLI-owned help, prompts, and errors for this invocation |
 | `---version` | Set the **API version** for this call; if omitted, uses the bundled service version (not the CLI version from `ve -v` / `ve --version`) |
-| `---force` | Skip service/action metadata validation and force-call unlisted or newly released APIs; **unlisted services** require both `---version` and `---endpoint`; bundled services can fall back to metadata |
+| `---force` | Skip service/action metadata validation and force-call unlisted or newly released APIs; **unlisted services** require `---version` and a fixed endpoint (`---endpoint` or profile/`VOLCENGINE_ENDPOINT` when resolver is not `standard`); bundled services can fall back to metadata |
 | `---method` | HTTP method (`GET`/`POST`); same rules on normal and `---force` paths: explicit value wins, else action metadata, else `GET` |
 
 Examples:
@@ -189,7 +189,7 @@ This is useful when the service has added a parameter but local metadata has not
 
 ## Unlisted Services and Actions
 
-The CLI validates services and actions against built-in metadata. If the **service or action is not yet bundled**, use `---force` to bypass validation; unlisted services also require `---version`, while bundled services can omit it in force mode and use the metadata version. See [Advanced Usage: Force Invocation](5-Advanced.md#force-invocation).
+The CLI validates services and actions against built-in metadata. If the **service or action is not yet bundled**, use `---force` to bypass validation; unlisted services also require `---version` and a **fixed** endpoint (`---endpoint`, or profile / `VOLCENGINE_ENDPOINT` when `endpoint-resolver` is not `standard`) because the CLI has no metadata from which to resolve a host. Bundled services can omit these overrides in force mode and use metadata with the same endpoint rules as normal calls. See [Advanced Usage: Force Invocation](5-Advanced.md#force-invocation).
 
 ```shell
 ve newservice DescribeNewResource \

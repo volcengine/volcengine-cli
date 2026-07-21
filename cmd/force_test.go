@@ -65,6 +65,7 @@ func TestValidateForceCallRequiresVersion(t *testing.T) {
 }
 
 func TestValidateForceCallRequiresEndpointForUnlistedService(t *testing.T) {
+	defer setenvForTest(t, "VOLCENGINE_ENDPOINT", "")()
 	c := NewContext()
 	parser := NewParser([]string{"---force", "---version", "2024-01-01"})
 	if _, err := parser.ReadArgs(c); err != nil {
@@ -75,8 +76,185 @@ func TestValidateForceCallRequiresEndpointForUnlistedService(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected missing endpoint error")
 	}
-	if !strings.Contains(err.Error(), "---endpoint is required") {
+	if !strings.Contains(err.Error(), "endpoint is required for unlisted service") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateForceCallAcceptsProfileEndpointForUnlistedService(t *testing.T) {
+	defer setenvForTest(t, "VOLCENGINE_ENDPOINT", "")()
+	defer setenvForTest(t, "VOLCENGINE_ENDPOINT_RESOLVER", "")()
+	c := NewContext()
+	c.config = &Configure{
+		Current: "default",
+		Profiles: map[string]*Profile{
+			"default": {
+				Name:     "default",
+				Endpoint: "open.volcengineapi.com",
+			},
+		},
+	}
+	parser := NewParser([]string{"---force", "---version", "2024-01-01"})
+	if _, err := parser.ReadArgs(c); err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+	if err := validateForceCall(c, "newservice"); err != nil {
+		t.Fatalf("profile endpoint should satisfy unlisted force endpoint check, got: %v", err)
+	}
+}
+
+func TestValidateForceCallAcceptsEnvEndpointForUnlistedService(t *testing.T) {
+	defer setenvForTest(t, "VOLCENGINE_ENDPOINT", "open.volcengineapi.com")()
+	defer setenvForTest(t, "VOLCENGINE_ENDPOINT_RESOLVER", "")()
+	c := NewContext()
+	parser := NewParser([]string{"---force", "---version", "2024-01-01"})
+	if _, err := parser.ReadArgs(c); err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+	if err := validateForceCall(c, "newservice"); err != nil {
+		t.Fatalf("VOLCENGINE_ENDPOINT should satisfy unlisted force endpoint check, got: %v", err)
+	}
+}
+
+func TestValidateForceCallRejectsStandardResolverWithoutFixedHost(t *testing.T) {
+	defer setenvForTest(t, "VOLCENGINE_ENDPOINT", "")()
+	defer setenvForTest(t, "VOLCENGINE_ENDPOINT_RESOLVER", "standard")()
+	c := NewContext()
+	parser := NewParser([]string{"---force", "---version", "2024-01-01"})
+	if _, err := parser.ReadArgs(c); err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+	err := validateForceCall(c, "newservice")
+	if err == nil {
+		t.Fatal("standard resolver alone should not satisfy unlisted endpoint check")
+	}
+	if !strings.Contains(err.Error(), "endpoint is required for unlisted service") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateForceCallRejectsProfileEndpointWhenResolverStandard(t *testing.T) {
+	defer setenvForTest(t, "VOLCENGINE_ENDPOINT", "")()
+	defer setenvForTest(t, "VOLCENGINE_ENDPOINT_RESOLVER", "")()
+	c := NewContext()
+	c.config = &Configure{
+		Current: "default",
+		Profiles: map[string]*Profile{
+			"default": {
+				Name:             "default",
+				Endpoint:         "open.volcengineapi.com",
+				EndpointResolver: "standard",
+			},
+		},
+	}
+	parser := NewParser([]string{"---force", "---version", "2024-01-01"})
+	if _, err := parser.ReadArgs(c); err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+	err := validateForceCall(c, "newservice")
+	if err == nil {
+		t.Fatal("profile endpoint ignored under standard resolver should not pass unlisted check")
+	}
+	if !strings.Contains(err.Error(), "endpoint is required for unlisted service") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateForceCallAcceptsExplicitEndpointWithStandardResolver(t *testing.T) {
+	defer setenvForTest(t, "VOLCENGINE_ENDPOINT", "")()
+	c := NewContext()
+	c.config = &Configure{
+		Current: "default",
+		Profiles: map[string]*Profile{
+			"default": {
+				Name:             "default",
+				EndpointResolver: "standard",
+			},
+		},
+	}
+	parser := NewParser([]string{"---force", "---version", "2024-01-01", "---endpoint", "open.volcengineapi.com"})
+	if _, err := parser.ReadArgs(c); err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+	if err := validateForceCall(c, "newservice"); err != nil {
+		t.Fatalf("---endpoint should clear resolver and pass, got: %v", err)
+	}
+}
+
+func TestValidateForceCallRejectsAutoAddressingAsFixedHost(t *testing.T) {
+	defer setenvForTest(t, "VOLCENGINE_ENDPOINT", "auto-addressing")()
+	defer setenvForTest(t, "VOLCENGINE_ENDPOINT_RESOLVER", "")()
+	c := NewContext()
+	parser := NewParser([]string{"---force", "---version", "2024-01-01"})
+	if _, err := parser.ReadArgs(c); err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+	err := validateForceCall(c, "newservice")
+	if err == nil {
+		t.Fatal("auto-addressing should not count as fixed host for unlisted service")
+	}
+	if !strings.Contains(err.Error(), "endpoint-resolver=standard alone is not enough") {
+		t.Fatalf("expected fixed-host guidance, got: %v", err)
+	}
+}
+
+func TestValidateForceCallRejectsExplicitAutoAddressingEndpoint(t *testing.T) {
+	defer setenvForTest(t, "VOLCENGINE_ENDPOINT", "")()
+	c := NewContext()
+	parser := NewParser([]string{"---force", "---version", "2024-01-01", "---endpoint", "auto-addressing"})
+	if _, err := parser.ReadArgs(c); err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+	if err := validateForceCall(c, "newservice"); err == nil {
+		t.Fatal("---endpoint auto-addressing should not pass unlisted fixed-host check")
+	}
+}
+
+func TestValidateForceCallRejectsEnvHostWhenEnvResolverStandard(t *testing.T) {
+	defer setenvForTest(t, "VOLCENGINE_ENDPOINT", "open.volcengineapi.com")()
+	defer setenvForTest(t, "VOLCENGINE_ENDPOINT_RESOLVER", "standard")()
+	c := NewContext()
+	parser := NewParser([]string{"---force", "---version", "2024-01-01"})
+	if _, err := parser.ReadArgs(c); err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+	if err := validateForceCall(c, "newservice"); err == nil {
+		t.Fatal("env host under standard resolver should not pass unlisted check")
+	}
+}
+
+func TestValidateForceCallUsesNonCurrentProfileEndpoint(t *testing.T) {
+	defer setenvForTest(t, "VOLCENGINE_ENDPOINT", "")()
+	c := NewContext()
+	c.config = &Configure{
+		Current: "default",
+		Profiles: map[string]*Profile{
+			"default": {Name: "default", Endpoint: ""},
+			"prod":    {Name: "prod", Endpoint: "prod.volcengineapi.com"},
+		},
+	}
+	parser := NewParser([]string{"---force", "---version", "2024-01-01", "---profile", "prod"})
+	if _, err := parser.ReadArgs(c); err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+	if err := validateForceCall(c, "newservice"); err != nil {
+		t.Fatalf("---profile endpoint should satisfy check, got: %v", err)
+	}
+}
+
+func TestValidateForceCallRejectsMissingProfile(t *testing.T) {
+	c := NewContext()
+	c.config = &Configure{
+		Current:  "default",
+		Profiles: map[string]*Profile{"default": {Name: "default", Endpoint: "open.volcengineapi.com"}},
+	}
+	parser := NewParser([]string{"---force", "---version", "2024-01-01", "---profile", "missing"})
+	if _, err := parser.ReadArgs(c); err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+	err := validateForceCall(c, "newservice")
+	if err == nil || !strings.Contains(err.Error(), `profile "missing" not found`) {
+		t.Fatalf("expected missing profile error, got: %v", err)
 	}
 }
 
@@ -98,9 +276,10 @@ func TestCallSdkReturnsErrorWhenEndpointResolutionFails(t *testing.T) {
 	defer setenvForTest(t, "VOLCENGINE_ACCESS_KEY", "ak-test")()
 	defer setenvForTest(t, "VOLCENGINE_SECRET_KEY", "sk-test")()
 	defer setenvForTest(t, "VOLCENGINE_REGION", "cn-beijing")()
+	defer setenvForTest(t, "VOLCENGINE_ENDPOINT", "")()
+	defer setenvForTest(t, "VOLCENGINE_ENDPOINT_RESOLVER", "standard")()
 
 	c := NewContext()
-	c.useStandardEndpointResolver = true
 	sdk, err := NewSimpleClient(c)
 	if err != nil {
 		t.Fatalf("NewSimpleClient returned error: %v", err)
@@ -323,7 +502,10 @@ func TestPrintUnknownServiceHelp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected help output without error, got: %v", err)
 	}
-	if !strings.Contains(buf.String(), "Use ---force with ---version and ---endpoint") {
+	if !strings.Contains(buf.String(), "Use ---force with ---version") {
+		t.Fatalf("help should mention ---force and ---version, got:\n%s", buf.String())
+	}
+	if !strings.Contains(buf.String(), "endpoint") {
 		t.Fatalf("expected unknown service help text, got: %q", buf.String())
 	}
 }

@@ -49,7 +49,7 @@ func TestNewSimpleClientWritesCliDebugSummary(t *testing.T) {
 	}
 }
 
-func TestNewSimpleClientForceModeIgnoresProfileEndpoint(t *testing.T) {
+func TestNewSimpleClientUsesProfileEndpointWhenNoFlag(t *testing.T) {
 	disableSSL := false
 	ctx := NewContext()
 	ctx.config = &Configure{
@@ -66,7 +66,6 @@ func TestNewSimpleClientForceModeIgnoresProfileEndpoint(t *testing.T) {
 			},
 		},
 	}
-	ctx.useStandardEndpointResolver = true
 
 	var out bytes.Buffer
 	ctx.debugLogger = &DebugLogger{enabled: true, out: &out}
@@ -75,16 +74,17 @@ func TestNewSimpleClientForceModeIgnoresProfileEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSimpleClient returned error: %v", err)
 	}
-	if sdk.Config.Endpoint != nil && *sdk.Config.Endpoint == "sts.volcengineapi.com" {
-		t.Fatalf("force mode should not use profile endpoint, got %q", *sdk.Config.Endpoint)
-	}
-	if sdk.Config.EndpointResolver == nil {
-		t.Fatal("force mode without ---endpoint should use StandardEndpointResolver")
+	if sdk.Config.Endpoint == nil || *sdk.Config.Endpoint != "sts.volcengineapi.com" {
+		got := ""
+		if sdk.Config.Endpoint != nil {
+			got = *sdk.Config.Endpoint
+		}
+		t.Fatalf("expected profile endpoint, got %q", got)
 	}
 
 	logs := out.String()
-	if !strings.Contains(logs, "endpoint=standard-resolver") {
-		t.Fatalf("debug logs should reflect resolver endpoint, got:\n%s", logs)
+	if !strings.Contains(logs, "endpoint=sts.volcengineapi.com") {
+		t.Fatalf("debug logs should reflect profile endpoint, got:\n%s", logs)
 	}
 }
 

@@ -108,12 +108,11 @@ func doAction(ctx *Context, serviceName, action string) error {
 }
 
 type invocationParams struct {
-	serviceName                 string
-	action                      string
-	version                     string
-	method                      string
-	contentType                 string
-	useStandardEndpointResolver bool
+	serviceName string
+	action      string
+	version     string
+	method      string
+	contentType string
 }
 
 type invocationInput struct {
@@ -140,10 +139,6 @@ func executeInvocation(ctx *Context, p invocationParams, buildInput func() (invo
 	}()
 
 	debugLogActionStart(debugLog, p.serviceName, p.action, p.version, p.method, p.contentType)
-
-	prevResolver := ctx.useStandardEndpointResolver
-	ctx.useStandardEndpointResolver = p.useStandardEndpointResolver
-	defer func() { ctx.useStandardEndpointResolver = prevResolver }()
 
 	sdk, err := NewSimpleClient(ctx)
 	if err != nil {

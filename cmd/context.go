@@ -7,8 +7,6 @@ type Context struct {
 	dynamicFlags *FlagSet
 	config       *Configure
 	debugLogger  *DebugLogger
-	// useStandardEndpointResolver 由 invocation 层在 force 且无显式 ---endpoint 时设置。
-	useStandardEndpointResolver bool
 }
 
 func NewContext() *Context {
