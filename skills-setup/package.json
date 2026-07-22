@@ -1,6 +1,6 @@
 {
   "name": "@volcengine/skills-setup",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Detect/install ve & arkcli and download volcengine agent skills via npx skills",
   "bin": {
     "skills-setup": "bin/skills-setup"

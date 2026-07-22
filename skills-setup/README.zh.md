@@ -45,8 +45,7 @@ npx -y @volcengine/skills-setup
   安装会失败的 `promptscript`）：
 
   ```
-  claude-code, codex, deepagents, cursor, antigravity, antigravity-cli,
-  openclaw, hermes-agent, opencode, trae, pi
+  claude-code, codex, cursor, openclaw, hermes-agent, opencode, trae
   ```
 
   从共享目录 **`~/.agent/skills`** 读取 skill 的 agent 会被这次安装**顺带覆盖**，

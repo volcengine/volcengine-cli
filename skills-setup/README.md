@@ -50,8 +50,7 @@ By default skills install:
   global install):
 
   ```
-  claude-code, codex, deepagents, cursor, antigravity, antigravity-cli,
-  openclaw, hermes-agent, opencode, trae, pi
+  claude-code, codex, cursor, openclaw, hermes-agent, opencode, trae
   ```
 
   Agents that read skills from the shared **`~/.agent/skills`** directory are

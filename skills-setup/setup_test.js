@@ -388,7 +388,7 @@ check("npxArgvForSource defaults", () => {
 check("resolveBundleUrl priority: flag > env > default", () => {
   assert.strictEqual(
     DEFAULT_BUNDLE_URL,
-    "https://cloudcache.volccdn.com/ve/skills/v1.4.0/volcengine-skill-bundle.zip"
+    "https://cloudcache.volccdn.com/ve/skills/v1.5.0/volcengine-skill-bundle.zip"
   );
   assert.strictEqual(
     resolveBundleUrl({ bundleUrl: BUNDLE_URL }, { SKILLS_BUNDLE_URL: "http://env/x.zip" }),

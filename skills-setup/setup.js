@@ -30,7 +30,7 @@ const SKILL_REPOS = ["volcengine/volcengine-skills"];
 // `skills add <dir>`. Override with --bundle-url or the SKILLS_BUNDLE_URL env
 // var; use a local zip with --bundle-file.
 const DEFAULT_BUNDLE_URL =
-  "https://cloudcache.volccdn.com/ve/skills/v1.4.0/volcengine-skill-bundle.zip";
+  "https://cloudcache.volccdn.com/ve/skills/v1.5.0/volcengine-skill-bundle.zip";
 
 // Default agents targeted by `skills add` when the caller does not pass
 // `--agent`. We enumerate the supported agents explicitly instead of using the
@@ -39,8 +39,7 @@ const DEFAULT_BUNDLE_URL =
 // are covered transitively and do not need to be listed here; use `--agent` to
 // target any other agent not in this list.
 const DEFAULT_AGENTS = [
-  "claude-code", "codex", "deepagents", "cursor", "antigravity",
-  "antigravity-cli", "openclaw", "hermes-agent", "opencode", "trae", "pi",
+  "claude-code", "codex", "cursor", "openclaw", "hermes-agent", "opencode", "trae",
 ];
 
 // Agent / skill values: alphanumerics plus a safe punctuation set (and the '*'
