@@ -93,12 +93,6 @@ func serviceUsageTemplate() string {
 ` + tr(`Use "{{.CommandPath}} [action] --help" for more information about an action.`) + `{{end}}
 
 ` + tr("Fixed Flags:") + `
-  ---profile string    ` + tr("Use a configured profile only for this invocation.") + `
-  ---region string     ` + tr("Override the region only for this invocation.") + `
-  ---endpoint string   ` + tr("Override the endpoint only for this invocation.") + `
-  ---version string    ` + tr("API version; uses metadata when omitted (required with ---force for unlisted services).") + `
-  ---method string     ` + tr("HTTP method GET or POST; explicit value overrides metadata, else metadata, else GET.") + `
-  ---force             ` + tr("Skip service/action metadata validation and force the call.") + `
-  ---lang string       ` + tr("Set the display language for this invocation (EN or ZH).") + `
+` + localizedFixedFlagsHelp() + `
 `
 }

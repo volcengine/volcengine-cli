@@ -11,7 +11,7 @@
 // 共享调用前处理见 invocation.go；profile/endpoint 解析真相见 sdk_client.go
 // （selectInvocationProfile / resolveClientEndpoint / hasEffectiveFixedEndpoint）。
 //
-// 固定参数（三横线）的白名单与 Usage 文案见 parser.go（allowedFixedFlags / fixedFlagsHelp）。
+// 固定参数（三横线）的白名单与 Usage 文案见 parser.go（allowedFixedFlags / localizedFixedFlagsHelp）。
 // force 路径额外约定：
 //
 //	---force    纯开关，出现即启用（只放宽 service/action 元数据校验，不改变 endpoint 解析）
@@ -155,19 +155,20 @@ func argsContainHelp(args []string) bool {
 }
 
 // printUnknownServiceHelp 打印未收录 service 的用法提示（要求 ---force / ---version / 固定 endpoint）。
+// Fixed Flags 与 root/service/action usage 共用 localizedFixedFlagsHelp，随 ---lang 本地化。
 func printUnknownServiceHelp(serviceName string) error {
-	_, err := fmt.Fprintf(os.Stdout, `Usage:
+	_, err := fmt.Fprintf(os.Stdout, `%s
   ve %s <action> [--Param value ...] [fixed flags]
 
 "%s" is not bundled in local metadata. Use ---force with ---version, and a fixed endpoint via ---endpoint or profile/VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough).
 
-Examples:
+%s
   ve %s DescribeNewResource ---version 2024-01-01 ---region cn-beijing ---endpoint newservice.cn-beijing.volcengineapi.com ---force
   ve %s DescribeNewResource ---version 2024-01-01 ---endpoint open.volcengineapi.com --SomeParam value ---force
 
-Fixed Flags:
 %s
-`, serviceName, serviceName, serviceName, serviceName, fixedFlagsHelp)
+%s
+`, tr("Usage:"), serviceName, serviceName, tr("Examples:"), serviceName, serviceName, tr("Fixed Flags:"), localizedFixedFlagsHelp())
 	return err
 }
 

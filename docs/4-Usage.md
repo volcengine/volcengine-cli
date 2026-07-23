@@ -256,10 +256,11 @@ region not set, please set it via profile, ---region flag, or VOLCENGINE_REGION 
 Unsupported fixed flag:
 
 ```text
----debug is not supported, supported fixed flags: ---profile, ---region, ---endpoint, ---lang, ---force, ---version, ---method
+---debug is not supported, supported fixed flags: ---profile, ---region, ---endpoint, ---force, ---version, ---method
 ```
 
-The only supported fixed flags are `---profile`, `---region`, `---endpoint`, `---lang`, `---version`, `---method`, and `---force`.
+The only supported fixed flags are `---profile`, `---region`, `---endpoint`, `---lang`, `---version`, `---method`, and `---force`.  
+`---lang` is resolved before argument parsing, so the parser error list above does not include it.
 
 ---
 

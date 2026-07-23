@@ -112,7 +112,9 @@ func runMain() int{
 	defer upgrade.MaybePrintUpgradeNotice(os.Stderr, clientVersion, asyncCheck)
 
 	// cobra 只为 metadata 中的 service 注册了子命令；未知 service 需在此前置拦截并走 ---force 路径。
-	if err := tryExecuteGenericInvoke(os.Args[1:]); err == nil {
+	// 必须使用 processLanguageResolution.args（已剥离 ---lang），与 rootCmd.SetArgs 一致；
+	// 若仍传 os.Args[1:]，parser 会把 ---lang 当成不受支持的固定参数拒绝。
+	if err := tryExecuteGenericInvoke(processLanguageResolution.args); err == nil {
 		return 0
 	} else if !errors.Is(err, errNotGenericInvoke) {
 		fmt.Fprintln(os.Stderr, err)
@@ -186,13 +188,7 @@ func rootUsageTemplate() string {
 {{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableSubCommands}}
 
 ` + tr("Fixed Flags:") + `
-  ---profile string    ` + tr("Use a configured profile only for this invocation.") + `
-  ---region string     ` + tr("Override the region only for this invocation.") + `
-  ---endpoint string   ` + tr("Override the endpoint only for this invocation.") + `
-  ---version string    ` + tr("API version; uses metadata when omitted (required with ---force for unlisted services).") + `
-  ---method string     ` + tr("HTTP method GET or POST; explicit value overrides metadata, else metadata, else GET.") + `
-  ---force             ` + tr("Skip service/action metadata validation and force the call.") + `
-  ---lang string       ` + tr("Set the display language for this invocation (EN or ZH).") + `
+` + localizedFixedFlagsHelp() + `
 
 ` + tr("Examples:") + `
   ve sts GetCallerIdentity ---profile default ---region cn-beijing

@@ -391,21 +391,9 @@ func renderActionUsageTemplate(description, parameterHelp string) string {
 %s
 
 %s
-  ---profile string    %s
-  ---region string     %s
-  ---endpoint string   %s
-  ---version string    %s
-  ---method string     %s
-  ---force             %s
-  ---lang string       %s
+%s
 
 `, description, tr("Usage:"), tr("Examples:"), tr("Available Parameters:"), parameterHelp,
 		tr("Fixed Flags:"),
-		tr("Use a configured profile only for this invocation."),
-		tr("Override the region only for this invocation."),
-		tr("Override the endpoint only for this invocation."),
-		tr("API version; uses metadata when omitted (required with ---force for unlisted services)."),
-		tr("HTTP method GET or POST; explicit value overrides metadata, else metadata, else GET."),
-		tr("Skip service/action metadata validation and force the call."),
-		tr("Set the display language for this invocation (EN or ZH)."))
+		localizedFixedFlagsHelp())
 }

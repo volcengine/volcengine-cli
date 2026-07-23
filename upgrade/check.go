@@ -152,8 +152,10 @@ func firstRootPositional(args []string) string {
 	return ""
 }
 
-// LoadCheckCache reads the local version check cache. ok=false if missing/stale/invalid.
-func LoadCheckCache() (versionCheckCache, bool) {
+// loadCheckCacheFile reads the on-disk cache without freshness checks.
+// ok=false when the file is missing, unreadable, or structurally invalid.
+// Future-dated CheckedAt is rejected to avoid permanently disabling checks.
+func loadCheckCacheFile() (versionCheckCache, bool) {
 	path, err := CheckCachePath()
 	if err != nil {
 		return versionCheckCache{}, false
@@ -169,11 +171,34 @@ func LoadCheckCache() (versionCheckCache, bool) {
 	if c.CheckedAt <= 0 {
 		return versionCheckCache{}, false
 	}
-	// reject future timestamps that would permanently disable checks
 	now := time.Now().Unix()
 	if c.CheckedAt > now+3600 {
 		return versionCheckCache{}, false
 	}
+	return c, true
+}
+
+// lastKnownLatest returns Latest from disk when present, including stale and
+// expired failure-backoff entries. Used so remote probe failures can still
+// preserve and surface a previous upgrade notice.
+func lastKnownLatest() string {
+	c, ok := loadCheckCacheFile()
+	if !ok {
+		return ""
+	}
+	return NormalizeVersion(c.Latest)
+}
+
+// LoadCheckCache reads the local version check cache.
+// ok=true only for a fresh success entry or an in-window soft-failure backoff.
+// Stale entries return ok=false; callers that need last-known Latest on remote
+// failure should use lastKnownLatest().
+func LoadCheckCache() (versionCheckCache, bool) {
+	c, ok := loadCheckCacheFile()
+	if !ok {
+		return versionCheckCache{}, false
+	}
+	now := time.Now().Unix()
 	age := time.Duration(now-c.CheckedAt) * time.Second
 
 	// Soft-failure entries only suppress remote checks briefly.
@@ -263,9 +288,23 @@ func CheckForUpdate(currentVersion string) CheckResult {
 	}
 
 	// Background / cache-fill path must stay on the short-timeout client.
+	// Preserve any on-disk Latest (including TTL-expired) so failure backoff
+	// can still surface an upgrade notice without wiping history.
+	previousLatest := lastKnownLatest()
 	latest, err := ResolveLatestVersionQuick()
 	if err != nil {
-		_ = SaveCheckFailure("", currentVersion)
+		_ = SaveCheckFailure(previousLatest, currentVersion)
+		// Keep Err nil when we still have a last-known version so
+		// MaybePrintUpgradeNotice can print during the failure window.
+		if previousLatest != "" {
+			return CheckResult{
+				Current:   currentVersion,
+				Latest:    previousLatest,
+				HasUpdate: IsNewer(currentVersion, previousLatest),
+				CheckedAt: time.Now(),
+				FromCache: true,
+			}
+		}
 		return CheckResult{Current: currentVersion, Err: err}
 	}
 	_ = SaveCheckCache(latest, currentVersion)

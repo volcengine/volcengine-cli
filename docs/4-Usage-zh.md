@@ -10,7 +10,7 @@ CLI 的基本调用格式：
 ve <service> <action> [--Param value ...] [---profile name] [---region region] [---endpoint endpoint] [---lang language] [---version api-version] [---method GET|POST] [---force]
 ```
 
-其中 `--Param value` 是 API 参数，`---profile` / `---region` / `---endpoint` / `---lang` /`---version` / `---method` / `---force`  是 CLI 固定参数。
+其中 `--Param value` 是 API 参数，`---profile` / `---region` / `---endpoint` / `---lang` / `---version` / `---method` / `---force` 是 CLI 固定参数。
 
 ## 查看服务和接口
 
@@ -256,10 +256,11 @@ region not set, please set it via profile, ---region flag, or VOLCENGINE_REGION 
 固定参数不支持时：
 
 ```text
----debug is not supported, supported fixed flags: ---profile, ---region, ---endpoint, ---lang, ---force, ---version, ---method
+---debug is not supported, supported fixed flags: ---profile, ---region, ---endpoint, ---force, ---version, ---method
 ```
 
-当前支持的固定参数只有 `---profile`、`---region`、`---endpoint`、`---lang`、`---version`、`---method`、`---force`。
+当前支持的固定参数只有 `---profile`、`---region`、`---endpoint`、`---lang`、`---version`、`---method`、`---force`。  
+`---lang` 会在参数解析前被预处理剥离，因此上面 parser 报错列表中不包含它。
 
 ---
 

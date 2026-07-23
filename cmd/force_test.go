@@ -534,6 +534,37 @@ func TestTryExecuteGenericInvokeRequiresForce(t *testing.T) {
 	}
 }
 
+// TestForcePathAcceptsArgsAfterLanguageStrip 锁住 rebase 后的交界约定：
+// ---lang 必须在 tryExecuteGenericInvoke 之前由 resolveLanguage 剥离；
+// runMain 应传 processLanguageResolution.args，而不是 os.Args[1:]。
+func TestForcePathAcceptsArgsAfterLanguageStrip(t *testing.T) {
+	raw := []string{
+		"newservice", "DescribeNewResource",
+		"---version", "2024-01-01",
+		"---endpoint", "newservice.cn-beijing.volcengineapi.com",
+		"---force",
+		"---lang", "ZH",
+	}
+
+	// 未剥离时 parser 会拒绝 ---lang。
+	if _, err := parseInvocationArgs(raw[1:]); err == nil || !strings.Contains(err.Error(), "---lang") {
+		t.Fatalf("expected parser to reject unstripped ---lang, got: %v", err)
+	}
+
+	stripped, lang, err := resolveLanguage(raw, func(string) (string, bool) { return "", false })
+	if err != nil {
+		t.Fatalf("resolveLanguage: %v", err)
+	}
+	if lang != LanguageSimplifiedChinese {
+		t.Fatalf("language = %v, want ZH", lang)
+	}
+
+	stubExecuteInvocation(t, errStubInvocation)
+	if err := tryExecuteGenericInvoke(stripped); !errors.Is(err, errStubInvocation) {
+		t.Fatalf("force path after language strip should reach invocation, got: %v", err)
+	}
+}
+
 func TestPrintUnknownServiceHelp(t *testing.T) {
 	oldStdout := os.Stdout
 	r, w, pipeErr := os.Pipe()
@@ -552,11 +583,18 @@ func TestPrintUnknownServiceHelp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected help output without error, got: %v", err)
 	}
-	if !strings.Contains(buf.String(), "Use ---force with ---version") {
-		t.Fatalf("help should mention ---force and ---version, got:\n%s", buf.String())
+	help := buf.String()
+	if !strings.Contains(help, "Use ---force with ---version") {
+		t.Fatalf("help should mention ---force and ---version, got:\n%s", help)
 	}
-	if !strings.Contains(buf.String(), "endpoint") {
-		t.Fatalf("expected unknown service help text, got: %q", buf.String())
+	if !strings.Contains(help, "endpoint") {
+		t.Fatalf("expected unknown service help text, got: %q", help)
+	}
+	// 与 root/service/action usage 共用 localizedFixedFlagsHelp，应包含 ---lang。
+	for _, flag := range []string{"---force", "---version", "---method", "---lang"} {
+		if !strings.Contains(help, flag) {
+			t.Fatalf("unknown service help missing %q:\n%s", flag, help)
+		}
 	}
 }
 

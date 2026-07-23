@@ -9,7 +9,8 @@ import (
 
 // allowedFixedFlags 三横线（---）CLI 控制参数白名单，与双横线 API 参数区分。
 // profile/region/endpoint 为通用运行时覆盖；force 跳过元数据校验；version/method 在正常与 force 路径均可覆盖元数据。
-// 新增固定参数时需同步更新 supportedFixedFlagsMessage、fixedFlagsHelp 与文档。
+// ---lang 由 resolveLanguage 预处理剥离，不进入本白名单。
+// 新增固定参数时需同步更新 supportedFixedFlagsMessage、localizedFixedFlagsHelp 与文档。
 var allowedFixedFlags = map[string]struct{}{
 	"profile":  {},
 	"region":   {},
@@ -24,16 +25,21 @@ var booleanFixedFlags = map[string]struct{}{
 	"force": {},
 }
 
+// supportedFixedFlagsMessage 是 parser 拒绝未知 ---flag 时展示的白名单列表。
+// 不含 ---lang：语言参数在进入 parser 前已由 resolveLanguage 处理。
 const supportedFixedFlagsMessage = "---profile, ---region, ---endpoint, ---force, ---version, ---method"
 
-// fixedFlagsHelp 根/service/action Usage 与未知 service 帮助共用的 Fixed Flags 说明。
-// 与 allowedFixedFlags 同源维护：这些 flag 对正常调用与 ---force 均适用（force 为可选开关）。
-const fixedFlagsHelp = `  ---profile string    Use a configured profile only for this invocation.
-  ---region string     Override the region only for this invocation.
-  ---endpoint string   Override the endpoint only for this invocation.
-  ---version string    API version; uses metadata when omitted (required with ---force for unlisted services).
-  ---method string     HTTP method GET or POST; explicit value overrides metadata, else metadata, else GET.
-  ---force             Skip service/action metadata validation and force the call.`
+// localizedFixedFlagsHelp 返回已本地化的 Fixed Flags 说明（含 ---lang）。
+// root/service/action usage 与未知 service help 共用，避免英文常量与 tr() 模板双源漂移。
+func localizedFixedFlagsHelp() string {
+	return `  ---profile string    ` + tr("Use a configured profile only for this invocation.") + `
+  ---region string     ` + tr("Override the region only for this invocation.") + `
+  ---endpoint string   ` + tr("Override the endpoint only for this invocation.") + `
+  ---version string    ` + tr("API version; uses metadata when omitted (required with ---force for unlisted services).") + `
+  ---method string     ` + tr("HTTP method GET or POST; explicit value overrides metadata, else metadata, else GET.") + `
+  ---force             ` + tr("Skip service/action metadata validation and force the call.") + `
+  ---lang string       ` + tr("Set the display language for this invocation (EN or ZH).")
+}
 
 type Parser struct {
 	currentIndex int

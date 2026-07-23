@@ -150,6 +150,83 @@ func TestCheckFailureBackoff(t *testing.T) {
 	}
 }
 
+// TestCheckForUpdate_PreservesStaleLatestOnRemoteFailure 覆盖：
+// 成功缓存过 TTL 后远程探测失败时，应保留历史 Latest，并在 failure backoff
+// 期间仍可展示升级提示（SaveCheckFailure 不得把 Latest 写成空）。
+func TestCheckForUpdate_PreservesStaleLatestOnRemoteFailure(t *testing.T) {
+	dir := t.TempDir()
+	orig := ConfigDirFunc
+	ConfigDirFunc = func() (string, error) { return dir, nil }
+	defer func() { ConfigDirFunc = orig }()
+
+	oldDisable := os.Getenv(EnvDisableUpdateCheck)
+	os.Unsetenv(EnvDisableUpdateCheck)
+	defer func() {
+		if oldDisable == "" {
+			os.Unsetenv(EnvDisableUpdateCheck)
+		} else {
+			os.Setenv(EnvDisableUpdateCheck, oldDisable)
+		}
+	}()
+
+	if err := SaveCheckCache("9.9.9", "1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	// 人为过期成功缓存。
+	path, err := CheckCachePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := `{"checked_at":1,"latest":"9.9.9","current":"1.0.0"}`
+	if err := ioutil.WriteFile(path, []byte(stale), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := LoadCheckCache(); ok {
+		t.Fatal("expected stale cache miss before remote probe")
+	}
+	if got := lastKnownLatest(); got != "9.9.9" {
+		t.Fatalf("lastKnownLatest=%q, want 9.9.9", got)
+	}
+
+	// 强制 CDN + GitHub 探测全部失败（避免仅关 CDN 时 GitHub 回退仍成功）。
+	SetCheckHTTPClient(&http.Client{
+		Timeout:   200 * time.Millisecond,
+		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, fmt.Errorf("forced network failure")
+		}),
+	})
+	defer SetCheckHTTPClient(&http.Client{Timeout: CheckHTTPTimeout})
+
+	res := CheckForUpdate("1.0.0")
+	if res.Latest != "9.9.9" {
+		t.Fatalf("expected stale latest preserved, got %+v", res)
+	}
+	if !res.HasUpdate {
+		t.Fatalf("expected HasUpdate from stale latest, got %+v", res)
+	}
+	if res.Err != nil {
+		t.Fatalf("expected nil Err so notice can print, got %+v", res)
+	}
+
+	// 失败写回应带上 previous Latest，后续 15min backoff 仍可提示。
+	c, ok := LoadCheckCache()
+	if !ok || !c.Failed {
+		t.Fatalf("expected failure backoff cache, ok=%v failed=%v", ok, c.Failed)
+	}
+	if NormalizeVersion(c.Latest) != "9.9.9" {
+		t.Fatalf("failure cache latest=%q, want 9.9.9", c.Latest)
+	}
+
+	ac := StartBackgroundCheck("1.0.0", []string{"version"})
+	if ac == nil {
+		t.Fatal("expected async check")
+	}
+	bg := ac.Wait(50 * time.Millisecond)
+	if !bg.HasUpdate || bg.Latest != "9.9.9" {
+		t.Fatalf("expected notice-capable backoff result, got %+v", bg)
+	}
+}
+
 func TestInvalidateCheckCache(t *testing.T) {
 	dir := t.TempDir()
 	orig := ConfigDirFunc
