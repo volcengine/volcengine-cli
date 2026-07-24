@@ -182,6 +182,7 @@ func localizeHelpFlags(command *cobra.Command) {
 		"configure":  {},
 		"login":      {},
 		"logout":     {},
+		"mcp":        {},
 		"sso":        {},
 		"skills":     {},
 		"version":    {},

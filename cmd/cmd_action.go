@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -279,6 +280,54 @@ func resolveActionHTTPMethod(ctx *Context, apiInfo *ApiInfo) (string, error) {
 		method = override
 	}
 	return method, nil
+}
+
+func callAPIWithClient(sdk *SdkClient, serviceName, action string, input interface{}, inputFromBody bool) (*map[string]interface{}, error) {
+	return callAPIWithClientContext(context.Background(), sdk, serviceName, action, input, inputFromBody)
+}
+
+func callAPIWithClientContext(ctx context.Context, sdk *SdkClient, serviceName, action string, input interface{}, inputFromBody bool) (*map[string]interface{}, error) {
+	if sdk == nil {
+		return nil, fmt.Errorf("SDK client is required")
+	}
+	if !rootSupport.IsValidAction(serviceName, action) {
+		return nil, fmt.Errorf("%s.%s is unsupport action", serviceName, action)
+	}
+
+	method := "GET"
+	contentType := ""
+	if apiInfo := rootSupport.GetApiInfo(serviceName, action); apiInfo != nil {
+		if apiInfo.Method != "" {
+			method = apiInfo.Method
+		}
+		contentType = apiInfo.ContentType
+	}
+	version := rootSupport.GetVersion(serviceName)
+	if svc, ok := GetServiceMapping(serviceName); ok {
+		serviceName = svc
+	}
+
+	if strings.ToLower(contentType) != "application/json" {
+		inputMap, ok := input.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("parameters for %s.%s must be an object", serviceName, action)
+		}
+		input = &inputMap
+	} else if !inputFromBody {
+		inputMap, ok := input.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("parameters for %s.%s must be an object", serviceName, action)
+		}
+		input = &inputMap
+	}
+
+	return sdk.CallSdkWithContext(ctx, SdkClientInfo{
+		ServiceName: serviceName,
+		Action:      action,
+		Version:     version,
+		Method:      method,
+		ContentType: contentType,
+	}, input)
 }
 
 func prepareDebugLogger(ctx *Context) (*DebugLogger, func() error, error) {
