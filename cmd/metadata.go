@@ -35,9 +35,10 @@ type StructInfo struct {
 }
 
 type param struct {
-	key      string
-	typeName string
-	required bool
+	key         string
+	typeName    string
+	required    bool
+	description string // optional help text from param_descriptions asset
 }
 
 func formatParamsHelpUsage(params []param) []string {
@@ -56,16 +57,37 @@ func formatParamsHelpUsage(params []param) []string {
 	maxTypeNameLen++
 
 	// TODO: not print required field now
-	//formatString := "%-" + strconv.Itoa(maxKeyLen) + "v%-" + strconv.Itoa(maxTypeNameLen) + "v %v"
+	// Widths are based only on key/type so long descriptions do not reflow columns.
 	formatString := "%-" + strconv.Itoa(maxKeyLen) + "v%-" + strconv.Itoa(maxTypeNameLen) + "v"
 
 	var paramStrings []string
 	for _, p := range params {
-		//paramStrings = append(paramStrings, fmt.Sprintf(formatString, p.key, p.typeName, formatRequired(p.required)))
-		paramStrings = append(paramStrings, fmt.Sprintf(formatString, p.key, p.typeName))
+		line := fmt.Sprintf(formatString, p.key, p.typeName)
+		if desc := strings.TrimSpace(p.description); desc != "" {
+			// Collapse multi-line OpenAPI text to one help line.
+			if idx := strings.Index(desc, "\n"); idx >= 0 {
+				desc = strings.TrimSpace(desc[:idx])
+			}
+			// Descriptions are baked into cobra text/templates; escape {{ }} so
+			// OpenAPI text cannot break Usage() parsing.
+			desc = escapeCobraTemplateLiteral(desc)
+			if desc != "" {
+				line = line + " " + desc
+			}
+		}
+		paramStrings = append(paramStrings, line)
 	}
 
 	return paramStrings
+}
+
+// escapeCobraTemplateLiteral makes free-form text safe to embed in a cobra
+// usage template that is later parsed as text/template.
+func escapeCobraTemplateLiteral(s string) string {
+	// {{"{{"}} and {{"}}"}} evaluate to literal braces in text/template.
+	s = strings.ReplaceAll(s, "{{", `{{"{{"}}`)
+	s = strings.ReplaceAll(s, "}}", `{{"}}"}}`)
+	return s
 }
 
 func formatRequired(required bool) string {

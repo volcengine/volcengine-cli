@@ -45,6 +45,7 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 		// todo not support application/json
 		if meta.ApiInfo == nil || strings.ToLower(meta.ApiInfo.ContentType) != "application/json" {
 			params := meta.GetRequestParams(apiMeta)
+			attachParamDescriptions(serviceName, action, params)
 			paramValues := make([]paramValue, len(params))
 			for i := 0; i < len(params); i++ {
 				paramValues[i].param = params[i].key
@@ -60,6 +61,8 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 			if apiMeta != nil && apiMeta.Request != nil {
 				bodyMap := apiMeta.Request.GetReqBody()
 				bodyStr, _ = json.MarshalIndent(bodyMap, "", "    ")
+				reqParams := apiMeta.GetRequestParams()
+				attachParamDescriptions(serviceName, action, reqParams)
 				params = formatParamsHelpUsage(apiMeta.GetRequestParams())
 			}
 			bodyParam := fmt.Sprintf(`body '%s'`, string(bodyStr))
