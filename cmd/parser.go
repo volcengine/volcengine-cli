@@ -33,6 +33,49 @@ func (p *Parser) ReadArgs(ctx *Context) ([]string, error) {
 	if ctx == nil || ctx.fixedFlags == nil || ctx.dynamicFlags == nil {
 		return nil, fmt.Errorf("invalid context for parsing arguments")
 	}
+	if len(p.args)%2 == 0 && p.hasFlagSyntaxAtPairStarts() {
+		return p.readPairedArgs(ctx)
+	}
+
+	return p.readLegacyArgs(ctx)
+}
+
+func (p *Parser) hasFlagSyntaxAtPairStarts() bool {
+	for i := 0; i < len(p.args); i += 2 {
+		if !strings.HasPrefix(p.args[i], "--") {
+			return false
+		}
+	}
+	return true
+}
+
+func (p *Parser) readPairedArgs(ctx *Context) ([]string, error) {
+	for p.currentIndex < len(p.args) {
+		name := p.args[p.currentIndex]
+		value := p.args[p.currentIndex+1]
+		p.currentIndex += 2
+
+		flag, positional, err := p.parseArg(name, ctx)
+		if err != nil {
+			return nil, err
+		}
+		if flag == nil {
+			return nil, fmt.Errorf("%q is not a valid flag", positional)
+		}
+
+		p.currentFlag = flag
+		if value == "" {
+			err = p.currentFlagValueError(ctx)
+			p.currentFlag = nil
+			return nil, err
+		}
+		flag.SetValue(value)
+		p.currentFlag = nil
+	}
+	return nil, nil
+}
+
+func (p *Parser) readLegacyArgs(ctx *Context) ([]string, error) {
 	var r []string
 	for {
 		arg, _, more, err := p.readArg(ctx)
