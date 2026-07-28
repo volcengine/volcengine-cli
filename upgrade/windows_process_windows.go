@@ -12,6 +12,10 @@ import (
 
 const errorInvalidParameter syscall.Errno = 87
 
+// parentWaitTimeout bounds how long the Windows upgrade helper waits for the
+// parent CLI process to exit before replacing the binary. Overridable in tests.
+var parentWaitTimeout = 2 * time.Minute
+
 func waitForProcessExit(pid int) error {
 	if pid <= 0 {
 		return nil
@@ -25,14 +29,20 @@ func waitForProcessExit(pid int) error {
 		return err
 	}
 	defer syscall.CloseHandle(handle)
-	event, err := syscall.WaitForSingleObject(handle, syscall.INFINITE)
+
+	timeoutMs := uint32(parentWaitTimeout / time.Millisecond)
+	event, err := syscall.WaitForSingleObject(handle, timeoutMs)
 	if err != nil {
 		return err
 	}
-	if event != syscall.WAIT_OBJECT_0 {
+	switch event {
+	case syscall.WAIT_OBJECT_0:
+		return nil
+	case syscall.WAIT_TIMEOUT:
+		return fmt.Errorf("timed out waiting for parent process %d to exit after %s", pid, parentWaitTimeout)
+	default:
 		return fmt.Errorf("unexpected wait result %d", event)
 	}
-	return nil
 }
 
 func configureBackgroundCommand(cmd *exec.Cmd) {

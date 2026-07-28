@@ -27,6 +27,8 @@
 #   SKIP_PARAM_DESCRIPTIONS=1   skip param HTTP generation; keep existing paramdescriptions
 #   PARAM_DESC_DELAY            default 150ms
 #   PARAM_DESC_LANG             default both
+#   PARAM_DESC_STRICT=1         pass --strict (refuse write if any swagger fetch skipped)
+#   PARAM_DESC_PRUNE_MISSING=1  pass --prune-missing (needs complete inventory; sharp)
 #   BUILD_ASSET_TARGET          default target when --target omitted and non-interactive
 
 set -e
@@ -228,17 +230,32 @@ fi
 
 # Parameter descriptions (heavier: explorer/api-swagger per action, rate-limited).
 # Product: asset/paramdescriptions/params.json + bindata.go (separate package).
-# Fail closed: never overwrite a good corpus with empty product on generator failure.
+# Fail closed: generator exits non-zero on total failure, unreadable existing
+# params.json, or when PARAM_DESC_STRICT=1 and any fetch was skipped.
+# Partial success merges into existing params.json (does not wipe unscanned actions).
+# Optional env:
+#   PARAM_DESC_STRICT=1         pass --strict (refuse write on any skip)
+#   PARAM_DESC_PRUNE_MISSING=1  pass --prune-missing (sharp; needs full inventory)
 if [ "$do_param" = "1" ]; then
   echo "==> generating param descriptions → ${PARAM_DESC_JSON} (may take a long time)"
   PARAM_DELAY="${PARAM_DESC_DELAY:-150ms}"
   PARAM_LANG="${PARAM_DESC_LANG:-both}"
   mkdir -p "${PARAM_DESC_DIR}"
-  if ! go run ./scripts/generate_param_descriptions.go \
-    --metadata-dir volcengine-sdk-metadata/metadata \
-    --out "${PARAM_DESC_JSON}" \
-    --delay "${PARAM_DELAY}" \
+  PARAM_GEN_ARGS=(
+    --metadata-dir volcengine-sdk-metadata/metadata
+    --out "${PARAM_DESC_JSON}"
+    --delay "${PARAM_DELAY}"
     --lang "${PARAM_LANG}"
+  )
+  if [ "${PARAM_DESC_STRICT:-0}" = "1" ]; then
+    echo "    PARAM_DESC_STRICT=1 → --strict"
+    PARAM_GEN_ARGS+=(--strict)
+  fi
+  if [ "${PARAM_DESC_PRUNE_MISSING:-0}" = "1" ]; then
+    echo "    PARAM_DESC_PRUNE_MISSING=1 → --prune-missing (ensure inventory is complete)"
+    PARAM_GEN_ARGS+=(--prune-missing)
+  fi
+  if ! go run ./scripts/generate_param_descriptions.go "${PARAM_GEN_ARGS[@]}"
   then
     echo "error: param descriptions generation failed" >&2
     if [ -f "${PARAM_DESC_JSON}" ] || [ -f "${PARAM_DESC_BINDATA}" ]; then

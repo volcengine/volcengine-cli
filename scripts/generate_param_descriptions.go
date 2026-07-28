@@ -24,7 +24,14 @@
 //	go run ./scripts/generate_param_descriptions.go
 //	go run ./scripts/generate_param_descriptions.go --service ecs --version 2020-04-01
 //	go run ./scripts/generate_param_descriptions.go --delay 200ms --lang zh
+//	go run ./scripts/generate_param_descriptions.go --strict
+//	go run ./scripts/generate_param_descriptions.go --prune-missing
 //	go generate ./asset/paramdescriptions   # after writing params.json
+//
+// Write policy: merge successful fetches into any existing --out file so partial
+// runs (--service / --max-actions / skipped HTTP errors) do not wipe unscanned
+// actions. Use --prune-missing to drop previous service/version keys absent from
+// inventory; --strict refuses to write when any fetch was skipped.
 //
 // Full asset rebuild (metadata + explorer + params + bindata):
 //
@@ -143,6 +150,8 @@ func main() {
 	serviceFilter := flag.String("service", "", "only this service code (optional)")
 	versionFilter := flag.String("version", "", "only this API version (optional)")
 	maxActions := flag.Int("max-actions", 0, "stop after N swagger fetches (0 = no limit, useful for smoke tests)")
+	pruneMissing := flag.Bool("prune-missing", false, "drop service/version keys from the previous corpus that are absent from inventory (default: keep)")
+	strict := flag.Bool("strict", false, "do not write when any swagger/action-list fetch was skipped (default: merge and write)")
 	flag.Parse()
 
 	versions := loadVersions(*metadataDir)
@@ -238,19 +247,44 @@ func main() {
 	}
 
 write:
-	// Fail closed before touching the output file so a previous good params.json is preserved.
-	// Smoke tests with --max-actions still write partial products when doneSwagger > 0.
-	if doneSwagger == 0 && skipped > 0 {
-		fatal(fmt.Errorf("no swagger fetches succeeded (%d errors); refusing empty/sparse product (left %s unchanged)", skipped, *out))
+	// Fail closed / merge policy (S14):
+	// - no successful action + errors → do not touch --out
+	// - no successful action + no errors → nothing to do (leave --out unchanged)
+	// - partial success → deep-merge into previous --out so skipped/unscanned actions keep prior text
+	// - --strict → refuse write when skipped > 0
+	// - --prune-missing → drop previous service/version keys not in inventory
+	// - existing --out that cannot be read/parsed → refuse write (never treat as empty base)
+	if doneSwagger == 0 {
+		if skipped > 0 {
+			fatal(fmt.Errorf("no swagger fetches succeeded (%d errors); refusing to modify %s", skipped, *out))
+		}
+		fmt.Fprintf(os.Stderr, "nothing fetched; left %s unchanged\n", *out)
+		return
 	}
-	// Keep example_* from a previous corpus when the new fetch has none (OpenAPI often omits examples).
-	if prev, err := readParamsFile(*out); err == nil {
-		preserveMissingExamples(&file, prev)
+	if *strict && skipped > 0 {
+		fatal(fmt.Errorf("strict mode: %d skipped errors with %d ok; refusing to write %s", skipped, doneSwagger, *out))
 	}
-	if err := writeJSON(*out, file); err != nil {
+	if skipped > 0 {
+		fmt.Fprintf(os.Stderr, "warning: %d fetch errors during generation; merging successful actions into previous corpus (use --strict to refuse write)\n", skipped)
+	}
+
+	prev, prevLoaded, err := loadPreviousCorpus(*out)
+	if err != nil {
+		fatal(fmt.Errorf("refusing to write %s: cannot load previous corpus: %v", *out, err))
+	}
+	if !prevLoaded {
+		fmt.Fprintf(os.Stderr, "info: no previous corpus at %s; writing fetched actions only\n", *out)
+	}
+	merged, stats := mergeParamsFile(prev, file)
+	if *pruneMissing {
+		// Prune is service/version level; merged/kept action counts remain pre-prune.
+		stats.PrunedServiceVersions = pruneParamsToInventory(merged, versions)
+	}
+	if err := writeJSON(*out, merged); err != nil {
 		fatal(err)
 	}
-	fmt.Fprintf(os.Stderr, "wrote %s (swagger_ok=%d, attempted≈%d, skipped_errors=%d)\n", *out, doneSwagger, totalSwagger, skipped)
+	fmt.Fprintf(os.Stderr, "wrote %s (swagger_ok=%d, attempted≈%d, skipped_errors=%d, merged_actions=%d, kept_prev_actions=%d, total_actions=%d, pruned_svc_ver=%d, prev_loaded=%v)\n",
+		*out, doneSwagger, totalSwagger, skipped, stats.MergedActions, stats.KeptPrevActions, countActions(merged), stats.PrunedServiceVersions, prevLoaded)
 }
 
 func parseLang(lang string) (zh, en bool) {
@@ -290,7 +324,7 @@ func mergeParamLang(dst map[string]paramDescription, src map[string]paramDescrip
 	}
 }
 
-// readParamsFile loads an existing params.json for merge (examples preserve).
+// readParamsFile loads an existing params.json for merge.
 func readParamsFile(path string) (paramsFile, error) {
 	data, err := ioutil.ReadFile(path)
 	if err != nil {
@@ -306,42 +340,182 @@ func readParamsFile(path string) (paramsFile, error) {
 	return file, nil
 }
 
-// preserveMissingExamples copies example_cn/example_en from prev when next lacks them.
-func preserveMissingExamples(next *paramsFile, prev paramsFile) {
-	if next == nil || next.Apis == nil || prev.Apis == nil {
-		return
+// loadPreviousCorpus loads --out for merge.
+// missing file → empty base, loaded=false, err=nil (first generation).
+// any other read/parse error → err != nil (caller must refuse write).
+func loadPreviousCorpus(path string) (file paramsFile, loaded bool, err error) {
+	file, err = readParamsFile(path)
+	if err == nil {
+		return file, true, nil
 	}
-	for svc, vers := range next.Apis {
-		prevVers, ok := prev.Apis[svc]
-		if !ok {
-			continue
+	if os.IsNotExist(err) {
+		return paramsFile{Apis: map[string]map[string]map[string]map[string]paramDescription{}}, false, nil
+	}
+	return paramsFile{}, false, err
+}
+
+// mergeStats summarizes a corpus merge for operator logs.
+type mergeStats struct {
+	MergedActions         int
+	KeptPrevActions       int
+	PrunedServiceVersions int
+}
+
+// mergeParamsFile deep-merges a fetch patch into a previous corpus.
+// - Actions present in patch (non-empty params): field-wise merge onto prev action
+//   (non-empty new description/example win; missing language/example sides keep prev).
+// - Actions only in prev: kept unchanged (covers skips, --service/--max-actions partial runs).
+// - Params only in prev under a merged action: kept (stale names possible; safer than wipe).
+func mergeParamsFile(base, patch paramsFile) (paramsFile, mergeStats) {
+	var stats mergeStats
+	out := cloneParamsFile(base)
+	if out.Apis == nil {
+		out.Apis = map[string]map[string]map[string]map[string]paramDescription{}
+	}
+	if patch.Apis == nil {
+		stats.KeptPrevActions = countActions(out)
+		return out, stats
+	}
+
+	patched := map[string]struct{}{} // "svc\x00ver\x00action"
+	for svc, vers := range patch.Apis {
+		if out.Apis[svc] == nil {
+			out.Apis[svc] = map[string]map[string]map[string]paramDescription{}
 		}
 		for ver, actions := range vers {
-			prevActions, ok := prevVers[ver]
-			if !ok {
-				continue
+			if out.Apis[svc][ver] == nil {
+				out.Apis[svc][ver] = map[string]map[string]paramDescription{}
 			}
 			for action, params := range actions {
-				prevParams, ok := prevActions[action]
-				if !ok {
+				if len(params) == 0 {
 					continue
 				}
-				for name, p := range params {
-					old, ok := prevParams[name]
-					if !ok {
-						continue
-					}
-					if strings.TrimSpace(p.ExampleCn) == "" {
-						p.ExampleCn = old.ExampleCn
-					}
-					if strings.TrimSpace(p.ExampleEn) == "" {
-						p.ExampleEn = old.ExampleEn
-					}
-					params[name] = p
+				prev := out.Apis[svc][ver][action]
+				out.Apis[svc][ver][action] = mergeActionParams(prev, params)
+				stats.MergedActions++
+				patched[svc+"\x00"+ver+"\x00"+action] = struct{}{}
+			}
+		}
+	}
+	for svc, vers := range out.Apis {
+		for ver, actions := range vers {
+			for action := range actions {
+				if _, ok := patched[svc+"\x00"+ver+"\x00"+action]; !ok {
+					stats.KeptPrevActions++
 				}
 			}
 		}
 	}
+	return out, stats
+}
+
+// mergeActionParams merges next into a copy of prev. Empty next description/example
+// fields do not clear prev (so a zh-only fetch keeps previous en text/examples).
+// For param names present in next, Required is taken from next (not sticky-OR), so a
+// re-fetch can mark a field optional again. Params only in prev keep their Required.
+func mergeActionParams(prev, next map[string]paramDescription) map[string]paramDescription {
+	out := cloneParamMap(prev)
+	if out == nil {
+		out = map[string]paramDescription{}
+	}
+	for name, p := range next {
+		cur := out[name]
+		if strings.TrimSpace(p.DescriptionCn) != "" {
+			cur.DescriptionCn = p.DescriptionCn
+		}
+		if strings.TrimSpace(p.DescriptionEn) != "" {
+			cur.DescriptionEn = p.DescriptionEn
+		}
+		if strings.TrimSpace(p.ExampleCn) != "" {
+			cur.ExampleCn = p.ExampleCn
+		}
+		if strings.TrimSpace(p.ExampleEn) != "" {
+			cur.ExampleEn = p.ExampleEn
+		}
+		// Scanned param: adopt Required from this fetch (true or false).
+		cur.Required = p.Required
+		out[name] = cur
+	}
+	return out
+}
+
+// pruneParamsToInventory removes service/version pairs not listed in inventory.
+// Returns how many service@version keys were removed. Action-level prune is not
+// done here (action lists are remote and not always fully scanned).
+func pruneParamsToInventory(file paramsFile, inventory map[string][]string) int {
+	if file.Apis == nil || inventory == nil {
+		return 0
+	}
+	allowed := map[string]map[string]struct{}{}
+	for svc, vers := range inventory {
+		svc = strings.ToLower(strings.TrimSpace(svc))
+		if svc == "" {
+			continue
+		}
+		if allowed[svc] == nil {
+			allowed[svc] = map[string]struct{}{}
+		}
+		for _, ver := range vers {
+			allowed[svc][ver] = struct{}{}
+		}
+	}
+	pruned := 0
+	for svc, vers := range file.Apis {
+		allowVer, svcOK := allowed[svc]
+		if !svcOK {
+			delete(file.Apis, svc)
+			pruned += len(vers)
+			continue
+		}
+		for ver := range vers {
+			if _, ok := allowVer[ver]; !ok {
+				delete(vers, ver)
+				pruned++
+			}
+		}
+		if len(vers) == 0 {
+			delete(file.Apis, svc)
+		}
+	}
+	return pruned
+}
+
+func cloneParamsFile(in paramsFile) paramsFile {
+	out := paramsFile{Apis: map[string]map[string]map[string]map[string]paramDescription{}}
+	if in.Apis == nil {
+		return out
+	}
+	for svc, vers := range in.Apis {
+		out.Apis[svc] = map[string]map[string]map[string]paramDescription{}
+		for ver, actions := range vers {
+			out.Apis[svc][ver] = map[string]map[string]paramDescription{}
+			for action, params := range actions {
+				out.Apis[svc][ver][action] = cloneParamMap(params)
+			}
+		}
+	}
+	return out
+}
+
+func cloneParamMap(in map[string]paramDescription) map[string]paramDescription {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]paramDescription, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func countActions(file paramsFile) int {
+	n := 0
+	for _, vers := range file.Apis {
+		for _, actions := range vers {
+			n += len(actions)
+		}
+	}
+	return n
 }
 
 // fetchServiceCodeMap returns lower(ServiceCode) → canonical ServiceCode from Explorer.

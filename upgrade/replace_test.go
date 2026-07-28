@@ -199,3 +199,107 @@ func TestReplaceBinaryWithBackup_Success(t *testing.T) {
 		t.Fatal("expected backup removed after success")
 	}
 }
+
+func TestReplaceBinary_UnixCopyFailCleansTemp(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix temp path")
+	}
+	dir := t.TempDir()
+	current := filepath.Join(dir, "ve")
+	if err := ioutil.WriteFile(current, []byte("old-bin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	missingNew := filepath.Join(dir, "missing-new")
+	err := ReplaceBinary(missingNew, current)
+	if err == nil {
+		t.Fatal("expected error when new binary is missing")
+	}
+	got, readErr := ioutil.ReadFile(current)
+	if readErr != nil {
+		t.Fatalf("expected current binary intact: %v", readErr)
+	}
+	if string(got) != "old-bin" {
+		t.Fatalf("got %q, want old-bin", got)
+	}
+	entries, listErr := os.ReadDir(dir)
+	if listErr != nil {
+		t.Fatal(listErr)
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, ".ve.upgrade-") && strings.HasSuffix(name, ".tmp") {
+			t.Fatalf("temp file not cleaned up after failure: %s", name)
+		}
+	}
+}
+
+func TestReplaceBinary_UnixNoTempLeftOnSuccess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix temp path")
+	}
+	dir := t.TempDir()
+	current := filepath.Join(dir, "ve")
+	newPath := filepath.Join(dir, "ve.new")
+	if err := ioutil.WriteFile(current, []byte("old"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := ioutil.WriteFile(newPath, []byte("new-payload"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := ReplaceBinary(newPath, current); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, ".ve.upgrade-") && strings.HasSuffix(name, ".tmp") {
+			t.Fatalf("temp file left after success: %s", name)
+		}
+	}
+}
+
+func TestCreateTempUpgradePatternUniqueness(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix temp naming used by ReplaceBinary")
+	}
+	dir := t.TempDir()
+	f1, err := os.CreateTemp(dir, ".ve.upgrade-*.tmp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f1.Close()
+	f2, err := os.CreateTemp(dir, ".ve.upgrade-*.tmp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f2.Close()
+	if f1.Name() == f2.Name() {
+		t.Fatal("expected unique CreateTemp names")
+	}
+	// Both should live under the target directory (not os.TempDir).
+	if filepath.Dir(f1.Name()) != dir || filepath.Dir(f2.Name()) != dir {
+		t.Fatalf("temps not in target dir: %q %q (dir=%q)", f1.Name(), f2.Name(), dir)
+	}
+}
+
+func TestCopyFile_SyncsBeforeReturn(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	dst := filepath.Join(dir, "dst")
+	if err := ioutil.WriteFile(src, []byte("payload-sync"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyFile(src, dst, 0644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ioutil.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "payload-sync" {
+		t.Fatalf("got %q", got)
+	}
+}

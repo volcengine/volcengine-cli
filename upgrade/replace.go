@@ -65,7 +65,17 @@ func ReplaceBinary(newPath, currentPath string) error {
 		return nil
 	}
 
-	tmpPath := filepath.Join(dir, ".ve.upgrade.tmp")
+	// Unique temp name in the same directory so concurrent upgrades (or a stale
+	// leftover) cannot clobber each other; rename stays atomic on the same FS.
+	tmpFile, err := os.CreateTemp(dir, ".ve.upgrade-*.tmp")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file for upgrade: %v", err)
+	}
+	tmpPath := tmpFile.Name()
+	if err := tmpFile.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("failed to close temp file for upgrade: %v", err)
+	}
 	if err := copyFile(newPath, tmpPath, perm); err != nil {
 		_ = os.Remove(tmpPath)
 		return err
@@ -200,6 +210,9 @@ func copyFile(src, dst string, perm os.FileMode) error {
 	defer dest.Close()
 
 	if _, err := io.Copy(dest, source); err != nil {
+		return err
+	}
+	if err := dest.Sync(); err != nil {
 		return err
 	}
 	return dest.Chmod(perm)
