@@ -10,7 +10,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
+
+// selfCheckTimeout bounds `path version` so a hung new binary cannot block
+// upgrade completion or rollback indefinitely. Overridable in tests.
+var selfCheckTimeout = 15 * time.Second
 
 var (
 	osExecutable = os.Executable
@@ -73,17 +78,40 @@ func ReplaceBinary(newPath, currentPath string) error {
 }
 
 // SelfCheckVersion runs `path version` and verifies the printed version matches expected.
+// The child process is killed if it does not finish within selfCheckTimeout.
 func SelfCheckVersion(path, expectedVersion string) error {
 	expectedVersion = NormalizeVersion(expectedVersion)
 	cmd := execCommand(path, "version")
-	// Avoid nested background update checks (extra latency + stderr noise in CombinedOutput).
+	// Avoid nested background update checks (extra latency + stderr noise).
 	cmd.Env = append(os.Environ(), EnvDisableUpdateCheck+"=1")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("new binary self-check failed: %v (%s)", err, strings.TrimSpace(string(out)))
+
+	var output strings.Builder
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("new binary self-check failed to start: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	var waitErr error
+	select {
+	case waitErr = <-done:
+	case <-time.After(selfCheckTimeout):
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		<-done
+		return fmt.Errorf("new binary self-check timed out after %s", selfCheckTimeout)
+	}
+
+	out := strings.TrimSpace(output.String())
+	if waitErr != nil {
+		return fmt.Errorf("new binary self-check failed: %v (%s)", waitErr, out)
 	}
 	// Take the first non-empty line only; ignore any trailing diagnostics.
-	gotLine := firstNonEmptyLine(string(out))
+	gotLine := firstNonEmptyLine(out)
 	got := NormalizeVersion(gotLine)
 	if got != expectedVersion {
 		return fmt.Errorf("new binary version mismatch: expected %s, got %q", expectedVersion, gotLine)
@@ -101,16 +129,29 @@ func firstNonEmptyLine(s string) string {
 	return ""
 }
 
-// RollbackBinary restores backupPath over currentPath (best-effort).
+// RollbackBinary restores backupPath over currentPath.
+// Prefer rename (atomic replace on Unix). If that fails (common on Windows when
+// the target exists), copy over the target without deleting it first so a failed
+// rollback never leaves currentPath missing while the backup still exists.
 func RollbackBinary(backupPath, currentPath string) error {
 	if backupPath == "" {
 		return fmt.Errorf("no backup path")
 	}
-	if _, err := os.Stat(backupPath); err != nil {
+	info, err := os.Stat(backupPath)
+	if err != nil {
 		return err
 	}
-	_ = os.Remove(currentPath)
-	return os.Rename(backupPath, currentPath)
+	// Same-filesystem rename replaces the destination atomically on Unix.
+	if err := os.Rename(backupPath, currentPath); err == nil {
+		return nil
+	}
+	// Fallback: overwrite in place (O_TRUNC) so currentPath is never unlinked
+	// before the restored content is written.
+	if err := copyFile(backupPath, currentPath, info.Mode()); err != nil {
+		return fmt.Errorf("rollback failed: %v (backup kept at %s)", err, backupPath)
+	}
+	_ = os.Remove(backupPath)
+	return nil
 }
 
 // ReplaceBinaryWithBackup replaces current with newPath, keeping a backup at current+".bak"

@@ -85,6 +85,9 @@ func resolveLatestVersion(client *http.Client) (string, error) {
 
 // ResolveAssetSource builds download URLs for a target version.
 // Prefers CDN layout; archive/checksum paths match npm install.js.
+// When the CDN probe fails, falls back to GitHub Releases. If both fail,
+// returns an error that includes CDN probe status and the GitHub failure
+// (instead of pretending resolve succeeded and deferring a vague download error).
 func ResolveAssetSource(version string) (*AssetSource, error) {
 	version = NormalizeVersion(version)
 	if err := ValidateVersion(version); err != nil {
@@ -114,15 +117,34 @@ func ResolveAssetSource(version string) (*AssetSource, error) {
 	// Both files are required for a safe install. Fall back to GitHub when the
 	// archive or its checksum is absent from the CDN.
 	probeClient := &http.Client{Timeout: 10 * time.Second}
-	if !urlOK(probeClient, src.ArchiveURL) || !urlOK(probeClient, src.ChecksumURL) {
-		gh, err := resolveAssetSourceFromGitHub(version, archive, checksum)
-		if err != nil {
-			// Keep CDN URLs so the download error still points at the official channel.
-			return src, nil
-		}
+	archiveOK := urlOK(probeClient, src.ArchiveURL)
+	checksumOK := urlOK(probeClient, src.ChecksumURL)
+	if archiveOK && checksumOK {
+		return src, nil
+	}
+
+	gh, err := resolveAssetSourceFromGitHub(version, archive, checksum)
+	if err == nil {
 		return gh, nil
 	}
-	return src, nil
+
+	cdnDetail := cdnProbeDetail(src.ArchiveURL, src.ChecksumURL, archiveOK, checksumOK)
+	return nil, fmt.Errorf(
+		"could not resolve download assets for v%s: %s; GitHub fallback failed: %v; see %s",
+		version, cdnDetail, err, officialReleasesURL,
+	)
+}
+
+// cdnProbeDetail describes which CDN assets failed the existence probe.
+func cdnProbeDetail(archiveURL, checksumURL string, archiveOK, checksumOK bool) string {
+	switch {
+	case !archiveOK && !checksumOK:
+		return fmt.Sprintf("CDN archive and checksum unavailable (%s, %s)", archiveURL, checksumURL)
+	case !archiveOK:
+		return fmt.Sprintf("CDN archive unavailable (%s)", archiveURL)
+	default:
+		return fmt.Sprintf("CDN checksum unavailable (%s)", checksumURL)
+	}
 }
 
 func fetchLatestFromCDNManifest(client *http.Client) (string, error) {

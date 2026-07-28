@@ -79,6 +79,45 @@ func TestRunWindowsUpgradeHelperWaitsBeforeReplacing(t *testing.T) {
 	}
 }
 
+func TestRunWindowsUpgradeHelperSkipsCleanupOnReplaceFailure(t *testing.T) {
+	originalWait := waitForParentProcess
+	originalReplace := replaceBinaryWithBackup
+	originalCleanup := startWindowsUpgradeCleanup
+	defer func() {
+		waitForParentProcess = originalWait
+		replaceBinaryWithBackup = originalReplace
+		startWindowsUpgradeCleanup = originalCleanup
+	}()
+
+	waitForParentProcess = func(pid int) error { return nil }
+	replaceBinaryWithBackup = func(newPath, currentPath, expectedVersion string) error {
+		return fmt.Errorf("permission denied")
+	}
+	cleanupStarted := false
+	startWindowsUpgradeCleanup = func(targetPath, workDir string, parentPID int) error {
+		cleanupStarted = true
+		return nil
+	}
+
+	err := RunWindowsUpgradeHelper(WindowsUpgradeHelperOptions{
+		ParentPID:       1234,
+		NewBinaryPath:   "new.exe",
+		TargetPath:      "ve.exe",
+		WorkDir:         "work",
+		CurrentVersion:  "1.0.0",
+		ExpectedVersion: "2.0.0",
+	})
+	if err == nil {
+		t.Fatal("expected installation failure")
+	}
+	if !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cleanupStarted {
+		t.Fatal("cleanup must not run when binary replacement fails")
+	}
+}
+
 func TestLaunchWindowsUpgradeHelperCopiesExecutable(t *testing.T) {
 	originalStart := startWindowsUpgradeCommand
 	defer func() { startWindowsUpgradeCommand = originalStart }()

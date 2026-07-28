@@ -47,16 +47,16 @@ func isForceEnabled(c *Context) bool {
 // （---endpoint 或 profile/env endpoint；endpoint_resolver=standard / auto-addressing 不算固定 host）。
 func validateForceCall(c *Context, serviceName string) error {
 	if !isForceEnabled(c) {
-		return fmt.Errorf("---force is required for force invocation")
+		return trErrorf("---force is required for force invocation")
 	}
 	if err := validateProfileIfSpecified(c); err != nil {
 		return err
 	}
 	if apiVersionForCall(c, serviceName) == "" {
-		return fmt.Errorf("---version is required when using ---force for service %q", serviceName)
+		return trErrorf("---version is required when using ---force for service %q", serviceName)
 	}
 	if !rootSupport.IsValidSvc(serviceName) && !hasEffectiveFixedEndpoint(c) {
-		return fmt.Errorf("endpoint is required for unlisted service %q: set ---endpoint, or configure endpoint in the profile / VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)", serviceName)
+		return trErrorf("endpoint is required for unlisted service %q: set ---endpoint, or configure endpoint in the profile / VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)", serviceName)
 	}
 	return nil
 }
@@ -107,21 +107,24 @@ func doForceAction(ctx *Context, serviceName, action string) error {
 
 // buildForceInvocationInput 组装 force 路径请求体。
 // 有 ApiMeta 时与 doAction 相同，一律走 buildActionInput（含 isStringParam / --body 语义）；
-// 无元数据时才用 buildForceInput 宽松解析。
+// 无元数据时同样走 buildActionInput（支持 --body 与扁平参数），不再只用 buildForceInput。
 func buildForceInvocationInput(ctx *Context, serviceName, action, contentType string) (invocationInput, error) {
 	jsonBody := strings.ToLower(contentType) == "application/json"
-	if apiMeta := rootSupport.GetApiMeta(serviceName, action); apiMeta != nil {
-		var flags []*Flag
-		if ctx != nil && ctx.dynamicFlags != nil {
-			flags = ctx.dynamicFlags.flags
-		}
-		input, fromBody, err := buildActionInput(flags, apiMeta, jsonBody)
-		if err != nil {
-			return invocationInput{}, err
-		}
-		return invocationInput{value: input, jsonBody: jsonBody, fromBody: fromBody}, nil
+	var flags []*Flag
+	if ctx != nil && ctx.dynamicFlags != nil {
+		flags = ctx.dynamicFlags.flags
 	}
-	return invocationInput{value: buildForceInput(ctx), jsonBody: jsonBody, fromBody: false}, nil
+	apiMeta := rootSupport.GetApiMeta(serviceName, action)
+	input, fromBody, err := buildActionInput(flags, apiMeta, jsonBody)
+	if err != nil {
+		return invocationInput{}, err
+	}
+	// When neither --body nor flat flags produced structured JSON but content-type
+	// is JSON, still return an empty map rather than nil for SDK stability.
+	if input == nil && jsonBody {
+		input = map[string]interface{}{}
+	}
+	return invocationInput{value: input, jsonBody: jsonBody, fromBody: fromBody}, nil
 }
 
 // isRegisteredRootSubcommand 判断 name 是否已是 root 子命令（builtin / metadata service / 兼容别名）。
@@ -160,7 +163,7 @@ func printUnknownServiceHelp(serviceName string) error {
 	_, err := fmt.Fprintf(os.Stdout, `%s
   ve %s <action> [--Param value ...] [fixed flags]
 
-"%s" is not bundled in local metadata. Use ---force with ---version, and a fixed endpoint via ---endpoint or profile/VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough).
+%s
 
 %s
   ve %s DescribeNewResource ---version 2024-01-01 ---region cn-beijing ---endpoint newservice.cn-beijing.volcengineapi.com ---force
@@ -168,7 +171,7 @@ func printUnknownServiceHelp(serviceName string) error {
 
 %s
 %s
-`, tr("Usage:"), serviceName, serviceName, tr("Examples:"), serviceName, serviceName, tr("Fixed Flags:"), localizedFixedFlagsHelp())
+`, tr("Usage:"), serviceName, trf(`"%s" is not bundled in local metadata. Use ---force with ---version, and a fixed endpoint via ---endpoint or profile/VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough).`, serviceName), tr("Examples:"), serviceName, serviceName, tr("Fixed Flags:"), localizedFixedFlagsHelp())
 	return err
 }
 
@@ -197,12 +200,12 @@ func tryExecuteGenericInvoke(args []string) error {
 		return err
 	}
 	if len(positional) == 0 {
-		return fmt.Errorf("unknown service %q: specify an action name", serviceName)
+		return trErrorf("unknown service %q: specify an action name", serviceName)
 	}
 	action := positional[0]
 
 	if !isForceEnabled(ctx) {
-		return fmt.Errorf("unknown service %q: use ---force with ---version, and a fixed endpoint via ---endpoint or profile/VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)", serviceName)
+		return trErrorf("unknown service %q: use ---force with ---version, and a fixed endpoint via ---endpoint or profile/VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)", serviceName)
 	}
 
 	return doForceAction(ctx, serviceName, action)

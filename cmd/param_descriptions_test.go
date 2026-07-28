@@ -129,7 +129,7 @@ func TestLookupParamDescriptionNoCrossLanguageFallback(t *testing.T) {
 	}
 }
 
-func TestLookupParamDescriptionIndexedKeyAndVersionFallback(t *testing.T) {
+func TestLookupParamDescriptionIndexedKeyAndExactVersionOnly(t *testing.T) {
 	restore := stubParamDescriptionsAsset(`{
   "apis": {
     "ecs": {
@@ -147,6 +147,9 @@ func TestLookupParamDescriptionIndexedKeyAndVersionFallback(t *testing.T) {
         "RunInstances": {
           "ImageId": {
             "description_en": "old image"
+          },
+          "NetworkInterfaces.SubnetId": {
+            "description_en": "old subnet text must not leak"
           }
         }
       }
@@ -164,13 +167,43 @@ func TestLookupParamDescriptionIndexedKeyAndVersionFallback(t *testing.T) {
 	if got := lookupParamDescription("ecs", "2020-04-01", "RunInstances", "Tags.1.Key"); got != "Tag key via N placeholder." {
 		t.Fatalf("N placeholder match: got %q", got)
 	}
-	// preferred version has action but not ImageId; should not wrongly pick old version for missing param on preferred
+	// preferred version has action but not ImageId; must not pick another version's param text.
 	if got := lookupParamDescription("ecs", "2020-04-01", "RunInstances", "ImageId"); got != "" {
 		t.Fatalf("expected empty on preferred version miss, got %q", got)
 	}
-	// preferred version missing entirely → fall back to version that has action
-	if got := lookupParamDescription("ecs", "2099-01-01", "RunInstances", "NetworkInterfaces.SubnetId"); got != "Subnet of the ENI." {
-		t.Fatalf("version fallback: got %q", got)
+	// preferred version missing entirely → no cross-version fallback (S17).
+	if got := lookupParamDescription("ecs", "2099-01-01", "RunInstances", "NetworkInterfaces.SubnetId"); got != "" {
+		t.Fatalf("must not fall back to another API version, got %q", got)
+	}
+	// Exact older version still resolves only that version's text.
+	if got := lookupParamDescription("ecs", "2019-01-01", "RunInstances", "ImageId"); got != "old image" {
+		t.Fatalf("exact older version: got %q", got)
+	}
+	if got := lookupParamDescription("ecs", "2019-01-01", "RunInstances", "NetworkInterfaces.SubnetId"); got != "old subnet text must not leak" {
+		t.Fatalf("exact older version subnet: got %q", got)
+	}
+}
+
+func TestParamVersionCandidatesExactOnly(t *testing.T) {
+	verMap := map[string]map[string]map[string]paramDescription{
+		"2020-04-01": {
+			"RunInstances": {"ZoneId": {DescriptionEn: "z"}},
+		},
+		"2019-01-01": {
+			"RunInstances": {"ZoneId": {DescriptionEn: "old"}},
+		},
+	}
+	if got := paramVersionCandidates(verMap, "2020-04-01", "RunInstances"); len(got) != 1 || got[0] != "2020-04-01" {
+		t.Fatalf("exact hit: got %v", got)
+	}
+	if got := paramVersionCandidates(verMap, "2099-01-01", "RunInstances"); len(got) != 0 {
+		t.Fatalf("missing preferred version must not fall back: got %v", got)
+	}
+	if got := paramVersionCandidates(verMap, "", "RunInstances"); len(got) != 0 {
+		t.Fatalf("empty preferred must not pick a version: got %v", got)
+	}
+	if got := paramVersionCandidates(verMap, "2020-04-01", "NoSuchAction"); len(got) != 0 {
+		t.Fatalf("missing action on preferred: got %v", got)
 	}
 }
 
@@ -269,6 +302,10 @@ func TestAttachParamDescriptionsSetsRequiredFromAsset(t *testing.T) {
             "description_cn": "预检",
             "example_cn": "false",
             "required": false
+          },
+          "ZoneId": {
+            "description_cn": "可用区",
+            "example_cn": "cn-beijing-a"
           }
         }
       }
@@ -284,8 +321,9 @@ func TestAttachParamDescriptionsSetsRequiredFromAsset(t *testing.T) {
 
 	params := []param{
 		{key: "CidrBlock", typeName: "string", required: false},
-		{key: "DryRun", typeName: "boolean", required: true}, // metadata wrong; asset wins
+		{key: "DryRun", typeName: "boolean", required: true}, // metadata wrong; explicit false in asset wins
 		{key: "Unknown", typeName: "string", required: true}, // not in asset; keep metadata
+		{key: "ZoneId", typeName: "string", required: true},  // asset omits required; keep SDK true (S15)
 	}
 	attachParamDescriptions("vpc", "CreateVpc", params)
 	if !params[0].required || params[0].description != "VPC网段" || params[0].example != "172.16.0.0/12" {
@@ -296,6 +334,9 @@ func TestAttachParamDescriptionsSetsRequiredFromAsset(t *testing.T) {
 	}
 	if !params[2].required || params[2].description != "" || params[2].example != "" {
 		t.Fatalf("Unknown should keep metadata required and empty desc/example: %+v", params[2])
+	}
+	if !params[3].required || params[3].description != "可用区" || params[3].example != "cn-beijing-a" {
+		t.Fatalf("ZoneId must not downgrade required when asset omits required: %+v", params[3])
 	}
 
 	lines := formatParamsHelpUsage(params)

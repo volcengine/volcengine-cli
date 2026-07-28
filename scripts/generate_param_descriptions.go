@@ -55,6 +55,8 @@ const (
 type paramDescription struct {
 	DescriptionCn string `json:"description_cn,omitempty"`
 	DescriptionEn string `json:"description_en,omitempty"`
+	ExampleCn     string `json:"example_cn,omitempty"`
+	ExampleEn     string `json:"example_en,omitempty"`
 	Required      bool   `json:"required,omitempty"`
 }
 
@@ -102,10 +104,11 @@ type operationNode struct {
 }
 
 type parameterNode struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	Required    bool        `json:"required"`
-	Schema      *schemaNode `json:"schema"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Required    bool            `json:"required"`
+	Example     json.RawMessage `json:"example"`
+	Schema      *schemaNode     `json:"schema"`
 }
 
 type requestBodyNode struct {
@@ -121,6 +124,7 @@ type schemaNode struct {
 	Properties  map[string]*schemaNode `json:"properties"`
 	Items       *schemaNode            `json:"items"`
 	Ref         string                 `json:"$ref"`
+	Example     json.RawMessage        `json:"example"`
 }
 
 var directiveRE = regexp.MustCompile(`:::[a-zA-Z]+\n?`)
@@ -239,6 +243,10 @@ write:
 	if doneSwagger == 0 && skipped > 0 {
 		fatal(fmt.Errorf("no swagger fetches succeeded (%d errors); refusing empty/sparse product (left %s unchanged)", skipped, *out))
 	}
+	// Keep example_* from a previous corpus when the new fetch has none (OpenAPI often omits examples).
+	if prev, err := readParamsFile(*out); err == nil {
+		preserveMissingExamples(&file, prev)
+	}
 	if err := writeJSON(*out, file); err != nil {
 		fatal(err)
 	}
@@ -264,15 +272,75 @@ func mergeParamLang(dst map[string]paramDescription, src map[string]paramDescrip
 			if p.DescriptionEn != "" {
 				cur.DescriptionEn = p.DescriptionEn
 			}
+			if p.ExampleEn != "" {
+				cur.ExampleEn = p.ExampleEn
+			}
 		default:
 			if p.DescriptionCn != "" {
 				cur.DescriptionCn = p.DescriptionCn
+			}
+			if p.ExampleCn != "" {
+				cur.ExampleCn = p.ExampleCn
 			}
 		}
 		if p.Required {
 			cur.Required = true
 		}
 		dst[name] = cur
+	}
+}
+
+// readParamsFile loads an existing params.json for merge (examples preserve).
+func readParamsFile(path string) (paramsFile, error) {
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		return paramsFile{}, err
+	}
+	var file paramsFile
+	if err := json.Unmarshal(data, &file); err != nil {
+		return paramsFile{}, err
+	}
+	if file.Apis == nil {
+		file.Apis = map[string]map[string]map[string]map[string]paramDescription{}
+	}
+	return file, nil
+}
+
+// preserveMissingExamples copies example_cn/example_en from prev when next lacks them.
+func preserveMissingExamples(next *paramsFile, prev paramsFile) {
+	if next == nil || next.Apis == nil || prev.Apis == nil {
+		return
+	}
+	for svc, vers := range next.Apis {
+		prevVers, ok := prev.Apis[svc]
+		if !ok {
+			continue
+		}
+		for ver, actions := range vers {
+			prevActions, ok := prevVers[ver]
+			if !ok {
+				continue
+			}
+			for action, params := range actions {
+				prevParams, ok := prevActions[action]
+				if !ok {
+					continue
+				}
+				for name, p := range params {
+					old, ok := prevParams[name]
+					if !ok {
+						continue
+					}
+					if strings.TrimSpace(p.ExampleCn) == "" {
+						p.ExampleCn = old.ExampleCn
+					}
+					if strings.TrimSpace(p.ExampleEn) == "" {
+						p.ExampleEn = old.ExampleEn
+					}
+					params[name] = p
+				}
+			}
+		}
 	}
 }
 
@@ -393,10 +461,11 @@ func extractParamsFromOpenAPI(doc *openAPIDoc, language string) map[string]param
 					desc = strings.TrimSpace(p.Schema.Description)
 				}
 				desc = sanitizeDescription(desc)
-				if desc == "" && !p.Required {
-					// still record required-only params without text
+				example := exampleString(p.Example)
+				if example == "" && p.Schema != nil {
+					example = exampleString(p.Schema.Example)
 				}
-				putParam(out, name, desc, p.Required, language)
+				putParam(out, name, desc, example, p.Required, language)
 			}
 			if op.RequestBody != nil {
 				for _, c := range op.RequestBody.Content {
@@ -427,20 +496,35 @@ func collectSchemaParams(prefix string, s *schemaNode, schemas map[string]*schem
 		}
 		prop = resolveSchema(prop, schemas)
 		desc := ""
+		example := ""
 		required := reqSet[name]
 		if prop != nil {
 			desc = sanitizeDescription(prop.Description)
+			example = exampleString(prop.Example)
 			// nested object
 			if len(prop.Properties) > 0 || (prop.Items != nil) {
 				collectSchemaParams(key, prop, schemas, out, language)
 			}
 		}
-		putParam(out, key, desc, required, language)
+		putParam(out, key, desc, example, required, language)
 	}
 	if s.Items != nil && (len(s.Properties) == 0) {
 		// array of objects: expose item fields under prefix
 		collectSchemaParams(prefix, s.Items, schemas, out, language)
 	}
+}
+
+// exampleString normalizes OpenAPI example (string or other JSON) for help text.
+func exampleString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return strings.TrimSpace(s)
+	}
+	// Compact non-string examples (numbers, objects, arrays) for single-line help.
+	return strings.TrimSpace(string(raw))
 }
 
 func resolveSchema(s *schemaNode, schemas map[string]*schemaNode) *schemaNode {
@@ -459,7 +543,7 @@ func resolveSchema(s *schemaNode, schemas map[string]*schemaNode) *schemaNode {
 	return s
 }
 
-func putParam(out map[string]paramDescription, name, desc string, required bool, language string) {
+func putParam(out map[string]paramDescription, name, desc, example string, required bool, language string) {
 	cur := out[name]
 	if required {
 		cur.Required = true
@@ -469,13 +553,20 @@ func putParam(out map[string]paramDescription, name, desc string, required bool,
 		if desc != "" {
 			cur.DescriptionEn = desc
 		}
+		if example != "" {
+			cur.ExampleEn = example
+		}
 	default:
 		if desc != "" {
 			cur.DescriptionCn = desc
 		}
+		if example != "" {
+			cur.ExampleCn = example
+		}
 	}
-	// Keep entry even if description empty but required, so callers know the param exists.
-	if cur.DescriptionCn != "" || cur.DescriptionEn != "" || cur.Required {
+	// Keep entry even if description empty but required/example present.
+	if cur.DescriptionCn != "" || cur.DescriptionEn != "" ||
+		cur.ExampleCn != "" || cur.ExampleEn != "" || cur.Required {
 		out[name] = cur
 	}
 }

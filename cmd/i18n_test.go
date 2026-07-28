@@ -3,9 +3,13 @@ package cmd
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/volcengine/volcengine-cli/upgrade"
 )
 
 func TestResolveLanguageExplicitFlag(t *testing.T) {
@@ -182,6 +186,32 @@ func TestResolveLanguageRejectsMalformedFlag(t *testing.T) {
 				t.Fatalf("error = %v, want text %q", err, tt.want)
 			}
 		})
+	}
+}
+
+// TestRunMain_LanguageErrorReturnsWithoutOsExit ensures malformed ---lang exits via
+// return code (so upgrade-notice defer can run) instead of os.Exit killing the process.
+func TestRunMain_LanguageErrorReturnsWithoutOsExit(t *testing.T) {
+	oldDisable := os.Getenv(upgrade.EnvDisableUpdateCheck)
+	_ = os.Setenv(upgrade.EnvDisableUpdateCheck, "1")
+	defer func() {
+		if oldDisable == "" {
+			_ = os.Unsetenv(upgrade.EnvDisableUpdateCheck)
+		} else {
+			_ = os.Setenv(upgrade.EnvDisableUpdateCheck, oldDisable)
+		}
+	}()
+
+	prev := processLanguageResolution
+	processLanguageResolution = languageResolution{
+		err: fmt.Errorf("---lang requires a value"),
+	}
+	defer func() { processLanguageResolution = prev }()
+
+	// If runMain still called os.Exit(1), this test process would terminate.
+	code := runMain()
+	if code != 1 {
+		t.Fatalf("runMain exit code = %d, want 1", code)
 	}
 }
 

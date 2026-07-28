@@ -80,3 +80,5 @@ coverage.xml
 ## Profiling data
 *.prof
 /mcps/**
+/.gocache/**
+/.gomodcache/**

@@ -86,15 +86,27 @@ func checkTTL() time.Duration {
 }
 
 // rootBoolFlags are root-level boolean flags that do not consume a following token.
-// Keep in sync with cmd/cmd_root.go local flags.
+// Keep in sync with cmd/cmd_root.go local flags and presence-only fixed flags.
 var rootBoolFlags = map[string]struct{}{
 	"-h": {}, "--help": {},
 	"-v": {}, "--version": {},
+	// Triple-dash fixed flag (presence-only); same as cmd/parser booleanFixedFlags.
+	"---force": {},
 }
 
 // rootValueFlags are root-level flags that take a following argument.
-// Currently empty; extend when root gains persistent string flags (e.g. --config).
-var rootValueFlags = map[string]struct{}{}
+// Include CLI fixed flags (---lang / ---profile / …) so firstRootPositional does not
+// treat their values as the root subcommand (e.g. ve ---lang ZH upgrade).
+// Keep in sync with cmd/parser allowedFixedFlags (value-taking ones) and ---lang.
+var rootValueFlags = map[string]struct{}{
+	"---lang":         {},
+	"---profile":      {},
+	"---region":       {},
+	"---endpoint":     {},
+	"---version":      {},
+	"---method":       {},
+	"---content-type": {},
+}
 
 // ShouldSkipBackgroundCheck returns true when the current invocation should not
 // run a background version check (e.g. ve upgrade itself).

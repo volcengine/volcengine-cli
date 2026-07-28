@@ -8,16 +8,19 @@ import (
 )
 
 // allowedFixedFlags 三横线（---）CLI 控制参数白名单，与双横线 API 参数区分。
-// profile/region/endpoint 为通用运行时覆盖；force 跳过元数据校验；version/method 在正常与 force 路径均可覆盖元数据。
+// profile/region/endpoint 为通用运行时覆盖；force 跳过元数据校验；version/method/content-type
+// 在正常与 force 路径均可覆盖元数据。
 // ---lang 由 resolveLanguage 预处理剥离，不进入本白名单。
-// 新增固定参数时需同步更新 supportedFixedFlagsMessage、localizedFixedFlagsHelp 与文档。
+// 新增固定参数时需同步更新 supportedFixedFlagsMessage、localizedFixedFlagsHelp、
+// upgrade.rootValueFlags（若为带值 flag）与文档。
 var allowedFixedFlags = map[string]struct{}{
-	"profile":  {},
-	"region":   {},
-	"endpoint": {},
-	"force":    {},
-	"version":  {},
-	"method":   {},
+	"profile":       {},
+	"region":        {},
+	"endpoint":      {},
+	"force":         {},
+	"version":       {},
+	"method":        {},
+	"content-type":  {},
 }
 
 // booleanFixedFlags 纯开关型固定参数：出现即生效，不消费后续 token。
@@ -27,7 +30,7 @@ var booleanFixedFlags = map[string]struct{}{
 
 // supportedFixedFlagsMessage 是 parser 拒绝未知 ---flag 时展示的白名单列表。
 // 不含 ---lang：语言参数在进入 parser 前已由 resolveLanguage 处理。
-const supportedFixedFlagsMessage = "---profile, ---region, ---endpoint, ---force, ---version, ---method"
+const supportedFixedFlagsMessage = "---profile, ---region, ---endpoint, ---force, ---version, ---method, ---content-type"
 
 // localizedFixedFlagsHelp 返回已本地化的 Fixed Flags 说明（含 ---lang）。
 // root/service/action usage 与未知 service help 共用，避免英文常量与 tr() 模板双源漂移。
@@ -37,7 +40,8 @@ func localizedFixedFlagsHelp() string {
   ---endpoint string   ` + tr("Override the endpoint only for this invocation.") + `
   ---version string    ` + tr("API version; uses metadata when omitted (required with ---force for unlisted services).") + `
   ---method string     ` + tr("HTTP method GET or POST; explicit value overrides metadata, else metadata, else GET.") + `
-  ---force             ` + tr("Skip service/action metadata validation and force the call.") + `
+  ---content-type string ` + tr("HTTP Content-Type; explicit value overrides metadata. Use application/json with --body for unlisted JSON APIs.") + `
+  ---force             ` + tr("Skip service/action metadata validation and force the call (presence-only; write ---force alone, not ---force true).") + `
   ---lang string       ` + tr("Set the display language for this invocation (EN or ZH).")
 }
 

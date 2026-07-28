@@ -11,6 +11,39 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func TestForceErrorMessagesLocalized(t *testing.T) {
+	restoreLanguage := setLanguageForTest(LanguageSimplifiedChinese)
+	defer restoreLanguage()
+
+	c := NewContext()
+	parser := NewParser([]string{"---force"})
+	if _, err := parser.ReadArgs(c); err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+	err := validateForceCall(c, "newservice")
+	if err == nil {
+		t.Fatal("expected missing version error")
+	}
+	// Chinese locale should not fall back to the English catalog key.
+	if strings.Contains(err.Error(), "---version is required when using ---force") {
+		t.Fatalf("expected localized ---version error, still English: %v", err)
+	}
+	if !strings.Contains(err.Error(), "---version") || !strings.Contains(err.Error(), "newservice") {
+		t.Fatalf("expected localized ---version error mentioning service, got: %v", err)
+	}
+
+	err = tryExecuteGenericInvoke([]string{"newservice", "DescribeNewResource"})
+	if err == nil {
+		t.Fatal("expected unknown service force guidance error")
+	}
+	if strings.Contains(err.Error(), "unknown service") {
+		t.Fatalf("expected localized unknown service error, still English: %v", err)
+	}
+	if !strings.Contains(err.Error(), "---force") || !strings.Contains(err.Error(), "newservice") {
+		t.Fatalf("expected localized unknown service error, got: %v", err)
+	}
+}
+
 func TestIsForceEnabled(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -314,11 +347,72 @@ func TestBuildForceInvocationInputSetsJSONBodyWithoutMetadata(t *testing.T) {
 		t.Fatal("expected jsonBody for application/json content type")
 	}
 	if built.fromBody {
-		t.Fatal("expected fallback input without metadata")
+		t.Fatal("expected flat params without --body")
 	}
 	input, ok := built.value.(map[string]interface{})
 	if !ok || input["SomeParam"] != "value" {
 		t.Fatalf("unexpected fallback input: %#v", built.value)
+	}
+}
+
+func TestBuildForceInvocationInputBodyWithoutMetadata(t *testing.T) {
+	c := NewContext()
+	parser := NewParser([]string{"--body", `{"probe":"ok"}`})
+	if _, err := parser.ReadArgs(c); err != nil {
+		t.Fatalf("ReadArgs: %v", err)
+	}
+	built, err := buildForceInvocationInput(c, "newservice", "NewAction", "application/json")
+	if err != nil {
+		t.Fatalf("buildForceInvocationInput: %v", err)
+	}
+	if !built.jsonBody || !built.fromBody {
+		t.Fatalf("expected --body without metadata: jsonBody=%v fromBody=%v", built.jsonBody, built.fromBody)
+	}
+	// parseJSONBody returns *map[string]interface{}
+	m, ok := built.value.(*map[string]interface{})
+	if !ok {
+		// also accept map form
+		if mm, ok2 := built.value.(map[string]interface{}); ok2 {
+			if mm["probe"] != "ok" {
+				t.Fatalf("unexpected body: %#v", built.value)
+			}
+			return
+		}
+		t.Fatalf("unexpected body type: %#v", built.value)
+	}
+	if (*m)["probe"] != "ok" {
+		t.Fatalf("unexpected body: %#v", *m)
+	}
+}
+
+func TestResolveCallStyleContentTypeOverrideAndBodyDefault(t *testing.T) {
+	c := NewContext()
+	parser := NewParser([]string{
+		"---content-type", "application/json",
+		"--body", `{"a":1}`,
+	})
+	if _, err := parser.ReadArgs(c); err != nil {
+		t.Fatalf("ReadArgs: %v", err)
+	}
+	_, ct, err := resolveCallStyle(c, "definitely_unlisted_svc", "Act")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ct != "application/json" {
+		t.Fatalf("content-type override = %q", ct)
+	}
+
+	c2 := NewContext()
+	parser2 := NewParser([]string{"--body", `{"a":1}`})
+	if _, err := parser2.ReadArgs(c2); err != nil {
+		t.Fatalf("ReadArgs: %v", err)
+	}
+	_, ct2, err := resolveCallStyle(c2, "definitely_unlisted_svc", "Act")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ct2 != "application/json" {
+		t.Fatalf("expected --body to default content-type to application/json, got %q", ct2)
 	}
 }
 
@@ -591,7 +685,7 @@ func TestPrintUnknownServiceHelp(t *testing.T) {
 		t.Fatalf("expected unknown service help text, got: %q", help)
 	}
 	// 与 root/service/action usage 共用 localizedFixedFlagsHelp，应包含 ---lang。
-	for _, flag := range []string{"---force", "---version", "---method", "---lang"} {
+	for _, flag := range []string{"---force", "---version", "---method", "---content-type", "---lang"} {
 		if !strings.Contains(help, flag) {
 			t.Fatalf("unknown service help missing %q:\n%s", flag, help)
 		}

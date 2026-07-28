@@ -98,18 +98,28 @@ func Execute() {
 
 // runMain executes the CLI and returns a process exit code.
 // Completed background version checks may print to stderr without delaying command exit.
-func runMain() int{
+// Language-parse failures return 1 (not os.Exit) so the upgrade-notice defer still runs.
+func runMain() int {
+	// Prefer language-stripped args for the upgrade skip decision so
+	// `ve ---lang ZH upgrade` is recognized as the upgrade command. Fall back
+	// to os.Args when ---lang itself is malformed (args may be nil).
+	checkArgs := os.Args[1:]
+	if processLanguageResolution.err == nil && processLanguageResolution.args != nil {
+		checkArgs = processLanguageResolution.args
+	}
+	// Start the non-blocking check before early error returns so a ready cache
+	// notice can still print via defer when ---lang is malformed.
+	asyncCheck := upgrade.StartBackgroundCheck(clientVersion, checkArgs)
+	defer upgrade.MaybePrintUpgradeNotice(os.Stderr, clientVersion, asyncCheck)
+
 	if processLanguageResolution.err != nil {
 		fmt.Fprintln(os.Stderr, processLanguageResolution.err)
-		os.Exit(1)
+		return 1
 	}
 	setCurrentLanguage(processLanguageResolution.language)
 	rootCmd.SetArgs(processLanguageResolution.args)
 	initRootCmd()
 	localizeHelpFlags(rootCmd)
-
-	asyncCheck := upgrade.StartBackgroundCheck(clientVersion, os.Args[1:])
-	defer upgrade.MaybePrintUpgradeNotice(os.Stderr, clientVersion, asyncCheck)
 
 	// cobra 只为 metadata 中的 service 注册了子命令；未知 service 需在此前置拦截并走 ---force 路径。
 	// 必须使用 processLanguageResolution.args（已剥离 ---lang），与 rootCmd.SetArgs 一致；

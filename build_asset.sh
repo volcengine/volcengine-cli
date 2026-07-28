@@ -4,16 +4,20 @@
 # Usage:
 #   sh build_asset.sh <metadata-git-url> [branch] [--target all|explorer|param|metadata]
 #
-# Targets:
+# Targets (param generation is optional; explorer follows master: always attempt):
 #   all       Generate explorer + param descriptions, then bindata (default)
 #   explorer  Generate Action/service descriptions only; leave paramdescriptions unchanged
-#   param     Generate param descriptions; also refreshes explorer (cheap) so Action text is not wiped
-#   metadata  Submodule + bindata only; no HTTP; leave paramdescriptions unchanged
+#   param     Generate param descriptions + explorer, then bindata
+#   metadata  Submodule + explorer (same as master) + metadata bindata; leave paramdescriptions unchanged
 #
 # Layout:
 #   asset/asset.go                      ← metadata + explorer_descriptions (go-bindata)
 #   asset/paramdescriptions/params.json ← param source of truth
 #   asset/paramdescriptions/bindata.go  ← go-bindata from params.json (package paramdescriptions)
+#
+# explorer_descriptions is a pre-existing master feature: always run
+# generate_explorer_descriptions.go; on failure soft-fail to {} so metadata
+# bindata can still proceed (same as origin/master build_asset.sh).
 #
 # Non-interactive:
 #   --target is set, or stdin/stdout is not a TTY → no menu (default target=all)
@@ -37,8 +41,11 @@ Usage: sh build_asset.sh <metadata-git-url> [branch] [--target all|explorer|para
 
   all       Explorer + param descriptions + bindata (default)
   explorer  Explorer only + asset/typeset/structset bindata (params package left as-is)
-  param     Param descriptions + explorer refresh + bindata
-  metadata  Submodule + metadata bindata only (no HTTP; params package left as-is)
+  param     Param descriptions + explorer + bindata
+  metadata  Explorer (master-compatible) + metadata bindata; params package left as-is
+
+explorer_descriptions always follows master: attempt generate; on failure write
+empty {} and continue (never skip/wipe just because target is metadata).
 
 Param product lives under asset/paramdescriptions/ (not asset/asset.go).
 On param generation failure the existing params.json + bindata.go are preserved
@@ -111,8 +118,8 @@ if [ -z "$target" ]; then
     echo "Select asset build target:"
     echo "  1) all       - explorer + param descriptions + bindata  (default)"
     echo "  2) explorer  - Action/service descriptions only (keep existing params)"
-    echo "  3) param     - parameter descriptions (+ refresh explorer)"
-    echo "  4) metadata  - metadata/metatype/structure bindata only (no HTTP; keep params)"
+    echo "  3) param     - parameter descriptions + explorer"
+    echo "  4) metadata  - explorer + metadata bindata (keep params; no param HTTP)"
     printf "Choice [1-4, default 1]: "
     read -r choice || choice=""
     case "${choice:-1}" in
@@ -146,24 +153,13 @@ if ! command -v go-bindata >/dev/null 2>&1; then
   exit 1
 fi
 
-do_explorer=0
+# Explorer is always generated (master-compatible). Only param generation is target-gated.
 do_param=0
 case "$target" in
-  all)
-    do_explorer=1
+  all|param)
     do_param=1
     ;;
-  explorer)
-    do_explorer=1
-    do_param=0
-    ;;
-  param)
-    # Explorer is cheap; refresh so Action text is not wiped when rewriting asset.go.
-    do_explorer=1
-    do_param=1
-    ;;
-  metadata)
-    do_explorer=0
+  explorer|metadata)
     do_param=0
     ;;
 esac
@@ -217,21 +213,16 @@ bindata_param_descriptions() {
   )
 }
 
-# Action / service descriptions (lightweight: explorer/apis)
-if [ "$do_explorer" = "1" ]; then
-  echo "==> generating explorer descriptions"
-  if ! go run ./scripts/generate_explorer_descriptions.go \
-    --metadata-dir volcengine-sdk-metadata/metadata \
-    --out volcengine-sdk-metadata/explorer_descriptions/descriptions.json
-  then
-    # Soft-fail for explorer only (legacy): empty product so metadata bindata can still proceed.
-    # Prefer re-running with a healthy network before committing asset.go.
-    echo "warning: explorer descriptions generation failed; writing empty product" >&2
-    write_empty_explorer
-  fi
-else
-  echo "==> skip explorer descriptions generation (target=$target)"
-  echo "warning: explorer_descriptions will be empty in asset.go for this build" >&2
+# Action / service descriptions (lightweight: explorer/apis).
+# Always run — same control flow as origin/master build_asset.sh (not a new feature).
+# Soft-fail only when generation fails so metadata bindata can still proceed.
+echo "==> generating explorer descriptions (always; master-compatible)"
+if ! go run ./scripts/generate_explorer_descriptions.go \
+  --metadata-dir volcengine-sdk-metadata/metadata \
+  --out volcengine-sdk-metadata/explorer_descriptions/descriptions.json
+then
+  echo "skip explorer descriptions generation" >&2
+  echo "warning: explorer descriptions generation failed; writing empty product" >&2
   write_empty_explorer
 fi
 

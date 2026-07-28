@@ -91,6 +91,45 @@ func TestFirstRootPositional_ValueFlags(t *testing.T) {
 	}
 }
 
+func TestShouldSkipBackgroundCheck_TripleDashFixedFlags(t *testing.T) {
+	old := os.Getenv(EnvDisableUpdateCheck)
+	os.Unsetenv(EnvDisableUpdateCheck)
+	defer func() {
+		if old == "" {
+			os.Unsetenv(EnvDisableUpdateCheck)
+		} else {
+			os.Setenv(EnvDisableUpdateCheck, old)
+		}
+	}()
+
+	// S8/S9: value-taking fixed flags must not turn their values into the root positional.
+	if !ShouldSkipBackgroundCheck([]string{"---lang", "ZH", "upgrade"}) {
+		t.Fatal("expected skip for ---lang ZH upgrade")
+	}
+	if !ShouldSkipBackgroundCheck([]string{"---profile", "default", "upgrade", "--yes"}) {
+		t.Fatal("expected skip for ---profile default upgrade")
+	}
+	if !ShouldSkipBackgroundCheck([]string{"---force", "upgrade"}) {
+		t.Fatal("expected skip for ---force upgrade (presence-only)")
+	}
+	if !ShouldSkipBackgroundCheck([]string{"---content-type", "application/json", "upgrade"}) {
+		t.Fatal("expected skip for ---content-type … upgrade")
+	}
+	// ---lang consumes the next token as its value, so "upgrade" is not the subcommand.
+	if ShouldSkipBackgroundCheck([]string{"---lang", "upgrade"}) {
+		t.Fatal("---lang upgrade should treat upgrade as lang value, not skip")
+	}
+	if ShouldSkipBackgroundCheck([]string{"---lang", "ZH", "version"}) {
+		t.Fatal("version must not skip even with ---lang")
+	}
+	if got := firstRootPositional([]string{"---lang", "ZH", "upgrade"}); got != "upgrade" {
+		t.Fatalf("firstRootPositional = %q, want upgrade", got)
+	}
+	if got := firstRootPositional([]string{"---lang", "ZH"}); got != "" {
+		t.Fatalf("firstRootPositional with only flags = %q, want empty", got)
+	}
+}
+
 func TestCheckCacheRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	orig := ConfigDirFunc

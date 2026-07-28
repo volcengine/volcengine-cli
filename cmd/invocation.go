@@ -72,7 +72,8 @@ func explicitHTTPMethod(c *Context) (string, error) {
 	return method, nil
 }
 
-// resolveCallStyle 决定调用的 Method/ContentType：method 走 resolveActionHTTPMethod，contentType 取自元数据。
+// resolveCallStyle 决定调用的 Method/ContentType：method 走 resolveActionHTTPMethod；
+// contentType 优先 ---content-type，其次元数据，最后在无元数据且存在 --body 时默认 application/json。
 // 正常路径与 force 路径共用，避免两套 contentType 组装分叉。
 func resolveCallStyle(ctx *Context, serviceName, action string) (method, contentType string, err error) {
 	apiInfo := rootSupport.GetApiInfo(serviceName, action)
@@ -80,10 +81,36 @@ func resolveCallStyle(ctx *Context, serviceName, action string) (method, content
 	if err != nil {
 		return "", "", err
 	}
-	if apiInfo != nil && apiInfo.ContentType != "" {
+	if ct := explicitContentType(ctx); ct != "" {
+		contentType = ct
+	} else if apiInfo != nil && apiInfo.ContentType != "" {
 		contentType = apiInfo.ContentType
+	} else if hasDynamicBodyFlag(ctx) {
+		// Unlisted / no-meta force calls often only pass --body; treat as JSON.
+		contentType = "application/json"
 	}
 	return method, contentType, nil
+}
+
+// explicitContentType 读取 ---content-type（HTTP 请求 Content-Type 覆盖）。
+func explicitContentType(c *Context) string {
+	if c == nil || c.fixedFlags == nil {
+		return ""
+	}
+	f := c.fixedFlags.GetByName("content-type")
+	if f == nil {
+		return ""
+	}
+	return strings.TrimSpace(f.GetValue())
+}
+
+// hasDynamicBodyFlag reports whether --body was provided among dynamic flags.
+func hasDynamicBodyFlag(c *Context) bool {
+	if c == nil || c.dynamicFlags == nil {
+		return false
+	}
+	f := c.dynamicFlags.GetByName("body")
+	return f != nil && strings.TrimSpace(f.GetValue()) != ""
 }
 
 // dispatchServiceAction 统一 service 级 action 分发：force 优先，否则已知 action 走正常路径。

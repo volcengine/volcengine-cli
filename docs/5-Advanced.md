@@ -245,6 +245,7 @@ Notes:
 - Bundled services can omit `---version` in force mode, same as normal calls (e.g. `ve sts GetCallerIdentity ---force`).
 - `---method` uses the same resolution order on normal and force paths: explicit `---method` overrides metadata; otherwise bundled action `Method`; otherwise defaults to `GET` (`---force` does not change this).
 - Force control flags use **three hyphens** `---`, separate from API parameters with `--`.
+- `---force` is **presence-only**: write `---force` by itself. Do **not** write `---force true` or `---force false`; the next token is treated as a positional argument (often mistaken for an action name).
 
 ### Examples
 
@@ -303,6 +304,8 @@ ve newservice
 
 ### Common Errors
 
+With `---lang ZH` (or a Chinese locale), the same messages are shown in Simplified Chinese. English defaults are:
+
 Missing `---version` for an unlisted service:
 
 ```text
@@ -319,6 +322,16 @@ Unlisted service without `---force`:
 
 ```text
 unknown service "newservice": use ---force with ---version, and a fixed endpoint via ---endpoint or profile/VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)
+```
+
+Wrong presence-only usage (`true` becomes a positional token / action):
+
+```text
+# incorrect — do not pass a value after ---force
+ve newservice true ---version 2024-01-01 ---endpoint open.volcengineapi.com ---force true
+
+# correct
+ve newservice DescribeNewResource ---version 2024-01-01 ---endpoint open.volcengineapi.com ---force
 ```
 
 ## FAQ

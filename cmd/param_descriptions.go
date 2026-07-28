@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"encoding/json"
-	"sort"
 	"strings"
 	"sync"
 
@@ -20,7 +19,9 @@ type paramDescription struct {
 	DescriptionEn string `json:"description_en,omitempty"`
 	ExampleCn     string `json:"example_cn,omitempty"`
 	ExampleEn     string `json:"example_en,omitempty"`
-	Required      bool   `json:"required,omitempty"`
+	// Required is a pointer so omitempty-missing fields do not look like explicit false
+	// and downgrade SDK-metadata required=true when attaching help text.
+	Required *bool `json:"required,omitempty"`
 }
 
 // paramDescriptionsData mirrors scripts/generate_param_descriptions.go output:
@@ -60,6 +61,8 @@ func loadParamDescriptions() paramDescriptionsData {
 // attachParamDescriptions fills p.description, p.example and p.required from the
 // CAE asset for help display. Missing asset / keys leave description/example empty
 // and keep the required flag already set from SDK metadata (if any).
+// required is only overwritten when the asset explicitly sets the field (true or false);
+// a missing required key never downgrades SDK-metadata required=true to optional.
 func attachParamDescriptions(service, action string, params []param) {
 	if len(params) == 0 {
 		return
@@ -75,15 +78,17 @@ func attachParamDescriptions(service, action string, params []param) {
 		}
 		params[i].description = info.text
 		params[i].example = info.example
-		// Asset is authoritative for required when the param is present in params.json.
-		params[i].required = info.required
+		if info.requiredPresent {
+			params[i].required = info.required
+		}
 	}
 }
 
 type paramDescriptionInfo struct {
-	text     string
-	example  string
-	required bool
+	text            string
+	example         string
+	required        bool
+	requiredPresent bool
 }
 
 // lookupParamDescription resolves text for one parameter under the current language.
@@ -157,28 +162,23 @@ func paramServiceCandidates(service string) []string {
 	return out
 }
 
-// paramVersionCandidates prefers the CLI default version, then any version that
-// contains the action (lexicographically latest first for stability).
+// paramVersionCandidates returns only the exact preferred API version when that
+// version has the action in the asset. Never falls back to another version's
+// text (wrong-version help is worse than empty help).
 func paramVersionCandidates(verMap map[string]map[string]map[string]paramDescription, preferred, action string) []string {
-	if preferred != "" {
-		if actionMap, ok := verMap[preferred]; ok {
-			if _, ok := actionMap[action]; ok {
-				return []string{preferred}
-			}
-		}
-	}
-	var found []string
-	for ver, actionMap := range verMap {
-		if _, ok := actionMap[action]; ok {
-			found = append(found, ver)
-		}
-	}
-	if len(found) == 0 {
+	preferred = strings.TrimSpace(preferred)
+	action = strings.TrimSpace(action)
+	if preferred == "" || action == "" || verMap == nil {
 		return nil
 	}
-	// Prefer newer-looking ISO date strings first.
-	sort.Sort(sort.Reverse(sort.StringSlice(found)))
-	return found
+	actionMap, ok := verMap[preferred]
+	if !ok {
+		return nil
+	}
+	if _, ok := actionMap[action]; !ok {
+		return nil
+	}
+	return []string{preferred}
 }
 
 func paramDescriptionInfoForKey(params map[string]paramDescription, paramKey string) (paramDescriptionInfo, bool) {
@@ -200,11 +200,15 @@ func paramDescriptionInfoForKey(params map[string]paramDescription, paramKey str
 		}
 		seen[k] = struct{}{}
 		if p, ok := params[k]; ok {
-			return paramDescriptionInfo{
-				text:     pickParamDescription(p),
-				example:  pickParamExample(p),
-				required: p.Required,
-			}, true
+			info := paramDescriptionInfo{
+				text:    pickParamDescription(p),
+				example: pickParamExample(p),
+			}
+			if p.Required != nil {
+				info.required = *p.Required
+				info.requiredPresent = true
+			}
+			return info, true
 		}
 	}
 	return paramDescriptionInfo{}, false

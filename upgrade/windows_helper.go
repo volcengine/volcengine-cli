@@ -133,13 +133,14 @@ func RunWindowsUpgradeHelper(opts WindowsUpgradeHelperOptions) error {
 	} else {
 		replaceErr = replaceBinaryWithBackup(opts.NewBinaryPath, opts.TargetPath, opts.ExpectedVersion)
 	}
-
-	cleanupErr := startWindowsUpgradeCleanup(opts.TargetPath, opts.WorkDir, os.Getpid())
-	if cleanupErr != nil {
-		fmt.Fprintf(stderr, "Warning: failed to schedule upgrade temporary-file cleanup: %v\n", cleanupErr)
-	}
+	// Only schedule cleanup after a successful replace so a failed install keeps
+	// the work dir (new binary + helper) for retry/diagnostics.
 	if replaceErr != nil {
 		return fmt.Errorf("installation failed: %v", replaceErr)
+	}
+
+	if cleanupErr := startWindowsUpgradeCleanup(opts.TargetPath, opts.WorkDir, os.Getpid()); cleanupErr != nil {
+		fmt.Fprintf(stderr, "Warning: failed to schedule upgrade temporary-file cleanup: %v\n", cleanupErr)
 	}
 
 	refreshVersionCacheAfterInstall(opts.ExplicitTarget, opts.ExpectedVersion)
