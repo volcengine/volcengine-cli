@@ -1,6 +1,8 @@
 // Command generate_param_descriptions fetches OpenAPI parameter descriptions
 // for every service/version present in the SDK metadata inventory, and writes
-// a standalone JSON product consumed by build_asset.sh (go-bindata → asset).
+// asset/paramdescriptions/params.json. build_asset.sh then runs go-bindata into
+// package paramdescriptions (asset/paramdescriptions/bindata.go) — separate
+// from asset/asset.go (metadata + explorer only).
 //
 // Inventory resolution (same idea as generate_explorer_descriptions.go):
 //  1. --metadata-dir (default: <repo>/volcengine-sdk-metadata/metadata)
@@ -22,8 +24,9 @@
 //	go run ./scripts/generate_param_descriptions.go
 //	go run ./scripts/generate_param_descriptions.go --service ecs --version 2020-04-01
 //	go run ./scripts/generate_param_descriptions.go --delay 200ms --lang zh
+//	go generate ./asset/paramdescriptions   # after writing params.json
 //
-// Full asset rebuild (metadata + descriptions + params + bindata):
+// Full asset rebuild (metadata + explorer + params + bindata):
 //
 //	sh build_asset.sh <metadata-git-url> [branch]
 package main
@@ -130,7 +133,7 @@ func main() {
 
 	metadataDir := flag.String("metadata-dir", filepath.Join(root, "volcengine-sdk-metadata", "metadata"), "metadata directory for service/version inventory")
 	assetGo := flag.String("asset-go", filepath.Join(root, "asset", "asset.go"), "generated asset.go fallback for inventory")
-	out := flag.String("out", filepath.Join(root, "volcengine-sdk-metadata", "param_descriptions", "params.json"), "output JSON path")
+	out := flag.String("out", filepath.Join(root, "asset", "paramdescriptions", "params.json"), "output JSON path (source for go generate ./asset/paramdescriptions)")
 	delay := flag.Duration("delay", 150*time.Millisecond, "pause between HTTP calls (rate limit)")
 	lang := flag.String("lang", "both", "language to fetch: zh | en | both")
 	serviceFilter := flag.String("service", "", "only this service code (optional)")
@@ -231,16 +234,15 @@ func main() {
 	}
 
 write:
+	// Fail closed before touching the output file so a previous good params.json is preserved.
+	// Smoke tests with --max-actions still write partial products when doneSwagger > 0.
+	if doneSwagger == 0 && skipped > 0 {
+		fatal(fmt.Errorf("no swagger fetches succeeded (%d errors); refusing empty/sparse product (left %s unchanged)", skipped, *out))
+	}
 	if err := writeJSON(*out, file); err != nil {
 		fatal(err)
 	}
 	fmt.Fprintf(os.Stderr, "wrote %s (swagger_ok=%d, attempted≈%d, skipped_errors=%d)\n", *out, doneSwagger, totalSwagger, skipped)
-
-	// Fail closed when inventory existed but nothing was produced (e.g. total network failure).
-	// Smoke tests with --max-actions still write partial products and may have doneSwagger > 0.
-	if doneSwagger == 0 && skipped > 0 {
-		fatal(fmt.Errorf("no swagger fetches succeeded (%d errors); refusing empty/sparse product", skipped))
-	}
 }
 
 func parseLang(lang string) (zh, en bool) {
@@ -549,7 +551,16 @@ func writeJSON(path string, file paramsFile) error {
 		return err
 	}
 	data = append(data, '\n')
-	return ioutil.WriteFile(path, data, 0644)
+	// Atomic replace: write temp then rename so a crash mid-write cannot leave a truncated product.
+	tmp := path + ".tmp"
+	if err := ioutil.WriteFile(tmp, data, 0644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 func loadVersions(base string) map[string][]string {

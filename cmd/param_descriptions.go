@@ -6,16 +6,20 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/volcengine/volcengine-cli/asset"
+	"github.com/volcengine/volcengine-cli/asset/paramdescriptions"
 )
 
-// paramDescriptionsAsset is produced by scripts/generate_param_descriptions.go
-// and embedded via build_asset.sh (go-bindata → package asset).
-const paramDescriptionsAsset = "volcengine-sdk-metadata/param_descriptions/params.json"
+// paramDescriptionsAsset is the bindata key for asset/paramdescriptions/params.json
+// (source kept next to bindata.go; regenerate with go generate ./asset/paramdescriptions).
+// Kept separate from asset/asset.go so metadata/explorer rebuilds do not wipe
+// a ~6MB param corpus, and param-only refreshes stay reviewable.
+const paramDescriptionsAsset = "params.json"
 
 type paramDescription struct {
 	DescriptionCn string `json:"description_cn,omitempty"`
 	DescriptionEn string `json:"description_en,omitempty"`
+	ExampleCn     string `json:"example_cn,omitempty"`
+	ExampleEn     string `json:"example_en,omitempty"`
 	Required      bool   `json:"required,omitempty"`
 }
 
@@ -29,7 +33,7 @@ var (
 	paramDescriptionsOnce      sync.Once
 	paramDescriptions          paramDescriptionsData
 	loadParamDescriptionsAsset = func() ([]byte, error) {
-		return asset.Asset(paramDescriptionsAsset)
+		return paramdescriptions.Asset(paramDescriptionsAsset)
 	}
 )
 
@@ -53,8 +57,9 @@ func loadParamDescriptions() paramDescriptionsData {
 	return paramDescriptions
 }
 
-// attachParamDescriptions fills p.description for help display.
-// Missing asset / keys leave description empty (same layout as before).
+// attachParamDescriptions fills p.description, p.example and p.required from the
+// CAE asset for help display. Missing asset / keys leave description/example empty
+// and keep the required flag already set from SDK metadata (if any).
 func attachParamDescriptions(service, action string, params []param) {
 	if len(params) == 0 {
 		return
@@ -64,19 +69,41 @@ func attachParamDescriptions(service, action string, params []param) {
 		version = rootSupport.GetVersion(service)
 	}
 	for i := range params {
-		params[i].description = lookupParamDescription(service, version, action, params[i].key)
+		info, ok := lookupParamDescriptionInfo(service, version, action, params[i].key)
+		if !ok {
+			continue
+		}
+		params[i].description = info.text
+		params[i].example = info.example
+		// Asset is authoritative for required when the param is present in params.json.
+		params[i].required = info.required
 	}
+}
+
+type paramDescriptionInfo struct {
+	text     string
+	example  string
+	required bool
 }
 
 // lookupParamDescription resolves text for one parameter under the current language.
 func lookupParamDescription(service, version, action, paramKey string) string {
+	info, ok := lookupParamDescriptionInfo(service, version, action, paramKey)
+	if !ok {
+		return ""
+	}
+	return info.text
+}
+
+// lookupParamDescriptionInfo resolves description text and required for one parameter.
+func lookupParamDescriptionInfo(service, version, action, paramKey string) (paramDescriptionInfo, bool) {
 	d := loadParamDescriptions()
 	if len(d.Apis) == 0 {
-		return ""
+		return paramDescriptionInfo{}, false
 	}
 	action = strings.TrimSpace(action)
 	if action == "" || strings.TrimSpace(paramKey) == "" {
-		return ""
+		return paramDescriptionInfo{}, false
 	}
 
 	for _, svc := range paramServiceCandidates(service) {
@@ -94,12 +121,12 @@ func lookupParamDescription(service, version, action, paramKey string) string {
 			if !ok || len(params) == 0 {
 				continue
 			}
-			if text := paramDescriptionText(params, paramKey); text != "" {
-				return text
+			if info, found := paramDescriptionInfoForKey(params, paramKey); found {
+				return info, true
 			}
 		}
 	}
-	return ""
+	return paramDescriptionInfo{}, false
 }
 
 func paramServiceCandidates(service string) []string {
@@ -154,7 +181,7 @@ func paramVersionCandidates(verMap map[string]map[string]map[string]paramDescrip
 	return found
 }
 
-func paramDescriptionText(params map[string]paramDescription, paramKey string) string {
+func paramDescriptionInfoForKey(params map[string]paramDescription, paramKey string) (paramDescriptionInfo, bool) {
 	// Try exact key, then metatype-style .N placeholders, then strip indices entirely
 	// (swagger/OpenAPI often uses Tags.Key while help lists Tags.1.Key or Tags.N.Key).
 	keys := []string{
@@ -173,25 +200,32 @@ func paramDescriptionText(params map[string]paramDescription, paramKey string) s
 		}
 		seen[k] = struct{}{}
 		if p, ok := params[k]; ok {
-			if text := pickParamDescription(p); text != "" {
-				return text
-			}
+			return paramDescriptionInfo{
+				text:     pickParamDescription(p),
+				example:  pickParamExample(p),
+				required: p.Required,
+			}, true
 		}
 	}
-	return ""
+	return paramDescriptionInfo{}, false
 }
 
 func pickParamDescription(p paramDescription) string {
+	// Full multi-line text is preserved for -h (formatParamsHelpUsage wraps lines).
+	// Do not fall back across languages: missing EN stays empty under EN (and vice versa),
+	// so help never mixes Chinese into English mode when CAE only has one language.
 	if currentLanguage == LanguageSimplifiedChinese {
-		if t := firstLine(p.DescriptionCn); t != "" {
-			return t
-		}
-		return firstLine(p.DescriptionEn)
+		return strings.TrimSpace(p.DescriptionCn)
 	}
-	if t := firstLine(p.DescriptionEn); t != "" {
-		return t
+	return strings.TrimSpace(p.DescriptionEn)
+}
+
+func pickParamExample(p paramDescription) string {
+	// Same language isolation as descriptions.
+	if currentLanguage == LanguageSimplifiedChinese {
+		return strings.TrimSpace(p.ExampleCn)
 	}
-	return firstLine(p.DescriptionCn)
+	return strings.TrimSpace(p.ExampleEn)
 }
 
 // normalizeParamDescKey strips pure-numeric path segments and "N" placeholders

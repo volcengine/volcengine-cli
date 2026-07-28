@@ -6,31 +6,43 @@
 #
 # Targets:
 #   all       Generate explorer + param descriptions, then bindata (default)
-#   explorer  Generate Action/service descriptions only (param product left empty)
+#   explorer  Generate Action/service descriptions only; leave paramdescriptions unchanged
 #   param     Generate param descriptions; also refreshes explorer (cheap) so Action text is not wiped
-#   metadata  Submodule + bindata only; description products empty (HTTP skipped)
+#   metadata  Submodule + bindata only; no HTTP; leave paramdescriptions unchanged
+#
+# Layout:
+#   asset/asset.go                      ← metadata + explorer_descriptions (go-bindata)
+#   asset/paramdescriptions/params.json ← param source of truth
+#   asset/paramdescriptions/bindata.go  ← go-bindata from params.json (package paramdescriptions)
 #
 # Non-interactive:
 #   --target is set, or stdin/stdout is not a TTY → no menu (default target=all)
 #   BUILD_ASSET_TARGET env overrides default when --target is omitted
 #
 # Env:
-#   SKIP_PARAM_DESCRIPTIONS=1   same as excluding param generation (with all/param)
+#   SKIP_PARAM_DESCRIPTIONS=1   skip param HTTP generation; keep existing paramdescriptions
 #   PARAM_DESC_DELAY            default 150ms
 #   PARAM_DESC_LANG             default both
 #   BUILD_ASSET_TARGET          default target when --target omitted and non-interactive
 
 set -e
 
+# Always run from repo root (this script's directory), regardless of caller cwd.
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT"
+
 usage() {
   cat <<'USAGE'
 Usage: sh build_asset.sh <metadata-git-url> [branch] [--target all|explorer|param|metadata]
 
-  all       Explorer descriptions + param descriptions + bindata (default)
-  explorer  Explorer descriptions only + bindata (param descriptions become empty)
-  param     Param descriptions + explorer refresh (cheap) + bindata
-  metadata  Submodule + bindata only (no explorer/param HTTP generation)
+  all       Explorer + param descriptions + bindata (default)
+  explorer  Explorer only + asset/typeset/structset bindata (params package left as-is)
+  param     Param descriptions + explorer refresh + bindata
+  metadata  Submodule + metadata bindata only (no HTTP; params package left as-is)
 
+Param product lives under asset/paramdescriptions/ (not asset/asset.go).
+On param generation failure the existing params.json + bindata.go are preserved
+and the build exits non-zero (no silent empty product).
 Interactive menu is shown only when --target is omitted and the terminal is interactive.
 CI / pipes default to "all" (or BUILD_ASSET_TARGET).
 
@@ -98,9 +110,9 @@ if [ -z "$target" ]; then
   elif [ -t 0 ] && [ -t 1 ]; then
     echo "Select asset build target:"
     echo "  1) all       - explorer + param descriptions + bindata  (default)"
-    echo "  2) explorer  - Action/service descriptions only"
+    echo "  2) explorer  - Action/service descriptions only (keep existing params)"
     echo "  3) param     - parameter descriptions (+ refresh explorer)"
-    echo "  4) metadata  - metadata/metatype/structure bindata only (no HTTP)"
+    echo "  4) metadata  - metadata/metatype/structure bindata only (no HTTP; keep params)"
     printf "Choice [1-4, default 1]: "
     read -r choice || choice=""
     case "${choice:-1}" in
@@ -127,7 +139,12 @@ case "$target" in
     ;;
 esac
 
-echo "==> build_asset target=$target url=$url branch=${urlBranch:-<default>}"
+echo "==> build_asset target=$target url=$url branch=${urlBranch:-<default>} root=$ROOT"
+
+if ! command -v go-bindata >/dev/null 2>&1; then
+  echo "error: go-bindata not found on PATH (required to regenerate asset packages)" >&2
+  exit 1
+fi
 
 do_explorer=0
 do_param=0
@@ -153,7 +170,7 @@ esac
 
 if [ "${SKIP_PARAM_DESCRIPTIONS}" = "1" ]; then
   echo "==> SKIP_PARAM_DESCRIPTIONS=1 → disable param generation"
-  echo "warning: param_descriptions will be empty in asset.go for this build" >&2
+  echo "warning: asset/paramdescriptions left unchanged for this build" >&2
   do_param=0
 fi
 
@@ -177,14 +194,27 @@ if [ -n "$urlBranch" ]; then
   )
 fi
 
+PARAM_DESC_DIR="asset/paramdescriptions"
+PARAM_DESC_JSON="${PARAM_DESC_DIR}/params.json"
+PARAM_DESC_BINDATA="${PARAM_DESC_DIR}/bindata.go"
+
 write_empty_explorer() {
   mkdir -p volcengine-sdk-metadata/explorer_descriptions
   printf '{}\n' > volcengine-sdk-metadata/explorer_descriptions/descriptions.json
 }
 
-write_empty_param() {
-  mkdir -p volcengine-sdk-metadata/param_descriptions
-  printf '{ "apis": {} }\n' > volcengine-sdk-metadata/param_descriptions/params.json
+# Regenerate package paramdescriptions from source params.json (not asset/asset.go).
+# Requires a non-empty existing params.json; never invents an empty product here.
+bindata_param_descriptions() {
+  if [ ! -f "${PARAM_DESC_JSON}" ]; then
+    echo "error: ${PARAM_DESC_JSON} missing; cannot generate paramdescriptions bindata" >&2
+    return 1
+  fi
+  echo "==> go-bindata paramdescriptions (${PARAM_DESC_JSON} → ${PARAM_DESC_BINDATA})"
+  (
+    cd "${PARAM_DESC_DIR}"
+    go-bindata -pkg paramdescriptions -prefix . -o bindata.go params.json
+  )
 }
 
 # Action / service descriptions (lightweight: explorer/apis)
@@ -194,6 +224,8 @@ if [ "$do_explorer" = "1" ]; then
     --metadata-dir volcengine-sdk-metadata/metadata \
     --out volcengine-sdk-metadata/explorer_descriptions/descriptions.json
   then
+    # Soft-fail for explorer only (legacy): empty product so metadata bindata can still proceed.
+    # Prefer re-running with a healthy network before committing asset.go.
     echo "warning: explorer descriptions generation failed; writing empty product" >&2
     write_empty_explorer
   fi
@@ -203,33 +235,48 @@ else
   write_empty_explorer
 fi
 
-# Parameter descriptions (heavier: explorer/api-swagger per action, rate-limited)
+# Parameter descriptions (heavier: explorer/api-swagger per action, rate-limited).
+# Product: asset/paramdescriptions/params.json + bindata.go (separate package).
+# Fail closed: never overwrite a good corpus with empty product on generator failure.
 if [ "$do_param" = "1" ]; then
-  echo "==> generating param descriptions (may take a long time)"
+  echo "==> generating param descriptions → ${PARAM_DESC_JSON} (may take a long time)"
   PARAM_DELAY="${PARAM_DESC_DELAY:-150ms}"
   PARAM_LANG="${PARAM_DESC_LANG:-both}"
+  mkdir -p "${PARAM_DESC_DIR}"
   if ! go run ./scripts/generate_param_descriptions.go \
     --metadata-dir volcengine-sdk-metadata/metadata \
-    --out volcengine-sdk-metadata/param_descriptions/params.json \
+    --out "${PARAM_DESC_JSON}" \
     --delay "${PARAM_DELAY}" \
     --lang "${PARAM_LANG}"
   then
-    echo "warning: param descriptions generation failed; writing empty product" >&2
-    write_empty_param
+    echo "error: param descriptions generation failed" >&2
+    if [ -f "${PARAM_DESC_JSON}" ] || [ -f "${PARAM_DESC_BINDATA}" ]; then
+      echo "error: keeping existing asset/paramdescriptions (params.json / bindata.go) unchanged" >&2
+    fi
+    exit 1
+  fi
+  if ! bindata_param_descriptions; then
+    echo "error: paramdescriptions bindata failed; existing bindata.go left as-is if present" >&2
+    exit 1
   fi
 else
   echo "==> skip param descriptions generation (target=$target)"
-  if [ "$target" = "explorer" ] || [ "$target" = "metadata" ]; then
-    echo "warning: param_descriptions will be empty in asset.go for this build" >&2
+  if [ -f "${PARAM_DESC_BINDATA}" ]; then
+    echo "    keeping existing ${PARAM_DESC_BINDATA} (CLI loads embedded bindata)"
+    if [ ! -f "${PARAM_DESC_JSON}" ]; then
+      echo "warning: ${PARAM_DESC_JSON} missing; source JSON absent but embedded bindata still used" >&2
+    fi
+  elif [ -f "${PARAM_DESC_JSON}" ]; then
+    echo "warning: ${PARAM_DESC_BINDATA} missing while ${PARAM_DESC_JSON} exists; run: go generate ./asset/paramdescriptions" >&2
+  else
+    echo "warning: no paramdescriptions product; CLI param help will be empty until generated" >&2
   fi
-  write_empty_param
 fi
 
-echo "==> go-bindata"
+echo "==> go-bindata (metadata + explorer only; params live in asset/paramdescriptions)"
 go-bindata -pkg asset -o asset/asset.go \
   volcengine-sdk-metadata/metadata/... \
-  volcengine-sdk-metadata/explorer_descriptions/... \
-  volcengine-sdk-metadata/param_descriptions/...
+  volcengine-sdk-metadata/explorer_descriptions/...
 go-bindata -pkg typeset -o typeset/typeset.go volcengine-sdk-metadata/metatype/...
 go-bindata -pkg structset -o structset/structset.go volcengine-sdk-metadata/structure/...
 
