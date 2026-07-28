@@ -79,7 +79,7 @@ printf '%s' '{"AccessKeyId":"AK","SecretAccessKey":"SK"}' | base64
 
 MCP API 调用按以下顺序解析 Region：
 
-1. 请求 Header `X-Volcengine-Region`。
+1. `call_api` 的非必填 `region` 参数。
 2. 启动参数 `--region`。
 3. 选中 profile 的 Region。
 4. `VOLCENGINE_REGION`。

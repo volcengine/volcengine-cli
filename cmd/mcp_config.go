@@ -16,7 +16,6 @@ const (
 	defaultMCPRegion = "cn-beijing"
 
 	mcpCredentialsHeader = "X-Volcengine-Credentials"
-	mcpRegionHeader      = "X-Volcengine-Region"
 
 	mcpTransportStdio          = "stdio"
 	mcpTransportSSE            = "sse"
@@ -31,15 +30,14 @@ type mcpCredentials struct {
 
 type mcpRequestMetadata struct {
 	Credentials *mcpCredentials
-	Region      string
 }
 
 type mcpRequestMetadataContextKey struct{}
 
 var mcpRegionPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,127}$`)
 
-func resolveMCPRegion(headerRegion, startupRegion, profileRegion, environmentRegion string) string {
-	for _, region := range []string{headerRegion, startupRegion, profileRegion, environmentRegion} {
+func resolveMCPRegion(callRegion, startupRegion, profileRegion, environmentRegion string) string {
+	for _, region := range []string{callRegion, startupRegion, profileRegion, environmentRegion} {
 		if region = strings.TrimSpace(region); region != "" {
 			return region
 		}
@@ -47,11 +45,16 @@ func resolveMCPRegion(headerRegion, startupRegion, profileRegion, environmentReg
 	return defaultMCPRegion
 }
 
-func parseMCPRequestMetadata(header http.Header) (mcpRequestMetadata, error) {
-	metadata := mcpRequestMetadata{Region: strings.TrimSpace(header.Get(mcpRegionHeader))}
-	if metadata.Region != "" && !mcpRegionPattern.MatchString(metadata.Region) {
-		return mcpRequestMetadata{}, fmt.Errorf("%s contains an invalid region", mcpRegionHeader)
+func normalizeMCPRegion(value string) (string, error) {
+	region := strings.TrimSpace(value)
+	if region != "" && !mcpRegionPattern.MatchString(region) {
+		return "", fmt.Errorf("region contains an invalid value")
 	}
+	return region, nil
+}
+
+func parseMCPRequestMetadata(header http.Header) (mcpRequestMetadata, error) {
+	metadata := mcpRequestMetadata{}
 	encoded := strings.TrimSpace(header.Get(mcpCredentialsHeader))
 	if encoded == "" {
 		return metadata, nil

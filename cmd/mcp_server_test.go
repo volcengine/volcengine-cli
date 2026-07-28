@@ -39,16 +39,21 @@ func (r *recordingMCPRegistrar) RegisterTool(tool *protocol.Tool, handler mcpToo
 
 type stubMCPInvoker struct{}
 
-func (stubMCPInvoker) CallAPI(context.Context, string, string, map[string]interface{}) (map[string]interface{}, error) {
+func (stubMCPInvoker) CallAPI(context.Context, string, string, string, map[string]interface{}) (map[string]interface{}, error) {
 	return map[string]interface{}{}, nil
 }
 
-type metadataMCPInvoker struct {
-	metadata chan mcpRequestMetadata
+type recordedMCPCall struct {
+	metadata mcpRequestMetadata
+	region   string
 }
 
-func (i metadataMCPInvoker) CallAPI(ctx context.Context, _, _ string, _ map[string]interface{}) (map[string]interface{}, error) {
-	i.metadata <- mcpRequestMetadataFromContext(ctx)
+type recordingMCPInvoker struct {
+	calls chan recordedMCPCall
+}
+
+func (i recordingMCPInvoker) CallAPI(ctx context.Context, _, _, region string, _ map[string]interface{}) (map[string]interface{}, error) {
+	i.calls <- recordedMCPCall{metadata: mcpRequestMetadataFromContext(ctx), region: region}
 	return map[string]interface{}{"ok": true}, nil
 }
 
@@ -75,6 +80,55 @@ func TestMCPListToolsExposeEnumerationSchemas(t *testing.T) {
 	apisSchema := string(registrar.tools["list_apis"].RawInputSchema)
 	if !strings.Contains(apisSchema, `"service"`) || strings.Contains(apisSchema, "query") || strings.Contains(apisSchema, "limit") {
 		t.Fatalf("list_apis schema is not service-only: %s", apisSchema)
+	}
+
+	var callSchema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+		Required   []string                   `json:"required"`
+	}
+	if err := json.Unmarshal(registrar.tools["call_api"].RawInputSchema, &callSchema); err != nil {
+		t.Fatalf("decode call_api schema: %v", err)
+	}
+	if _, ok := callSchema.Properties["region"]; !ok {
+		t.Fatalf("call_api schema does not expose region: %s", registrar.tools["call_api"].RawInputSchema)
+	}
+	for _, required := range callSchema.Required {
+		if required == "region" {
+			t.Fatalf("call_api region must be optional: %s", registrar.tools["call_api"].RawInputSchema)
+		}
+	}
+}
+
+func TestMCPCallAPIRegionIsOptionalAndValidated(t *testing.T) {
+	calls := make(chan recordedMCPCall, 2)
+	registrar := &recordingMCPRegistrar{}
+	registerMCPTools(registrar, rootSupport, recordingMCPInvoker{calls: calls})
+	handler := registrar.handlers["call_api"]
+
+	for _, test := range []struct {
+		name      string
+		arguments map[string]interface{}
+		want      string
+	}{
+		{name: "omitted", arguments: map[string]interface{}{"service": "sts", "api": "GetCallerIdentity"}},
+		{name: "provided", arguments: map[string]interface{}{"service": "sts", "api": "GetCallerIdentity", "region": "ap-southeast-1"}, want: "ap-southeast-1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := handler(context.Background(), &protocol.CallToolRequest{Arguments: test.arguments})
+			if err != nil || result.IsError {
+				t.Fatalf("call_api result = %#v, error = %v", result, err)
+			}
+			if got := (<-calls).region; got != test.want {
+				t.Fatalf("region = %q, want %q", got, test.want)
+			}
+		})
+	}
+
+	result, err := handler(context.Background(), &protocol.CallToolRequest{Arguments: map[string]interface{}{
+		"service": "sts", "api": "GetCallerIdentity", "region": "invalid/region",
+	}})
+	if err != nil || !result.IsError {
+		t.Fatalf("invalid region result = %#v, error = %v", result, err)
 	}
 }
 
@@ -234,12 +288,12 @@ func testMCPHTTPProtocol(t *testing.T, transportName string) {
 	baseURL := "http://" + listener.Addr().String() + "/prefix"
 	ctx, cancel := context.WithCancel(context.Background())
 	serverDone := make(chan error, 1)
-	metadata := make(chan mcpRequestMetadata, 1)
+	calls := make(chan recordedMCPCall, 1)
 	go func() {
-		serverDone <- runMCPHTTP(ctx, listener, baseURL, mcpCommandOptions{Transport: transportName}, metadataMCPInvoker{metadata: metadata})
+		serverDone <- runMCPHTTP(ctx, listener, baseURL, mcpCommandOptions{Transport: transportName}, recordingMCPInvoker{calls: calls})
 	}()
 
-	headers := map[string]string{mcpRegionHeader: "ap-southeast-1", mcpCredentialsHeader: testMCPCredentialHeader()}
+	headers := map[string]string{mcpCredentialsHeader: testMCPCredentialHeader()}
 	httpClient := &http.Client{Transport: mcpHeaderRoundTripper{headers: headers}}
 	var clientTransport transport.ClientTransport
 	switch transportName {
@@ -261,15 +315,15 @@ func testMCPHTTPProtocol(t *testing.T, transportName string) {
 	}
 	assertMCPClientTools(t, client)
 	result, err := client.CallTool(context.Background(), &protocol.CallToolRequest{
-		Name: "call_api", Arguments: map[string]interface{}{"service": "sts", "api": "GetCallerIdentity", "parameters": map[string]interface{}{}},
+		Name: "call_api", Arguments: map[string]interface{}{"service": "sts", "api": "GetCallerIdentity", "region": "ap-southeast-1", "parameters": map[string]interface{}{}},
 	})
 	if err != nil || result.IsError {
 		t.Fatalf("CallTool() result = %#v, error = %v", result, err)
 	}
 	select {
-	case got := <-metadata:
-		if got.Region != "ap-southeast-1" || got.Credentials == nil || got.Credentials.AccessKeyID != "ak" {
-			t.Fatalf("request metadata = %#v", got)
+	case got := <-calls:
+		if got.region != "ap-southeast-1" || got.metadata.Credentials == nil || got.metadata.Credentials.AccessKeyID != "ak" {
+			t.Fatalf("recorded call = %#v", got)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for call_api metadata")

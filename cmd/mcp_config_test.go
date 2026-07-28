@@ -12,13 +12,13 @@ import (
 func TestResolveMCPRegionPriority(t *testing.T) {
 	tests := []struct {
 		name    string
-		header  string
+		call    string
 		startup string
 		profile string
 		env     string
 		want    string
 	}{
-		{name: "header", header: "ap-southeast-1", startup: "cn-shanghai", profile: "cn-guangzhou", env: "cn-north-1", want: "ap-southeast-1"},
+		{name: "call", call: "ap-southeast-1", startup: "cn-shanghai", profile: "cn-guangzhou", env: "cn-north-1", want: "ap-southeast-1"},
 		{name: "startup", startup: "cn-shanghai", profile: "cn-guangzhou", env: "cn-north-1", want: "cn-shanghai"},
 		{name: "profile", profile: "cn-guangzhou", env: "cn-north-1", want: "cn-guangzhou"},
 		{name: "environment", env: "cn-north-1", want: "cn-north-1"},
@@ -27,7 +27,7 @@ func TestResolveMCPRegionPriority(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := resolveMCPRegion(tt.header, tt.startup, tt.profile, tt.env); got != tt.want {
+			if got := resolveMCPRegion(tt.call, tt.startup, tt.profile, tt.env); got != tt.want {
 				t.Fatalf("resolveMCPRegion() = %q, want %q", got, tt.want)
 			}
 		})
@@ -50,14 +50,10 @@ func TestParseMCPRequestMetadata(t *testing.T) {
 	payload := base64.StdEncoding.EncodeToString([]byte(`{"AccessKeyId":"ak","SecretAccessKey":"sk","SessionToken":"token"}`))
 	header := make(http.Header)
 	header.Set(mcpCredentialsHeader, payload)
-	header.Set(mcpRegionHeader, "ap-southeast-1")
 
 	metadata, err := parseMCPRequestMetadata(header)
 	if err != nil {
 		t.Fatalf("parseMCPRequestMetadata() error = %v", err)
-	}
-	if metadata.Region != "ap-southeast-1" {
-		t.Fatalf("Region = %q", metadata.Region)
 	}
 	if metadata.Credentials == nil || metadata.Credentials.AccessKeyID != "ak" || metadata.Credentials.SecretAccessKey != "sk" || metadata.Credentials.SessionToken != "token" {
 		t.Fatalf("unexpected credentials: %#v", metadata.Credentials)

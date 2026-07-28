@@ -79,7 +79,7 @@ Send the result as `X-Volcengine-Credentials`. The value is request-scoped and i
 
 Region resolution order for MCP API calls is:
 
-1. `X-Volcengine-Region` request header.
+1. Optional `region` argument of `call_api`.
 2. Startup `--region`.
 3. Region in the selected profile.
 4. `VOLCENGINE_REGION`.

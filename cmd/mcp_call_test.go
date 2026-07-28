@@ -74,13 +74,12 @@ func TestMCPInvokerFallsBackToHeaderCredentials(t *testing.T) {
 		t.Fatalf("newVolcengineMCPInvoker() error = %v", err)
 	}
 	metadata := mcpRequestMetadata{
-		Region: "ap-southeast-1",
 		Credentials: &mcpCredentials{
 			AccessKeyID: "header-ak", SecretAccessKey: "header-sk", SessionToken: "header-token",
 		},
 	}
 	ctx := context.WithValue(context.Background(), mcpRequestMetadataContextKey{}, metadata)
-	if _, err := invoker.CallAPI(ctx, "sts", "GetCallerIdentity", map[string]interface{}{}); err != nil {
+	if _, err := invoker.CallAPI(ctx, "sts", "GetCallerIdentity", "ap-southeast-1", map[string]interface{}{}); err != nil {
 		t.Fatalf("CallAPI() error = %v", err)
 	}
 
@@ -170,7 +169,7 @@ func TestMCPInvokerUsesDefaultChainBeforeHeaderCredentials(t *testing.T) {
 	}
 	metadata := mcpRequestMetadata{Credentials: &mcpCredentials{AccessKeyID: "header-ak", SecretAccessKey: "header-sk"}}
 	ctx := context.WithValue(context.Background(), mcpRequestMetadataContextKey{}, metadata)
-	if _, err := invoker.CallAPI(ctx, "sts", "GetCallerIdentity", map[string]interface{}{}); err != nil {
+	if _, err := invoker.CallAPI(ctx, "sts", "GetCallerIdentity", "", map[string]interface{}{}); err != nil {
 		t.Fatalf("CallAPI() error = %v", err)
 	}
 

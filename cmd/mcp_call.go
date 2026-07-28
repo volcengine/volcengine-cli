@@ -67,7 +67,7 @@ func (i *volcengineMCPInvoker) resolveConfig() (*Configure, string, string, erro
 	return cfg, profileName, profileRegion, nil
 }
 
-func (i *volcengineMCPInvoker) CallAPI(ctx context.Context, serviceName, action string, parameters map[string]interface{}) (map[string]interface{}, error) {
+func (i *volcengineMCPInvoker) CallAPI(ctx context.Context, serviceName, action, callRegion string, parameters map[string]interface{}) (map[string]interface{}, error) {
 	if !rootSupport.IsValidAction(serviceName, action) {
 		return nil, fmt.Errorf("unsupported API %s.%s", serviceName, action)
 	}
@@ -76,7 +76,7 @@ func (i *volcengineMCPInvoker) CallAPI(ctx context.Context, serviceName, action 
 		return nil, formatActionError(err)
 	}
 	metadata := mcpRequestMetadataFromContext(ctx)
-	region := resolveMCPRegion(metadata.Region, i.startupRegion, profileRegion, os.Getenv("VOLCENGINE_REGION"))
+	region := resolveMCPRegion(callRegion, i.startupRegion, profileRegion, os.Getenv("VOLCENGINE_REGION"))
 	callContext := NewContext()
 	callContext.SetConfig(callConfig)
 	if profileName != "" {
