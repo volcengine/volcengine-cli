@@ -254,27 +254,34 @@ func urlOK(client *http.Client, url string) bool {
 		return false
 	}
 	resp, err := client.Do(req)
+	if err == nil && resp != nil {
+		status := resp.StatusCode
+		_ = resp.Body.Close()
+		if status == http.StatusOK || status == http.StatusPartialContent {
+			return true
+		}
+		if status != http.StatusMethodNotAllowed && status != http.StatusNotImplemented {
+			return false
+		}
+	} else if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+
+	// Some endpoints reject HEAD with 405/501 or fail it at the transport layer.
+	// Fall back to a ranged GET of one byte without downloading the full archive.
+	req, err = http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		// Defensive: rare non-nil resp+err (e.g. redirect edge cases).
+		return false
+	}
+	req.Header.Set("Range", "bytes=0-0")
+	resp, err = client.Do(req)
+	if err != nil {
 		if resp != nil && resp.Body != nil {
 			_ = resp.Body.Close()
 		}
-		// Some endpoints reject HEAD; fall back to a ranged GET of 1 byte.
-		req, err = http.NewRequest(http.MethodGet, url, nil)
-		if err != nil {
-			return false
-		}
-		req.Header.Set("Range", "bytes=0-0")
-		resp, err = client.Do(req)
-		if err != nil {
-			if resp != nil && resp.Body != nil {
-				_ = resp.Body.Close()
-			}
-			return false
-		}
+		return false
 	}
 	defer resp.Body.Close()
-	// 200 OK or 206 Partial Content both mean the object exists.
 	return resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusPartialContent
 }
 

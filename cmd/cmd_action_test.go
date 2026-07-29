@@ -1,6 +1,102 @@
 package cmd
 
-import "testing"
+import (
+	"bytes"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/spf13/cobra"
+)
+
+func TestLazyActionUsageBuildsOnceOnDemand(t *testing.T) {
+	command := &cobra.Command{
+		Use:  "DemoAction",
+		Long: "demo",
+	}
+	var calls int
+	setLazyActionUsage(command, func() []string {
+		calls++
+		return []string{"Name string"}
+	})
+	if calls != 0 {
+		t.Fatalf("usage built eagerly: calls=%d", calls)
+	}
+
+	var output bytes.Buffer
+	command.SetOut(&output)
+	command.SetErr(&output)
+	if err := command.Usage(); err != nil {
+		t.Fatalf("first Usage: %v", err)
+	}
+	if err := command.Usage(); err != nil {
+		t.Fatalf("second Usage: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("usage build calls=%d, want 1", calls)
+	}
+	if !strings.Contains(output.String(), "Name string") {
+		t.Fatalf("rendered usage missing params:\n%s", output.String())
+	}
+}
+
+func TestGenerateActionCmdDoesNotLoadParamDescriptionsEagerly(t *testing.T) {
+	oldLoad := loadParamDescriptionsAsset
+	paramDescriptionsOnce = sync.Once{}
+	paramDescriptions = paramDescriptionsData{}
+	loadCalls := 0
+	loadParamDescriptionsAsset = func() ([]byte, error) {
+		loadCalls++
+		return []byte(`{"apis":{}}`), nil
+	}
+	defer func() {
+		paramDescriptionsOnce = sync.Once{}
+		paramDescriptions = paramDescriptionsData{}
+		loadParamDescriptionsAsset = oldLoad
+	}()
+
+	basic := []string{"Name"}
+	commands := generateActionCmd("demo", map[string]*VolcengineMeta{
+		"DoThing": {
+			Request: &MetaInfo{Basic: &basic},
+		},
+	}, nil)
+	if loadCalls != 0 {
+		t.Fatalf("param descriptions loaded during command construction: %d", loadCalls)
+	}
+	if len(commands) != 1 {
+		t.Fatalf("commands=%d, want 1", len(commands))
+	}
+
+	var output bytes.Buffer
+	commands[0].SetOut(&output)
+	commands[0].SetErr(&output)
+	if err := commands[0].Usage(); err != nil {
+		t.Fatalf("Usage: %v", err)
+	}
+	if loadCalls != 1 {
+		t.Fatalf("param descriptions load calls=%d, want 1", loadCalls)
+	}
+}
+
+func TestCreateCommandUsageRendersLiteralTemplateBraces(t *testing.T) {
+	restoreLanguage := setLanguageForTest(LanguageEnglish)
+	defer restoreLanguage()
+
+	command, _, err := rootCmd.Find([]string{"ecs", "CreateCommand"})
+	if err != nil {
+		t.Fatalf("find ecs CreateCommand: %v", err)
+	}
+	var output bytes.Buffer
+	command.SetOut(&output)
+	command.SetErr(&output)
+	if err := command.Usage(); err != nil {
+		t.Fatalf("CreateCommand Usage: %v", err)
+	}
+	if !strings.Contains(output.String(), "{{Param}}") {
+		t.Fatalf("literal template example missing from help:\n%s", output.String())
+	}
+}
 
 func TestResolveActionHTTPMethodUsesMetadataByDefault(t *testing.T) {
 	apiInfo := &ApiInfo{Method: "POST"}

@@ -164,19 +164,34 @@ func RollbackBinary(backupPath, currentPath string) error {
 	return nil
 }
 
-// ReplaceBinaryWithBackup replaces current with newPath, keeping a backup at current+".bak"
-// until self-check succeeds. On self-check failure, restores the backup.
+// ReplaceBinaryWithBackup replaces current with newPath under an inter-process
+// lock, keeping a unique same-directory backup until self-check succeeds.
+// On self-check failure, restores the backup.
 func ReplaceBinaryWithBackup(newPath, currentPath, expectedVersion string) error {
+	lock, err := acquireUpgradeLock(currentPath)
+	if err != nil {
+		return err
+	}
+	defer lock.release()
+
 	info, err := os.Stat(currentPath)
 	if err != nil {
 		return fmt.Errorf("failed to stat current binary: %v", err)
 	}
 	perm := info.Mode()
-	backupPath := currentPath + ".bak"
-	_ = os.Remove(backupPath)
+	backupFile, err := os.CreateTemp(filepath.Dir(currentPath), ".ve.backup-*.bak")
+	if err != nil {
+		return fmt.Errorf("failed to create backup file: %v", err)
+	}
+	backupPath := backupFile.Name()
+	if err := backupFile.Close(); err != nil {
+		_ = os.Remove(backupPath)
+		return fmt.Errorf("failed to close backup file: %v", err)
+	}
 
 	// Keep a copy of the old binary for rollback after self-check.
 	if err := copyFile(currentPath, backupPath, perm); err != nil {
+		_ = os.Remove(backupPath)
 		return fmt.Errorf("failed to backup current binary: %v", err)
 	}
 

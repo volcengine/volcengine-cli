@@ -148,3 +148,49 @@ func TestResolveAssetSource_UsesCDNWhenProbeOK(t *testing.T) {
 		t.Fatalf("checksum URL = %q, want CDN base %s", source.ChecksumURL, cdn.URL)
 	}
 }
+
+func TestURLOKFallsBackToRangeGETWhenHEADRejected(t *testing.T) {
+	var headCount, getCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodHead:
+			headCount++
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		case http.MethodGet:
+			getCount++
+			if got := r.Header.Get("Range"); got != "bytes=0-0" {
+				t.Fatalf("Range header = %q, want bytes=0-0", got)
+			}
+			w.WriteHeader(http.StatusPartialContent)
+			_, _ = w.Write([]byte("x"))
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	}))
+	defer server.Close()
+
+	if !urlOK(server.Client(), server.URL+"/archive.zip") {
+		t.Fatal("expected ranged GET fallback to confirm URL")
+	}
+	if headCount != 1 || getCount != 1 {
+		t.Fatalf("HEAD=%d GET=%d, want 1/1", headCount, getCount)
+	}
+}
+
+func TestURLOKDoesNotFallbackForNotFound(t *testing.T) {
+	var getCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			getCount++
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	if urlOK(server.Client(), server.URL+"/missing.zip") {
+		t.Fatal("missing URL must not pass probe")
+	}
+	if getCount != 0 {
+		t.Fatalf("unexpected GET fallback for 404: %d", getCount)
+	}
+}

@@ -1,14 +1,15 @@
 package cmd
 
 import (
+	"bytes"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func stubParamDescriptionsAsset(jsonText string) func() {
-	oldOnce := paramDescriptionsOnce
-	oldData := paramDescriptions
 	oldLoad := loadParamDescriptionsAsset
 
 	paramDescriptionsOnce = sync.Once{}
@@ -18,8 +19,8 @@ func stubParamDescriptionsAsset(jsonText string) func() {
 	}
 
 	return func() {
-		paramDescriptionsOnce = oldOnce
-		paramDescriptions = oldData
+		paramDescriptionsOnce = sync.Once{}
+		paramDescriptions = paramDescriptionsData{}
 		loadParamDescriptionsAsset = oldLoad
 	}
 }
@@ -285,7 +286,7 @@ func TestFormatParamsHelpUsageWithoutDescriptionUnchangedStyle(t *testing.T) {
 	}
 }
 
-func TestAttachParamDescriptionsSetsRequiredFromAsset(t *testing.T) {
+func TestAttachParamDescriptionsKeepsSDKRequired(t *testing.T) {
 	restore := stubParamDescriptionsAsset(`{
   "apis": {
     "vpc": {
@@ -321,22 +322,22 @@ func TestAttachParamDescriptionsSetsRequiredFromAsset(t *testing.T) {
 
 	params := []param{
 		{key: "CidrBlock", typeName: "string", required: false},
-		{key: "DryRun", typeName: "boolean", required: true}, // metadata wrong; explicit false in asset wins
-		{key: "Unknown", typeName: "string", required: true}, // not in asset; keep metadata
-		{key: "ZoneId", typeName: "string", required: true},  // asset omits required; keep SDK true (S15)
+		{key: "DryRun", typeName: "boolean", required: true},
+		{key: "Unknown", typeName: "string", required: true},
+		{key: "ZoneId", typeName: "string", required: true},
 	}
 	attachParamDescriptions("vpc", "CreateVpc", params)
-	if !params[0].required || params[0].description != "VPC网段" || params[0].example != "172.16.0.0/12" {
+	if params[0].required || params[0].description != "VPC网段" || params[0].example != "172.16.0.0/12" {
 		t.Fatalf("CidrBlock: required=%v desc=%q example=%q", params[0].required, params[0].description, params[0].example)
 	}
-	if params[1].required || params[1].description != "预检" || params[1].example != "false" {
+	if !params[1].required || params[1].description != "预检" || params[1].example != "false" {
 		t.Fatalf("DryRun: required=%v desc=%q example=%q", params[1].required, params[1].description, params[1].example)
 	}
 	if !params[2].required || params[2].description != "" || params[2].example != "" {
 		t.Fatalf("Unknown should keep metadata required and empty desc/example: %+v", params[2])
 	}
 	if !params[3].required || params[3].description != "可用区" || params[3].example != "cn-beijing-a" {
-		t.Fatalf("ZoneId must not downgrade required when asset omits required: %+v", params[3])
+		t.Fatalf("ZoneId must keep SDK required: %+v", params[3])
 	}
 
 	lines := formatParamsHelpUsage(params)
@@ -388,6 +389,18 @@ func TestFormatParamsHelpUsageEscapesTemplateBraces(t *testing.T) {
 	if !strings.Contains(lines[0], `{{"{{"}}`) {
 		t.Fatalf("expected escaped braces in %q", lines[0])
 	}
+
+	cmd := &cobra.Command{Use: "test"}
+	cmd.SetUsageTemplate(actionUsageTemplate("", lines))
+	var output bytes.Buffer
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	if err := cmd.Usage(); err != nil {
+		t.Fatalf("escaped usage template must parse: %v", err)
+	}
+	if !strings.Contains(output.String(), "use {{value}} carefully") {
+		t.Fatalf("literal braces not preserved in rendered help:\n%s", output.String())
+	}
 }
 
 func TestFormatParamsHelpUsageMultiLineDescription(t *testing.T) {
@@ -438,8 +451,6 @@ func TestFormatParamsHelpUsageMultiLineDescription(t *testing.T) {
 }
 
 func TestLookupParamDescriptionMissingAsset(t *testing.T) {
-	oldOnce := paramDescriptionsOnce
-	oldData := paramDescriptions
 	oldLoad := loadParamDescriptionsAsset
 	paramDescriptionsOnce = sync.Once{}
 	paramDescriptions = paramDescriptionsData{}
@@ -447,8 +458,8 @@ func TestLookupParamDescriptionMissingAsset(t *testing.T) {
 		return nil, errParamAssetMissing
 	}
 	defer func() {
-		paramDescriptionsOnce = oldOnce
-		paramDescriptions = oldData
+		paramDescriptionsOnce = sync.Once{}
+		paramDescriptions = paramDescriptionsData{}
 		loadParamDescriptionsAsset = oldLoad
 	}()
 
@@ -580,7 +591,6 @@ func TestDisplayWidthCJK(t *testing.T) {
 		t.Fatalf("padRightDisplay width=%d value=%q", displayWidth(got), got)
 	}
 }
-
 
 func TestWrapHelpDisplayLineLongEnglish(t *testing.T) {
 	long := "Client token, used to ensure request idempotency. The client automatically generates a parameter value to ensure it is unique across different requests, preventing duplicate operations when the API call times out or a server error occurs and the client retries multiple times. Only ASCII characters are supported, and the value cannot exceed 64 characters. If ClientToken is not provided, idempotency validation will not be performed for this API call."

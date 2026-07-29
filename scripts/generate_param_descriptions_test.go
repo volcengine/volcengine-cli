@@ -5,8 +5,10 @@
 package main
 
 import (
+	"encoding/json"
 	"io/ioutil"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -18,7 +20,7 @@ func TestMergeParamsFileKeepsUnscannedActions(t *testing.T) {
 					"ZoneId": {DescriptionCn: "旧可用区", DescriptionEn: "old zone", ExampleCn: "cn-a", ExampleEn: "cn-a"},
 				},
 				"DescribeInstances": {
-					"PageSize": {DescriptionCn: "页大小", Required: true},
+					"PageSize": {DescriptionCn: "页大小"},
 				},
 			},
 		},
@@ -193,31 +195,20 @@ func TestLoadPreviousCorpusValid(t *testing.T) {
 	}
 }
 
-func TestMergeActionParamsRequiredNotSticky(t *testing.T) {
-	prev := map[string]paramDescription{
-		"Name": {DescriptionCn: "n", Required: true},
+func TestParamDescriptionIgnoresLegacyRequiredField(t *testing.T) {
+	var p paramDescription
+	if err := json.Unmarshal([]byte(`{"description_en":"name","required":true}`), &p); err != nil {
+		t.Fatal(err)
 	}
-	next := map[string]paramDescription{
-		"Name": {DescriptionCn: "n2", Required: false},
+	data, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
 	}
-	got := mergeActionParams(prev, next)
-	if got["Name"].Required {
-		t.Fatalf("Required should follow next fetch (false), got %+v", got["Name"])
+	if strings.Contains(string(data), "required") {
+		t.Fatalf("legacy required field leaked into regenerated corpus: %s", data)
 	}
-	// Unscanned param keeps previous required.
-	prev2 := map[string]paramDescription{
-		"A": {Required: true},
-		"B": {Required: true},
-	}
-	next2 := map[string]paramDescription{
-		"A": {DescriptionCn: "a", Required: false},
-	}
-	got2 := mergeActionParams(prev2, next2)
-	if got2["A"].Required {
-		t.Fatal("A should be false from next")
-	}
-	if !got2["B"].Required {
-		t.Fatal("B only in prev should keep Required true")
+	if p.DescriptionEn != "name" {
+		t.Fatalf("description lost while ignoring required: %+v", p)
 	}
 }
 

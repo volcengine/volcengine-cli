@@ -9,9 +9,9 @@
 //  2. fallback: parse paths in asset/asset.go
 //
 // Data source (public Explorer APIs, no DB):
-//  - GET /api/common/explorer/services        → canonical ServiceCode casing
-//  - GET /api/common/explorer/apis            → action list per service/version
-//  - GET /api/common/explorer/api-swagger     → param descriptions per action
+//   - GET /api/common/explorer/services        → canonical ServiceCode casing
+//   - GET /api/common/explorer/apis            → action list per service/version
+//   - GET /api/common/explorer/api-swagger     → param descriptions per action
 //
 // ServiceCode casing: metadata inventory dirs are lowercased, but api-swagger is
 // case-sensitive (cdn≠CDN, acep≠ACEP, advdefence≠AdvDefence). Requests use the
@@ -64,7 +64,6 @@ type paramDescription struct {
 	DescriptionEn string `json:"description_en,omitempty"`
 	ExampleCn     string `json:"example_cn,omitempty"`
 	ExampleEn     string `json:"example_en,omitempty"`
-	Required      bool   `json:"required,omitempty"`
 }
 
 // service -> version -> action -> paramName -> description
@@ -106,14 +105,13 @@ type openAPIDoc struct {
 }
 
 type operationNode struct {
-	Parameters  []parameterNode `json:"parameters"`
+	Parameters  []parameterNode  `json:"parameters"`
 	RequestBody *requestBodyNode `json:"requestBody"`
 }
 
 type parameterNode struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
-	Required    bool            `json:"required"`
 	Example     json.RawMessage `json:"example"`
 	Schema      *schemaNode     `json:"schema"`
 }
@@ -127,7 +125,6 @@ type requestBodyNode struct {
 type schemaNode struct {
 	Type        string                 `json:"type"`
 	Description string                 `json:"description"`
-	Required    []string               `json:"required"`
 	Properties  map[string]*schemaNode `json:"properties"`
 	Items       *schemaNode            `json:"items"`
 	Ref         string                 `json:"$ref"`
@@ -317,9 +314,6 @@ func mergeParamLang(dst map[string]paramDescription, src map[string]paramDescrip
 				cur.ExampleCn = p.ExampleCn
 			}
 		}
-		if p.Required {
-			cur.Required = true
-		}
 		dst[name] = cur
 	}
 }
@@ -362,10 +356,10 @@ type mergeStats struct {
 }
 
 // mergeParamsFile deep-merges a fetch patch into a previous corpus.
-// - Actions present in patch (non-empty params): field-wise merge onto prev action
-//   (non-empty new description/example win; missing language/example sides keep prev).
-// - Actions only in prev: kept unchanged (covers skips, --service/--max-actions partial runs).
-// - Params only in prev under a merged action: kept (stale names possible; safer than wipe).
+//   - Actions present in patch (non-empty params): field-wise merge onto prev action
+//     (non-empty new description/example win; missing language/example sides keep prev).
+//   - Actions only in prev: kept unchanged (covers skips, --service/--max-actions partial runs).
+//   - Params only in prev under a merged action: kept (stale names possible; safer than wipe).
 func mergeParamsFile(base, patch paramsFile) (paramsFile, mergeStats) {
 	var stats mergeStats
 	out := cloneParamsFile(base)
@@ -411,8 +405,6 @@ func mergeParamsFile(base, patch paramsFile) (paramsFile, mergeStats) {
 
 // mergeActionParams merges next into a copy of prev. Empty next description/example
 // fields do not clear prev (so a zh-only fetch keeps previous en text/examples).
-// For param names present in next, Required is taken from next (not sticky-OR), so a
-// re-fetch can mark a field optional again. Params only in prev keep their Required.
 func mergeActionParams(prev, next map[string]paramDescription) map[string]paramDescription {
 	out := cloneParamMap(prev)
 	if out == nil {
@@ -432,8 +424,6 @@ func mergeActionParams(prev, next map[string]paramDescription) map[string]paramD
 		if strings.TrimSpace(p.ExampleEn) != "" {
 			cur.ExampleEn = p.ExampleEn
 		}
-		// Scanned param: adopt Required from this fetch (true or false).
-		cur.Required = p.Required
 		out[name] = cur
 	}
 	return out
@@ -639,7 +629,7 @@ func extractParamsFromOpenAPI(doc *openAPIDoc, language string) map[string]param
 				if example == "" && p.Schema != nil {
 					example = exampleString(p.Schema.Example)
 				}
-				putParam(out, name, desc, example, p.Required, language)
+				putParam(out, name, desc, example, language)
 			}
 			if op.RequestBody != nil {
 				for _, c := range op.RequestBody.Content {
@@ -659,10 +649,6 @@ func collectSchemaParams(prefix string, s *schemaNode, schemas map[string]*schem
 	if s == nil {
 		return
 	}
-	reqSet := map[string]bool{}
-	for _, r := range s.Required {
-		reqSet[r] = true
-	}
 	for name, prop := range s.Properties {
 		key := name
 		if prefix != "" {
@@ -671,7 +657,6 @@ func collectSchemaParams(prefix string, s *schemaNode, schemas map[string]*schem
 		prop = resolveSchema(prop, schemas)
 		desc := ""
 		example := ""
-		required := reqSet[name]
 		if prop != nil {
 			desc = sanitizeDescription(prop.Description)
 			example = exampleString(prop.Example)
@@ -680,7 +665,7 @@ func collectSchemaParams(prefix string, s *schemaNode, schemas map[string]*schem
 				collectSchemaParams(key, prop, schemas, out, language)
 			}
 		}
-		putParam(out, key, desc, example, required, language)
+		putParam(out, key, desc, example, language)
 	}
 	if s.Items != nil && (len(s.Properties) == 0) {
 		// array of objects: expose item fields under prefix
@@ -717,11 +702,8 @@ func resolveSchema(s *schemaNode, schemas map[string]*schemaNode) *schemaNode {
 	return s
 }
 
-func putParam(out map[string]paramDescription, name, desc, example string, required bool, language string) {
+func putParam(out map[string]paramDescription, name, desc, example, language string) {
 	cur := out[name]
-	if required {
-		cur.Required = true
-	}
 	switch language {
 	case "en":
 		if desc != "" {
@@ -738,9 +720,8 @@ func putParam(out map[string]paramDescription, name, desc, example string, requi
 			cur.ExampleCn = example
 		}
 	}
-	// Keep entry even if description empty but required/example present.
 	if cur.DescriptionCn != "" || cur.DescriptionEn != "" ||
-		cur.ExampleCn != "" || cur.ExampleEn != "" || cur.Required {
+		cur.ExampleCn != "" || cur.ExampleEn != "" {
 		out[name] = cur
 	}
 }

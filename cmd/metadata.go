@@ -357,9 +357,10 @@ func hardWrapByDisplayWidth(s string, maxWidth int) []string {
 // usage template that is later parsed as text/template.
 func escapeCobraTemplateLiteral(s string) string {
 	// {{"{{"}} and {{"}}"}} evaluate to literal braces in text/template.
-	s = strings.ReplaceAll(s, "{{", `{{"{{"}}`)
-	s = strings.ReplaceAll(s, "}}", `{{"}}"}}`)
-	return s
+	return strings.NewReplacer(
+		"{{", `{{"{{"}}`,
+		"}}", `{{"}}"}}`,
+	).Replace(s)
 }
 
 func formatRequired(required bool) string {

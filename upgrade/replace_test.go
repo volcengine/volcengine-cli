@@ -198,6 +198,46 @@ func TestReplaceBinaryWithBackup_Success(t *testing.T) {
 	if _, err := os.Stat(current + ".bak"); !os.IsNotExist(err) {
 		t.Fatal("expected backup removed after success")
 	}
+	matches, err := filepath.Glob(filepath.Join(dir, ".ve.backup-*.bak"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("temporary backups left after success: %v", matches)
+	}
+}
+
+func TestReplaceBinaryWithBackupRejectsConcurrentUpgrade(t *testing.T) {
+	dir := t.TempDir()
+	current := filepath.Join(dir, "ve")
+	if runtime.GOOS == "windows" {
+		current += ".exe"
+	}
+	newPath := filepath.Join(dir, "ve.new")
+	if err := ioutil.WriteFile(current, []byte("old-bin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := ioutil.WriteFile(newPath, []byte("new-bin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	lock, err := acquireUpgradeLock(current)
+	if err != nil {
+		t.Fatalf("acquire first lock: %v", err)
+	}
+	defer lock.release()
+
+	err = ReplaceBinaryWithBackup(newPath, current, "2.0.0")
+	if err == nil || !strings.Contains(err.Error(), "another upgrade is already in progress") {
+		t.Fatalf("expected concurrent-upgrade error, got %v", err)
+	}
+	got, readErr := ioutil.ReadFile(current)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(got) != "old-bin" {
+		t.Fatalf("current binary changed while lock held: %q", got)
+	}
 }
 
 func TestReplaceBinary_UnixCopyFailCleansTemp(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -19,6 +20,7 @@ type paramValue struct {
 
 func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta, apiMetas map[string]*ApiMeta) (actionCmds []*cobra.Command) {
 	for action, meta := range actionMeta {
+		action := action
 		var apiMeta *ApiMeta
 		if len(apiMetas) > 0 {
 			apiMeta = apiMetas[action]
@@ -45,28 +47,40 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 		// todo not support application/json
 		if meta.ApiInfo == nil || strings.ToLower(meta.ApiInfo.ContentType) != "application/json" {
 			params := meta.GetRequestParams(apiMeta)
-			attachParamDescriptions(serviceName, action, params)
 			paramValues := make([]paramValue, len(params))
 			for i := 0; i < len(params); i++ {
 				paramValues[i].param = params[i].key
 				actionCmd.Flags().StringVar(&paramValues[i].value, paramValues[i].param, "", "")
 			}
 
-			actionCmd.SetUsageTemplate(actionUsageTemplate(actionCmd.Long, formatParamsHelpUsage(params)))
+			setLazyActionUsage(actionCmd, func() []string {
+				attachParamDescriptions(serviceName, action, params)
+				return formatParamsHelpUsage(params)
+			})
 		} else {
 			var paramBody string
 			actionCmd.Flags().StringVar(&paramBody, "body", "", "")
 			var bodyStr []byte
-			var params []string
+			var reqParams []param
 			if apiMeta != nil && apiMeta.Request != nil {
 				bodyMap := apiMeta.Request.GetReqBody()
 				bodyStr, _ = json.MarshalIndent(bodyMap, "", "    ")
-				reqParams := apiMeta.GetRequestParams()
-				attachParamDescriptions(serviceName, action, reqParams)
-				params = formatParamsHelpUsage(apiMeta.GetRequestParams())
+				reqParams = apiMeta.GetRequestParams()
 			}
 			bodyParam := fmt.Sprintf(`body '%s'`, string(bodyStr))
-			actionCmd.SetUsageTemplate(jsonActionUsageTemplate(actionCmd.Long, params, bodyParam))
+
+			// Feature branch: attachParamDescriptions only on first Usage() (-h).
+			// Master: Parameter Form + JSON Form via jsonActionUsageTemplate (body not mixed into params).
+			defaultUsage := rootCmd.UsageFunc()
+			var once sync.Once
+			actionCmd.SetUsageFunc(func(cmd *cobra.Command) error {
+				once.Do(func() {
+					attachParamDescriptions(serviceName, action, reqParams)
+					params := formatParamsHelpUsage(reqParams)
+					cmd.SetUsageTemplate(jsonActionUsageTemplate(cmd.Long, params, bodyParam))
+				})
+				return defaultUsage(cmd)
+			})
 		}
 
 		actionCmd.Flags().BoolP("help", "h", false, "")
@@ -75,6 +89,17 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 	}
 
 	return
+}
+
+func setLazyActionUsage(actionCmd *cobra.Command, buildParams func() []string) {
+	defaultUsage := rootCmd.UsageFunc()
+	var once sync.Once
+	actionCmd.SetUsageFunc(func(cmd *cobra.Command) error {
+		once.Do(func() {
+			cmd.SetUsageTemplate(actionUsageTemplate(cmd.Long, buildParams()))
+		})
+		return defaultUsage(cmd)
+	})
 }
 
 func doAction(ctx *Context, serviceName, action string) error {
