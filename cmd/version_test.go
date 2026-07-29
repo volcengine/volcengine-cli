@@ -67,6 +67,11 @@ func TestDetectSkillInvokers(t *testing.T) {
 			want: []string{"trae"},
 		},
 		{
+			name: "vecopilot",
+			env:  map[string]string{"VECOPILOT": "1"},
+			want: []string{"vecopilot"},
+		},
+		{
 			name: "cursor cli",
 			env:  map[string]string{"CURSOR_AGENT": "1"},
 			want: []string{"cursor"},
@@ -131,6 +136,14 @@ func TestDetectSkillInvokers(t *testing.T) {
 			want: []string{"claude-code"},
 		},
 		{
+			name: "vecopilot takes priority over agent fallback",
+			env: map[string]string{
+				"VECOPILOT": "1",
+				"AGENT":     "1",
+			},
+			want: []string{"vecopilot"},
+		},
+		{
 			name: "blank values are ignored",
 			env: map[string]string{
 				"AI_AGENT":                   " ",
@@ -151,6 +164,7 @@ func TestDetectSkillInvokers(t *testing.T) {
 				"TRAECLI_SESSION_ID":         " ",
 				"TRAE_CLI_PLUGIN_ROOT":       " ",
 				"COCO_PLUGIN_ROOT":           " ",
+				"VECOPILOT":                  " ",
 				"OPENCODE":                   " ",
 				"AGENT":                      " ",
 				"IS_AGENT":                   "\t",
@@ -243,6 +257,11 @@ func TestClientVersionAndUserAgentHandlerAddsSkillInvokerToHeader(t *testing.T) 
 			want: "skill-invoker/trae",
 		},
 		{
+			name: "vecopilot",
+			env:  map[string]string{"VECOPILOT": "1"},
+			want: "skill-invoker/vecopilot",
+		},
+		{
 			name: "cursor",
 			env:  map[string]string{"CURSOR_AGENT": "1"},
 			want: "skill-invoker/cursor",
@@ -301,6 +320,7 @@ func TestClientVersionAndUserAgentHandlerAddsSkillInvokerToHeader(t *testing.T) 
 			for _, unexpected := range []string{
 				"skill-invoker/claude-code",
 				"skill-invoker/trae",
+				"skill-invoker/vecopilot",
 				"skill-invoker/cursor",
 				"skill-invoker/codex",
 				"skill-invoker/gemini-cli",
@@ -333,6 +353,7 @@ func clearSkillInvokerEnv(t *testing.T) {
 		"TRAECLI_SESSION_ID",
 		"TRAE_CLI_PLUGIN_ROOT",
 		"COCO_PLUGIN_ROOT",
+		"VECOPILOT",
 		"CURSOR_AGENT",
 		"CURSOR_TRACE_ID",
 		"CURSOR_EXTENSION_HOST_ROLE",

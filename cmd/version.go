@@ -46,6 +46,12 @@ var skillInvokerDetectors = []skillInvokerDetector{
 		},
 	},
 	{
+		name: "vecopilot",
+		match: func(getenv envGetter) bool {
+			return hasEnv(getenv, "VECOPILOT")
+		},
+	},
+	{
 		name: "cursor",
 		match: func(getenv envGetter) bool {
 			return hasEnv(getenv, "CURSOR_AGENT") ||
