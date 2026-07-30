@@ -4,7 +4,7 @@
 // package paramdescriptions (asset/paramdescriptions/bindata.go) — separate
 // from asset/asset.go (metadata + explorer only).
 //
-// Inventory resolution (same idea as generate_explorer_descriptions.go):
+// Inventory resolution (same idea as generate_explorer_descriptions):
 //  1. --metadata-dir (default: <repo>/volcengine-sdk-metadata/metadata)
 //  2. fallback: parse paths in asset/asset.go
 //
@@ -21,11 +21,11 @@
 //
 // Usage:
 //
-//	go run ./scripts/generate_param_descriptions.go
-//	go run ./scripts/generate_param_descriptions.go --service ecs --version 2020-04-01
-//	go run ./scripts/generate_param_descriptions.go --delay 200ms --lang zh
-//	go run ./scripts/generate_param_descriptions.go --strict
-//	go run ./scripts/generate_param_descriptions.go --prune-missing
+//	go run ./scripts/generate_param_descriptions
+//	go run ./scripts/generate_param_descriptions --service ecs --version 2020-04-01
+//	go run ./scripts/generate_param_descriptions --delay 200ms --lang zh
+//	go run ./scripts/generate_param_descriptions --strict
+//	go run ./scripts/generate_param_descriptions --prune-missing
 //	go generate ./asset/paramdescriptions   # after writing params.json
 //
 // Write policy: merge successful fetches into any existing --out file so partial

@@ -1,7 +1,7 @@
-// Tests for S14 merge/prune helpers in generate_param_descriptions.go.
-// Run (scripts/ has multiple package-main tools; pass files explicitly):
+// Tests for S14 merge/prune helpers in generate_param_descriptions.
+// Run:
 //
-//	go test -count=1 scripts/generate_param_descriptions.go scripts/generate_param_descriptions_test.go
+//	go test -count=1 ./scripts/generate_param_descriptions
 package main
 
 import (

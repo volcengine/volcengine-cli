@@ -21,7 +21,7 @@ type paramDescription struct {
 	ExampleEn     string `json:"example_en,omitempty"`
 }
 
-// paramDescriptionsData mirrors scripts/generate_param_descriptions.go output:
+// paramDescriptionsData mirrors scripts/generate_param_descriptions output:
 // apis[service][version][action][paramName] → description.
 type paramDescriptionsData struct {
 	Apis map[string]map[string]map[string]map[string]paramDescription `json:"apis"`

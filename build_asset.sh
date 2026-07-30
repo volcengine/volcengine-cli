@@ -16,7 +16,7 @@
 #   asset/paramdescriptions/bindata.go  ← go-bindata from params.json (package paramdescriptions)
 #
 # explorer_descriptions is a pre-existing master feature: always run
-# generate_explorer_descriptions.go; on failure soft-fail to {} so metadata
+# generate_explorer_descriptions; on failure soft-fail to {} so metadata
 # bindata can still proceed (same as origin/master build_asset.sh).
 #
 # Non-interactive:
@@ -219,7 +219,7 @@ bindata_param_descriptions() {
 # Always run — same control flow as origin/master build_asset.sh (not a new feature).
 # Soft-fail only when generation fails so metadata bindata can still proceed.
 echo "==> generating explorer descriptions (always; master-compatible)"
-if ! go run ./scripts/generate_explorer_descriptions.go \
+if ! go run ./scripts/generate_explorer_descriptions \
   --metadata-dir volcengine-sdk-metadata/metadata \
   --out volcengine-sdk-metadata/explorer_descriptions/descriptions.json
 then
@@ -255,7 +255,7 @@ if [ "$do_param" = "1" ]; then
     echo "    PARAM_DESC_PRUNE_MISSING=1 → --prune-missing (ensure inventory is complete)"
     PARAM_GEN_ARGS+=(--prune-missing)
   fi
-  if ! go run ./scripts/generate_param_descriptions.go "${PARAM_GEN_ARGS[@]}"
+  if ! go run ./scripts/generate_param_descriptions "${PARAM_GEN_ARGS[@]}"
   then
     echo "error: param descriptions generation failed" >&2
     if [ -f "${PARAM_DESC_JSON}" ] || [ -f "${PARAM_DESC_BINDATA}" ]; then
