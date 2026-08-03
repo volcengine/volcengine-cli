@@ -121,6 +121,79 @@ func TestActionUsageIncludesLongDescription(t *testing.T) {
 	}
 }
 
+func TestJSONActionUsageSeparatesParameterForms(t *testing.T) {
+	tests := []struct {
+		name     string
+		language Language
+		want     string
+	}{
+		{
+			name:     "English",
+			language: LanguageEnglish,
+			want: "Available Parameters:\n\n" +
+				"  Parameter Form:\n" +
+				"    --Filter.Name string\n" +
+				"    --PageSize integer\n\n" +
+				"  JSON Form:\n" +
+				"    --body '{\n" +
+				"        \"Filter\": {}\n" +
+				"    }'",
+		},
+		{
+			name:     "Simplified Chinese",
+			language: LanguageSimplifiedChinese,
+			want: "可用参数：\n\n" +
+				"  参数方式：\n" +
+				"    --Filter.Name string\n" +
+				"    --PageSize integer\n\n" +
+				"  JSON 方式：\n" +
+				"    --body '{\n" +
+				"        \"Filter\": {}\n" +
+				"    }'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			restoreLanguage := setLanguageForTest(tt.language)
+			defer restoreLanguage()
+
+			out := jsonActionUsageTemplate("", []string{"PageSize integer", "Filter.Name string"}, "body '{\n    \"Filter\": {}\n}'")
+			if !strings.Contains(out, tt.want) {
+				t.Fatalf("JSON action usage missing grouped parameters:\n%s", out)
+			}
+		})
+	}
+}
+
+func TestNonJSONActionUsageKeepsSingleParameterList(t *testing.T) {
+	restoreLanguage := setLanguageForTest(LanguageEnglish)
+	defer restoreLanguage()
+
+	out := actionUsageTemplate("", []string{"InstanceId string"})
+	if !strings.Contains(out, "Available Parameters:\n  --InstanceId string") {
+		t.Fatalf("non-JSON action usage changed unexpectedly:\n%s", out)
+	}
+	for _, unwanted := range []string{"Parameter Form:", "JSON Form:"} {
+		if strings.Contains(out, unwanted) {
+			t.Fatalf("non-JSON action usage unexpectedly contains %q:\n%s", unwanted, out)
+		}
+	}
+}
+
+func TestJSONActionUsageOmitsEmptyParameterForm(t *testing.T) {
+	restoreLanguage := setLanguageForTest(LanguageEnglish)
+	defer restoreLanguage()
+
+	out := jsonActionUsageTemplate("", nil, "body '{}'")
+	if strings.Contains(out, "Parameter Form:") {
+		t.Fatalf("JSON action usage contains an empty parameter form:\n%s", out)
+	}
+	if !strings.Contains(out, "JSON Form:\n    --body '{}'") {
+		t.Fatalf("JSON action usage missing body form:\n%s", out)
+	}
+}
+
 func TestServiceUsageIncludesActionTableHeader(t *testing.T) {
 	out := serviceUsageTemplate()
 	for _, want := range []string{
