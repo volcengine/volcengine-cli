@@ -236,6 +236,7 @@ CLI 内置了部分云产品的元数据，正常调用时会校验 service 和 
 | `---endpoint` | 视 service | 与正常调用相同：`---endpoint` > `endpoint-resolver=standard` > profile/env endpoint >（已收录）按 service+region 解析。**未收录**需要最终生效的**固定 host**（`endpoint-resolver=standard` 或 `auto-addressing` 不够） |
 | `---method` | 否 | HTTP 方法：`GET` 或 `POST`；正常路径与 force 路径规则一致：显式值优先 → action 元数据 → 默认 `GET` |
 | `---region` | 视凭证配置 | 与正常调用相同，必须能解析到 region |
+| `--header` | 否 | **双横线保留控制参数**，`Name=Value`，可重复；自定义 HTTP 头。`Content-Type` 覆盖元数据；不进请求体。禁止 `Host`/`Authorization`/`Content-Length` |
 
 注意：
 
@@ -244,7 +245,7 @@ CLI 内置了部分云产品的元数据，正常调用时会校验 service 和 
 - 未收录 service 没有元数据可推 host：需要固定 host（`---endpoint`，或 profile/`VOLCENGINE_ENDPOINT` 在**未**设置 `endpoint-resolver=standard` 时）。仅配置 `endpoint-resolver=standard` / `auto-addressing` 不够。
 - 已收录 service 在 force 模式下可不传 `---version`，行为与正常路径一致（如 `ve sts GetCallerIdentity ---force`）。
 - `---method` 在正常路径与 force 路径使用相同解析顺序：显式 `---method` 覆盖元数据；未指定时优先用已收录 action 的 Method；均无则默认 `GET`（不因 `---force` 而改变）。
-- force 相关控制参数均使用 **三横线** `---`，与 API 业务参数的双横线 `--` 区分。
+- force 相关控制参数多用 **三横线** `---`；HTTP 头/JSON body 用双横线保留控制参数 **`--header` / `--body`**（见 [使用指南](4-Usage-zh.md#双横线保留控制参数)）。
 - `---force` 是**纯开关**：只写 `---force` 本身。不要写 `---force true` 或 `---force false`；其后的 token 会被当成位置参数（常被误当成 action 名）。
 
 ### 示例
@@ -344,10 +345,16 @@ debug 不是 CLI fixed flag。当前只通过 `VOLCENGINE_CLI_DEBUG` 环境变�
 VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity
 ```
 
-当前支持的 fixed flags：
+三横线 fixed flags：
 
 ```text
 ---profile, ---region, ---endpoint, ---lang, ---version, ---method, ---force
+```
+
+双横线保留控制参数：
+
+```text
+--header, --body
 ```
 
 ### 为什么提示缺少 region？

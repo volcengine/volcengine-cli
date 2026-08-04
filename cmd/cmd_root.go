@@ -197,7 +197,7 @@ func rootUsageTemplate() string {
 ` + tr("Flags:") + `
 {{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableSubCommands}}
 
-` + tr("Fixed Flags:") + `
+` + tr("CLI Control Flags:") + `
 ` + localizedFixedFlagsHelp() + `
 
 ` + tr("Examples:") + `

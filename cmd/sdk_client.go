@@ -31,6 +31,9 @@ type SdkClientInfo struct {
 	Version     string
 	Method      string
 	ContentType string
+	// Headers are custom HTTP headers from --header Name=Value (excluding Content-Type,
+	// which is applied via ContentType with JSON charset normalization).
+	Headers []requestHeader
 }
 
 // selectInvocationProfile 解析本次调用使用的 profile。
@@ -443,10 +446,19 @@ func (s *SdkClient) CallSdk(info SdkClientInfo, input interface{}) (output *map[
 	}
 	output = &map[string]interface{}{}
 	req := c.NewRequest(op, input, output)
-	if strings.ToLower(info.ContentType) == "application/json" {
+	if isJSONContentType(info.ContentType) {
+		// Normalize JSON Content-Type; parameters from the user (charset, etc.) are dropped
+		// in favor of a single canonical value the SDK path expects.
 		req.HTTPRequest.Header.Set("Content-Type", "application/json; charset=utf-8")
-	} else if info.ContentType != "" {
+	} else if strings.TrimSpace(info.ContentType) != "" {
 		req.HTTPRequest.Header.Set("Content-Type", info.ContentType)
+	}
+	for _, h := range info.Headers {
+		if strings.EqualFold(h.Name, "Content-Type") {
+			// Already applied via ContentType (with JSON charset normalization when needed).
+			continue
+		}
+		req.HTTPRequest.Header.Set(h.Name, h.Value)
 	}
 	err = req.Send()
 	return output, err

@@ -97,15 +97,19 @@ var rootBoolFlags = map[string]struct{}{
 // rootValueFlags are root-level flags that take a following argument.
 // Include CLI fixed flags (---lang / ---profile / …) so firstRootPositional does not
 // treat their values as the root subcommand (e.g. ve ---lang ZH upgrade).
-// Keep in sync with cmd/parser allowedFixedFlags (value-taking ones) and ---lang.
+// Keep in sync with:
+//   - cmd/parser allowedFixedFlags (value-taking --- flags) and ---lang
+//   - cmd/reservedDynamicFlags (double-dash reserved controls: --header, --body)
 var rootValueFlags = map[string]struct{}{
-	"---lang":         {},
-	"---profile":      {},
-	"---region":       {},
-	"---endpoint":     {},
-	"---version":      {},
-	"---method":       {},
-	"---content-type": {},
+	"---lang":     {},
+	"---profile":  {},
+	"---region":   {},
+	"---endpoint": {},
+	"---version":  {},
+	"---method":   {},
+	// Double-dash reserved CLI controls (cmd.reservedDynamicFlags).
+	"--header": {},
+	"--body":   {},
 }
 
 // ShouldSkipBackgroundCheck returns true when the current invocation should not

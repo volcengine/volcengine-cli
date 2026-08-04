@@ -7,10 +7,16 @@
 CLI 的基本调用格式：
 
 ```shell
-ve <service> <action> [--Param value ...] [---profile name] [---region region] [---endpoint endpoint] [---lang language] [---version api-version] [---method GET|POST] [---force]
+ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
+                      [---profile name] [---region region] [---endpoint endpoint]
+                      [---lang language] [---version api-version] [---method GET|POST] [---force]
 ```
 
-其中 `--Param value` 是 API 参数，`---profile` / `---region` / `---endpoint` / `---lang` / `---version` / `---method` / `---force` 是 CLI 固定参数。
+参数分三类：
+
+- **API 业务参数**：双横线 `--Param value`，进入请求体/查询参数（保留名 `body` / `header` 除外）
+- **三横线固定参数**：`---profile` / `---region` / `---endpoint` / `---lang` / `---version` / `---method` / `---force`
+- **双横线保留控制参数**：`--header`（HTTP 头）、`--body`（JSON 请求体）；**不是**业务参数，不会进 body 字段映射
 
 ## 查看服务和接口
 
@@ -81,6 +87,29 @@ ve rds_mysql ListDBInstanceIPLists --InstanceId mysql-xxxxxx --GroupName default
 | `---version` | 指定本次调用的 **API 版本**；未指定时使用内置元数据中的 service 版本（与根命令 `ve -v` / `ve --version` 的 CLI 版本无关） |
 | `---force` | 跳过 service/action 元数据校验，强制调用未收录或新发布的接口；**未收录 service** 须提供 `---version` 与固定 endpoint（`---endpoint` 或非 standard 下的 profile/`VOLCENGINE_ENDPOINT`）；已收录 service 可回落元数据 |
 | `---method` | 指定 HTTP 方法（`GET`/`POST`）；正常路径与 `---force` 路径规则一致：显式值优先，否则用 action 元数据，均无则默认 `GET` |
+
+### 双横线保留控制参数
+
+| 参数 | 作用 |
+| --- | --- |
+| `--header Name=Value` | 追加 HTTP 请求头，**可重复**；不进入请求体。`Content-Type` 优先于元数据；同名多次时以最后一次为准 |
+| `--body json` | JSON 请求体（`application/json` 风格）；不能与其他 API 业务参数混用 |
+
+```shell
+ve sts GetCallerIdentity --header X-Custom-Trace=abc
+ve newsvc Act ---force ---version 2024-01-01 ---endpoint open.volcengineapi.com \
+  --header Content-Type=application/json \
+  --header X-Feature=on \
+  --body '{"k":1}'
+```
+
+规则补充：
+
+- `Content-Type` 可用 `--header Content-Type=...` 覆盖；带参数形式（如 `application/json; charset=utf-8`）仍按 JSON 处理
+- 无元数据且仅有 `--body` 时，默认 `Content-Type=application/json`
+- `--header` 与 `--body` 可同时使用；`--header` 不算 flattened 业务参数，不会与 `--body` 冲突
+- 不允许覆盖：`Host`、`Authorization`、`Content-Length`（与传输/签名冲突）
+- 保留名：`--header`、`--body` 不能再作为普通 API 参数名使用
 
 示例：
 
@@ -259,8 +288,9 @@ region not set, please set it via profile, ---region flag, or VOLCENGINE_REGION 
 ---debug is not supported, supported fixed flags: ---profile, ---region, ---endpoint, ---force, ---version, ---method
 ```
 
-当前支持的固定参数只有 `---profile`、`---region`、`---endpoint`、`---lang`、`---version`、`---method`、`---force`。  
-`---lang` 会在参数解析前被预处理剥离，因此上面 parser 报错列表中不包含它。
+三横线固定参数：`---profile`、`---region`、`---endpoint`、`---lang`、`---version`、`---method`、`---force`。  
+`---lang` 会在参数解析前被预处理剥离，因此上面 parser 报错列表中不包含它。  
+双横线保留控制参数：`--header`、`--body`（见上文「双横线保留控制参数」）。
 
 ---
 

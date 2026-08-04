@@ -7,10 +7,16 @@
 Basic command format:
 
 ```shell
-ve <service> <action> [--Param value ...] [---profile name] [---region region] [---endpoint endpoint] [---lang language] [---version api-version] [---method GET|POST] [---force]
+ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
+                      [---profile name] [---region region] [---endpoint endpoint]
+                      [---lang language] [---version api-version] [---method GET|POST] [---force]
 ```
 
-`--Param value` is an API parameter. `---profile`, `---region`, `---endpoint`, `---lang`, `---version`, `---method`, and `---force` are CLI fixed flags.
+Three kinds of arguments:
+
+- **API parameters**: double-dash `--Param value` (enter request body/query; reserved names `body` / `header` excluded)
+- **Triple-dash fixed flags**: `---profile` / `---region` / `---endpoint` / `---lang` / `---version` / `---method` / `---force`
+- **Reserved double-dash controls**: `--header` (HTTP headers), `--body` (JSON body); **not** API parameters
 
 ## Discover Services and Actions
 
@@ -81,6 +87,29 @@ Fixed flags use three hyphens `---` and do not conflict with API parameters:
 | `---version` | Set the **API version** for this call; if omitted, uses the bundled service version (not the CLI version from `ve -v` / `ve --version`) |
 | `---force` | Skip service/action metadata validation and force-call unlisted or newly released APIs; **unlisted services** require `---version` and a fixed endpoint (`---endpoint` or profile/`VOLCENGINE_ENDPOINT` when resolver is not `standard`); bundled services can fall back to metadata |
 | `---method` | HTTP method (`GET`/`POST`); same rules on normal and `---force` paths: explicit value wins, else action metadata, else `GET` |
+
+### Reserved Double-Dash Controls
+
+| Flag | Purpose |
+| --- | --- |
+| `--header Name=Value` | Add an HTTP request header; **repeatable**; never enters the request body. `Content-Type` overrides metadata; last value wins for the same name |
+| `--body json` | JSON request body for `application/json` style calls; mutually exclusive with other API parameters |
+
+```shell
+ve sts GetCallerIdentity --header X-Custom-Trace=abc
+ve newsvc Act ---force ---version 2024-01-01 ---endpoint open.volcengineapi.com \
+  --header Content-Type=application/json \
+  --header X-Feature=on \
+  --body '{"k":1}'
+```
+
+Notes:
+
+- Override `Content-Type` with `--header Content-Type=...`; forms with parameters (e.g. `application/json; charset=utf-8`) are still treated as JSON
+- With `--body` and no metadata, Content-Type defaults to `application/json`
+- `--header` can be used with `--body`; headers are not flattened API params and do not conflict with `--body`
+- Blocked header names: `Host`, `Authorization`, `Content-Length` (transport/signing)
+- Reserved names: `--header` and `--body` cannot be used as ordinary API parameter names
 
 Examples:
 
@@ -259,8 +288,9 @@ Unsupported fixed flag:
 ---debug is not supported, supported fixed flags: ---profile, ---region, ---endpoint, ---force, ---version, ---method
 ```
 
-The only supported fixed flags are `---profile`, `---region`, `---endpoint`, `---lang`, `---version`, `---method`, and `---force`.  
-`---lang` is resolved before argument parsing, so the parser error list above does not include it.
+Triple-dash fixed flags: `---profile`, `---region`, `---endpoint`, `---lang`, `---version`, `---method`, and `---force`.  
+`---lang` is resolved before argument parsing, so the parser error list above does not include it.  
+Reserved double-dash controls: `--header`, `--body` (see “Reserved Double-Dash Controls” above).
 
 ---
 

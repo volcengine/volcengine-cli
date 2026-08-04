@@ -72,16 +72,27 @@ func explicitHTTPMethod(c *Context) (string, error) {
 	return method, nil
 }
 
-// resolveCallStyle 决定调用的 Method/ContentType：method 走 resolveActionHTTPMethod；
-// contentType 优先 ---content-type，其次元数据，最后在无元数据且存在 --body 时默认 application/json。
-// 正常路径与 force 路径共用，避免两套 contentType 组装分叉。
-func resolveCallStyle(ctx *Context, serviceName, action string) (method, contentType string, err error) {
+// resolveCallStyle 决定 Method / ContentType / 自定义 headers：
+//   - method：显式 ---method > 元数据 > GET
+//   - contentType：--header Content-Type > 元数据 > 有 --body 时默认 application/json
+//   - headers：解析并校验一次后返回，供 CallSdk 注入
+//
+// 正常路径与 force 路径共用，避免两套 contentType / header 组装分叉。
+func resolveCallStyle(ctx *Context, serviceName, action string) (method, contentType string, headers []requestHeader, err error) {
 	apiInfo := rootSupport.GetApiInfo(serviceName, action)
 	method, err = resolveActionHTTPMethod(ctx, apiInfo)
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
-	if ct := explicitContentType(ctx); ct != "" {
+	headers, err = collectRequestHeaders(ctx)
+	if err != nil {
+		return "", "", nil, err
+	}
+	ct, err := contentTypeFromHeaders(headers)
+	if err != nil {
+		return "", "", nil, err
+	}
+	if ct != "" {
 		contentType = ct
 	} else if apiInfo != nil && apiInfo.ContentType != "" {
 		contentType = apiInfo.ContentType
@@ -89,19 +100,96 @@ func resolveCallStyle(ctx *Context, serviceName, action string) (method, content
 		// Unlisted / no-meta force calls often only pass --body; treat as JSON.
 		contentType = "application/json"
 	}
-	return method, contentType, nil
+	return method, contentType, headers, nil
 }
 
-// explicitContentType 读取 ---content-type（HTTP 请求 Content-Type 覆盖）。
-func explicitContentType(c *Context) string {
-	if c == nil || c.fixedFlags == nil {
-		return ""
+// requestHeader is one --header Name=Value pair after parsing.
+type requestHeader struct {
+	Name  string
+	Value string
+}
+
+// blockedHTTPHeaderNames cannot be set via --header: they conflict with transport
+// or signing. Comparison is case-insensitive.
+var blockedHTTPHeaderNames = map[string]struct{}{
+	"host":           {},
+	"authorization":  {},
+	"content-length": {},
+}
+
+// collectRequestHeaders parses all --header Name=Value assignments in order.
+// Invalid or blocked entries fail the call early.
+func collectRequestHeaders(c *Context) ([]requestHeader, error) {
+	if c == nil || c.dynamicFlags == nil {
+		return nil, nil
 	}
-	f := c.fixedFlags.GetByName("content-type")
+	f := c.dynamicFlags.GetByName("header")
 	if f == nil {
-		return ""
+		return nil, nil
 	}
-	return strings.TrimSpace(f.GetValue())
+	raw := f.GetValues()
+	out := make([]requestHeader, 0, len(raw))
+	for _, v := range raw {
+		name, value, err := parseHeaderKV(v)
+		if err != nil {
+			return nil, err
+		}
+		if _, blocked := blockedHTTPHeaderNames[strings.ToLower(name)]; blocked {
+			return nil, fmt.Errorf("--header %q is not allowed (reserved for transport/signing)", name)
+		}
+		out = append(out, requestHeader{Name: name, Value: value})
+	}
+	return out, nil
+}
+
+// parseHeaderKV splits "Name=Value" on the first '=' (aliyun-cli compatible).
+func parseHeaderKV(s string) (name, value string, err error) {
+	s = strings.TrimSpace(s)
+	idx := strings.Index(s, "=")
+	if idx <= 0 {
+		return "", "", fmt.Errorf("invalid --header %q, expected HeaderName=Value", s)
+	}
+	name = strings.TrimSpace(s[:idx])
+	value = strings.TrimSpace(s[idx+1:])
+	if name == "" {
+		return "", "", fmt.Errorf("invalid --header %q, expected HeaderName=Value", s)
+	}
+	return name, value, nil
+}
+
+// contentTypeFromHeaders returns the last Content-Type value among custom headers
+// (case-insensitive). An explicit empty Content-Type value is an error.
+func contentTypeFromHeaders(headers []requestHeader) (string, error) {
+	var (
+		found bool
+		ct    string
+	)
+	for _, h := range headers {
+		if strings.EqualFold(h.Name, "Content-Type") {
+			found = true
+			ct = h.Value
+		}
+	}
+	if found && ct == "" {
+		return "", fmt.Errorf("--header Content-Type value must not be empty")
+	}
+	return ct, nil
+}
+
+// mediaType returns the type/subtype of a Content-Type value (lowercased),
+// stripping parameters after ';' (e.g. "application/json; charset=utf-8").
+func mediaType(contentType string) string {
+	s := strings.TrimSpace(strings.ToLower(contentType))
+	if i := strings.Index(s, ";"); i >= 0 {
+		s = strings.TrimSpace(s[:i])
+	}
+	return s
+}
+
+// isJSONContentType reports whether contentType is application/json, optionally
+// with parameters (charset, etc.).
+func isJSONContentType(contentType string) bool {
+	return mediaType(contentType) == "application/json"
 }
 
 // hasDynamicBodyFlag reports whether --body was provided among dynamic flags.

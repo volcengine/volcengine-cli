@@ -112,8 +112,8 @@ func TestShouldSkipBackgroundCheck_TripleDashFixedFlags(t *testing.T) {
 	if !ShouldSkipBackgroundCheck([]string{"---force", "upgrade"}) {
 		t.Fatal("expected skip for ---force upgrade (presence-only)")
 	}
-	if !ShouldSkipBackgroundCheck([]string{"---content-type", "application/json", "upgrade"}) {
-		t.Fatal("expected skip for ---content-type … upgrade")
+	if !ShouldSkipBackgroundCheck([]string{"--header", "X-Foo=bar", "upgrade"}) {
+		t.Fatal("expected skip for --header … upgrade")
 	}
 	// ---lang consumes the next token as its value, so "upgrade" is not the subcommand.
 	if ShouldSkipBackgroundCheck([]string{"---lang", "upgrade"}) {

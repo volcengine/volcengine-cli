@@ -9,14 +9,40 @@ import (
 type Flag struct {
 	Name  string
 	value string
+	// multi enables value accumulation across repeated flags (e.g. --header).
+	// Single-value flags overwrite on SetValue.
+	multi  bool
+	values []string
 }
 
+// SetValue assigns a value. Multi-value flags append; single-value flags replace.
 func (f *Flag) SetValue(value string) {
 	f.value = value
+	if f.multi {
+		f.values = append(f.values, value)
+		return
+	}
+	f.values = []string{value}
 }
 
 func (f *Flag) GetValue() string {
 	return f.value
+}
+
+// GetValues returns all assigned values in order.
+func (f *Flag) GetValues() []string {
+	if f == nil {
+		return nil
+	}
+	if len(f.values) > 0 {
+		out := make([]string, len(f.values))
+		copy(out, f.values)
+		return out
+	}
+	if f.value != "" {
+		return []string{f.value}
+	}
+	return nil
 }
 
 type FlagSet struct {
@@ -47,8 +73,14 @@ func (fs *FlagSet) AddFlag(f *Flag) {
 }
 
 func (fs *FlagSet) AddByName(name string) (*Flag, error) {
+	if isMultiValueDynamicFlag(name) {
+		if existing := fs.GetByName(name); existing != nil {
+			return existing, nil
+		}
+	}
 	f := &Flag{
-		Name: name,
+		Name:  name,
+		multi: isMultiValueDynamicFlag(name),
 	}
 	if _, ok := fs.index["--"+name]; ok {
 		return nil, fmt.Errorf("flag duplicated --%s", name)

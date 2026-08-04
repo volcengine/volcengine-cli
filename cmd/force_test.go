@@ -388,18 +388,21 @@ func TestBuildForceInvocationInputBodyWithoutMetadata(t *testing.T) {
 func TestResolveCallStyleContentTypeOverrideAndBodyDefault(t *testing.T) {
 	c := NewContext()
 	parser := NewParser([]string{
-		"---content-type", "application/json",
+		"--header", "Content-Type=application/json; charset=utf-8",
 		"--body", `{"a":1}`,
 	})
 	if _, err := parser.ReadArgs(c); err != nil {
 		t.Fatalf("ReadArgs: %v", err)
 	}
-	_, ct, err := resolveCallStyle(c, "definitely_unlisted_svc", "Act")
+	_, ct, headers, err := resolveCallStyle(c, "definitely_unlisted_svc", "Act")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ct != "application/json" {
+	if !isJSONContentType(ct) {
 		t.Fatalf("content-type override = %q", ct)
+	}
+	if len(headers) != 1 {
+		t.Fatalf("headers should be returned once from resolveCallStyle, got %#v", headers)
 	}
 
 	c2 := NewContext()
@@ -407,7 +410,7 @@ func TestResolveCallStyleContentTypeOverrideAndBodyDefault(t *testing.T) {
 	if _, err := parser2.ReadArgs(c2); err != nil {
 		t.Fatalf("ReadArgs: %v", err)
 	}
-	_, ct2, err := resolveCallStyle(c2, "definitely_unlisted_svc", "Act")
+	_, ct2, _, err := resolveCallStyle(c2, "definitely_unlisted_svc", "Act")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -416,11 +419,168 @@ func TestResolveCallStyleContentTypeOverrideAndBodyDefault(t *testing.T) {
 	}
 }
 
+func TestCollectRequestHeadersRepeatableAndParse(t *testing.T) {
+	c := NewContext()
+	parser := NewParser([]string{
+		"--header", "X-Foo=bar",
+		"--header", "X-Bar=baz=qux",
+		"--header", "Content-Type=application/json",
+	})
+	if _, err := parser.ReadArgs(c); err != nil {
+		t.Fatalf("ReadArgs: %v", err)
+	}
+	headers, err := collectRequestHeaders(c)
+	if err != nil {
+		t.Fatalf("collectRequestHeaders: %v", err)
+	}
+	if len(headers) != 3 {
+		t.Fatalf("headers len = %d, want 3: %#v", len(headers), headers)
+	}
+	if headers[0].Name != "X-Foo" || headers[0].Value != "bar" {
+		t.Fatalf("header[0] = %#v", headers[0])
+	}
+	if headers[1].Name != "X-Bar" || headers[1].Value != "baz=qux" {
+		t.Fatalf("header[1] = %#v", headers[1])
+	}
+	ct, err := contentTypeFromHeaders(headers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ct != "application/json" {
+		t.Fatalf("contentTypeFromHeaders = %q", ct)
+	}
+
+	// invalid format
+	cBad := NewContext()
+	parserBad := NewParser([]string{"--header", "NoEquals"})
+	if _, err := parserBad.ReadArgs(cBad); err != nil {
+		t.Fatalf("ReadArgs: %v", err)
+	}
+	if _, err := collectRequestHeaders(cBad); err == nil {
+		t.Fatal("expected invalid --header error")
+	}
+
+	// blocked sensitive header
+	cBlock := NewContext()
+	parserBlock := NewParser([]string{"--header", "Authorization=secret"})
+	if _, err := parserBlock.ReadArgs(cBlock); err != nil {
+		t.Fatalf("ReadArgs: %v", err)
+	}
+	if _, err := collectRequestHeaders(cBlock); err == nil {
+		t.Fatal("expected blocked Authorization header error")
+	}
+
+	// empty Content-Type value
+	cEmpty := NewContext()
+	parserEmpty := NewParser([]string{"--header", "Content-Type="})
+	if _, err := parserEmpty.ReadArgs(cEmpty); err != nil {
+		t.Fatalf("ReadArgs: %v", err)
+	}
+	headersEmpty, err := collectRequestHeaders(cEmpty)
+	if err != nil {
+		t.Fatalf("collectRequestHeaders: %v", err)
+	}
+	if _, err := contentTypeFromHeaders(headersEmpty); err == nil {
+		t.Fatal("expected empty Content-Type error")
+	}
+
+	// --header must not become request body params
+	input, fromBody, err := buildActionInput(c.dynamicFlags.flags, nil, true)
+	if err != nil {
+		t.Fatalf("buildActionInput: %v", err)
+	}
+	if fromBody {
+		t.Fatal("did not pass --body")
+	}
+	m, ok := input.(map[string]interface{})
+	if !ok {
+		t.Fatalf("input type %T", input)
+	}
+	if _, exists := m["header"]; exists {
+		t.Fatalf("header leaked into body: %#v", m)
+	}
+}
+
+func TestIsJSONContentTypeMediaType(t *testing.T) {
+	cases := map[string]bool{
+		"application/json":                  true,
+		"application/json; charset=utf-8":   true,
+		"APPLICATION/JSON;charset=UTF-8":    true,
+		" application/json ; charset=utf-8": true,
+		"application/xml":                   false,
+		"":                                  false,
+	}
+	for in, want := range cases {
+		if got := isJSONContentType(in); got != want {
+			t.Fatalf("isJSONContentType(%q)=%v want %v", in, got, want)
+		}
+	}
+}
+
+func TestContentTypeFromHeadersLastWins(t *testing.T) {
+	headers := []requestHeader{
+		{Name: "Content-Type", Value: "application/xml"},
+		{Name: "X-Other", Value: "1"},
+		{Name: "content-type", Value: "application/json; charset=utf-8"},
+	}
+	ct, err := contentTypeFromHeaders(headers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ct != "application/json; charset=utf-8" {
+		t.Fatalf("last Content-Type wins: got %q", ct)
+	}
+}
+
+func TestResolveCallStyleHeaderOverridesMetadataContentType(t *testing.T) {
+	// Find a bundled action whose metadata Content-Type is non-empty and not
+	// the override value, so we can prove --header wins over metadata.
+	var svcName, actionName, metaCT string
+	for _, svc := range rootSupport.GetAllSvc() {
+		for _, action := range rootSupport.GetAllAction(svc) {
+			apiInfo := rootSupport.GetApiInfo(svc, action)
+			if apiInfo == nil || strings.TrimSpace(apiInfo.ContentType) == "" {
+				continue
+			}
+			if isJSONContentType(apiInfo.ContentType) {
+				// Prefer a JSON action so override to text/plain is clearly different.
+				svcName, actionName, metaCT = svc, action, apiInfo.ContentType
+				break
+			}
+			if svcName == "" {
+				svcName, actionName, metaCT = svc, action, apiInfo.ContentType
+			}
+		}
+		if svcName != "" && isJSONContentType(metaCT) {
+			break
+		}
+	}
+	if svcName == "" {
+		t.Fatal("expected at least one action with ContentType metadata")
+	}
+
+	c := NewContext()
+	parser := NewParser([]string{"--header", "Content-Type=text/plain"})
+	if _, err := parser.ReadArgs(c); err != nil {
+		t.Fatalf("ReadArgs: %v", err)
+	}
+	_, ct, _, err := resolveCallStyle(c, svcName, actionName)
+	if err != nil {
+		t.Fatalf("resolveCallStyle: %v", err)
+	}
+	if ct != "text/plain" {
+		t.Fatalf("expected --header Content-Type to override metadata %q, got %q", metaCT, ct)
+	}
+	if ct == metaCT {
+		t.Fatalf("override should differ from metadata Content-Type %q", metaCT)
+	}
+}
+
 func TestBuildForceInvocationInputUsesActionInputWithMetadata(t *testing.T) {
 	for _, svc := range rootSupport.GetAllSvc() {
 		for _, action := range rootSupport.GetAllAction(svc) {
 			apiInfo := rootSupport.GetApiInfo(svc, action)
-			if apiInfo == nil || strings.ToLower(apiInfo.ContentType) != "application/json" {
+			if apiInfo == nil || !isJSONContentType(apiInfo.ContentType) {
 				continue
 			}
 			if rootSupport.GetApiMeta(svc, action) == nil {
@@ -449,7 +609,7 @@ func TestBuildForceInvocationInputKeepsStringMetaLiteralForNonJSON(t *testing.T)
 	for _, svc := range rootSupport.GetAllSvc() {
 		for _, action := range rootSupport.GetAllAction(svc) {
 			apiInfo := rootSupport.GetApiInfo(svc, action)
-			if apiInfo != nil && strings.ToLower(apiInfo.ContentType) == "application/json" {
+			if apiInfo != nil && isJSONContentType(apiInfo.ContentType) {
 				continue
 			}
 			meta := rootSupport.GetApiMeta(svc, action)
@@ -685,10 +845,13 @@ func TestPrintUnknownServiceHelp(t *testing.T) {
 		t.Fatalf("expected unknown service help text, got: %q", help)
 	}
 	// 与 root/service/action usage 共用 localizedFixedFlagsHelp，应包含 ---lang。
-	for _, flag := range []string{"---force", "---version", "---method", "---content-type", "---lang"} {
+	for _, flag := range []string{"---force", "---version", "---method", "--header", "--body", "---lang"} {
 		if !strings.Contains(help, flag) {
 			t.Fatalf("unknown service help missing %q:\n%s", flag, help)
 		}
+	}
+	if !strings.Contains(help, "Reserved double-dash") && !strings.Contains(help, "双横线保留") {
+		t.Fatalf("help should separate reserved double-dash controls, got:\n%s", help)
 	}
 }
 
@@ -701,19 +864,22 @@ func TestTryExecuteGenericInvokeShowsHelpWithoutAction(t *testing.T) {
 
 func TestResolveCallStyleUsesMetadataWhenAvailable(t *testing.T) {
 	c := NewContext()
-	method, contentType, err := resolveCallStyle(c, "sts", "GetCallerIdentity")
+	method, contentType, headers, err := resolveCallStyle(c, "sts", "GetCallerIdentity")
 	if err != nil {
 		t.Fatalf("resolveCallStyle: %v", err)
 	}
 	if method == "" {
 		t.Fatal("expected method from metadata or default")
 	}
+	if headers != nil && len(headers) != 0 {
+		t.Fatalf("expected no headers, got %#v", headers)
+	}
 	_ = contentType
 }
 
 func TestResolveCallStyleDefaultsToGETLikeNormalPath(t *testing.T) {
 	c := NewContext()
-	method, _, err := resolveCallStyle(c, "sts", "TotallyUnknownAction")
+	method, _, _, err := resolveCallStyle(c, "sts", "TotallyUnknownAction")
 	if err != nil {
 		t.Fatalf("resolveCallStyle: %v", err)
 	}

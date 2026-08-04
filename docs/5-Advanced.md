@@ -236,6 +236,7 @@ Unknown API parameters already pass through in normal mode. `---force` mainly re
 | `---endpoint` | Depends on service | Same as normal calls: `---endpoint` > `endpoint-resolver=standard` > profile/env endpoint > (bundled) resolve by service+region. **Unlisted** services need an effective **fixed host** (`endpoint-resolver=standard` or `auto-addressing` alone is not enough) |
 | `---method` | No | HTTP method: `GET` or `POST`; same on normal and force paths: explicit value → action metadata → default `GET` |
 | `---region` | Depends on config | Same as normal calls; a region must be resolvable |
+| `--header` | No | **Reserved double-dash control**, `Name=Value`, repeatable; custom HTTP headers. `Content-Type` overrides metadata; never enters the body. `Host`/`Authorization`/`Content-Length` are blocked |
 
 Notes:
 
@@ -244,7 +245,7 @@ Notes:
 - Unlisted services have no metadata host: you need a fixed host (`---endpoint`, or profile/`VOLCENGINE_ENDPOINT` when `endpoint-resolver` is **not** `standard`). `endpoint-resolver=standard` or `auto-addressing` alone is not enough.
 - Bundled services can omit `---version` in force mode, same as normal calls (e.g. `ve sts GetCallerIdentity ---force`).
 - `---method` uses the same resolution order on normal and force paths: explicit `---method` overrides metadata; otherwise bundled action `Method`; otherwise defaults to `GET` (`---force` does not change this).
-- Force control flags use **three hyphens** `---`, separate from API parameters with `--`.
+- Most force control flags use **three hyphens** `---`; HTTP headers/JSON body use reserved double-dash controls **`--header` / `--body`** (see [Usage](4-Usage.md#reserved-double-dash-controls)).
 - `---force` is **presence-only**: write `---force` by itself. Do **not** write `---force true` or `---force false`; the next token is treated as a positional argument (often mistaken for an action name).
 
 ### Examples
@@ -344,10 +345,16 @@ Debug is not a CLI fixed flag. Use `VOLCENGINE_CLI_DEBUG`:
 VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity
 ```
 
-The supported fixed flags are:
+Triple-dash fixed flags:
 
 ```text
 ---profile, ---region, ---endpoint, ---lang, ---version, ---method, ---force
+```
+
+Reserved double-dash controls:
+
+```text
+--header, --body
 ```
 
 ### Why does the CLI say region is missing?

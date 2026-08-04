@@ -15,9 +15,16 @@ func buildActionInput(flags []*Flag, apiMeta *ApiMeta, jsonBody bool) (interface
 	flat := make(map[string]string)
 
 	for _, f := range flags {
+		if f == nil {
+			continue
+		}
 		if f.Name == "body" {
 			hasBody = true
 			bodyVal = f.value
+			continue
+		}
+		if isSkipBodyDynamicFlag(f.Name) {
+			// Reserved CLI double-dash controls (e.g. --header).
 			continue
 		}
 		hasFlat = true

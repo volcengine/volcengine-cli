@@ -11,7 +11,8 @@
 // 共享调用前处理见 invocation.go；profile/endpoint 解析真相见 sdk_client.go
 // （selectInvocationProfile / resolveClientEndpoint / hasEffectiveFixedEndpoint）。
 //
-// 固定参数（三横线）的白名单与 Usage 文案见 parser.go（allowedFixedFlags / localizedFixedFlagsHelp）。
+// 三横线固定参数：parser.go allowedFixedFlags / localizedFixedFlagsHelp。
+// 双横线保留控制参数：reserved_dynamic.go（--header / --body）。
 // force 路径额外约定：
 //
 //	---force    纯开关，出现即启用（只放宽 service/action 元数据校验，不改变 endpoint 解析）
@@ -19,6 +20,8 @@
 //	---endpoint 与正常调用同一套解析（flag > resolver=standard > profile/env > 已收录 SDK 解析）；
 //	            未收录需要最终生效的固定 host（standard / auto-addressing 不够）
 //	---method   可选；未指定时优先元数据，否则 GET
+//	--header    可重复 HTTP 头 Name=Value（Content-Type 可覆盖元数据；不进请求体）
+//	--body      JSON 请求体；与 flattened 业务参数互斥
 package cmd
 
 import (
@@ -62,14 +65,14 @@ func validateForceCall(c *Context, serviceName string) error {
 }
 
 // buildForceInput 将双横线 API 参数（dynamicFlags）组装为请求体/查询参数。
-// 固定参数已在 parser 层归入 fixedFlags，不会进入此处。
+// 固定参数已在 parser 层归入 fixedFlags；--header/--body 等保留动态 flag 不会进入此处。
 func buildForceInput(c *Context) map[string]interface{} {
 	input := make(map[string]interface{})
 	if c == nil || c.dynamicFlags == nil {
 		return input
 	}
 	for _, f := range c.dynamicFlags.flags {
-		if f == nil || f.Name == "" {
+		if f == nil || f.Name == "" || isSkipBodyDynamicFlag(f.Name) {
 			continue
 		}
 		val := f.GetValue()
@@ -89,7 +92,7 @@ func doForceAction(ctx *Context, serviceName, action string) error {
 	}
 
 	version := apiVersionForCall(ctx, serviceName)
-	method, contentType, err := resolveCallStyle(ctx, serviceName, action)
+	method, contentType, headers, err := resolveCallStyle(ctx, serviceName, action)
 	if err != nil {
 		return err
 	}
@@ -100,6 +103,7 @@ func doForceAction(ctx *Context, serviceName, action string) error {
 		version:     version,
 		method:      method,
 		contentType: contentType,
+		headers:     headers,
 	}, func() (invocationInput, error) {
 		return buildForceInvocationInput(ctx, serviceName, action, contentType)
 	})
@@ -109,7 +113,7 @@ func doForceAction(ctx *Context, serviceName, action string) error {
 // 有 ApiMeta 时与 doAction 相同，一律走 buildActionInput（含 isStringParam / --body 语义）；
 // 无元数据时同样走 buildActionInput（支持 --body 与扁平参数），不再只用 buildForceInput。
 func buildForceInvocationInput(ctx *Context, serviceName, action, contentType string) (invocationInput, error) {
-	jsonBody := strings.ToLower(contentType) == "application/json"
+	jsonBody := isJSONContentType(contentType)
 	var flags []*Flag
 	if ctx != nil && ctx.dynamicFlags != nil {
 		flags = ctx.dynamicFlags.flags
@@ -119,7 +123,7 @@ func buildForceInvocationInput(ctx *Context, serviceName, action, contentType st
 	if err != nil {
 		return invocationInput{}, err
 	}
-	// When neither --body nor flat flags produced structured JSON but content-type
+	// When neither --body nor flat flags produced structured JSON but Content-Type
 	// is JSON, still return an empty map rather than nil for SDK stability.
 	if input == nil && jsonBody {
 		input = map[string]interface{}{}
@@ -158,10 +162,10 @@ func argsContainHelp(args []string) bool {
 }
 
 // printUnknownServiceHelp 打印未收录 service 的用法提示（要求 ---force / ---version / 固定 endpoint）。
-// Fixed Flags 与 root/service/action usage 共用 localizedFixedFlagsHelp，随 ---lang 本地化。
+// CLI Control Flags 与 root/service/action usage 共用 localizedFixedFlagsHelp，随 ---lang 本地化。
 func printUnknownServiceHelp(serviceName string) error {
 	_, err := fmt.Fprintf(os.Stdout, `%s
-  ve %s <action> [--Param value ...] [fixed flags]
+  ve %s <action> [--Param value ...] [CLI control flags]
 
 %s
 
@@ -171,7 +175,7 @@ func printUnknownServiceHelp(serviceName string) error {
 
 %s
 %s
-`, tr("Usage:"), serviceName, trf(`"%s" is not bundled in local metadata. Use ---force with ---version, and a fixed endpoint via ---endpoint or profile/VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough).`, serviceName), tr("Examples:"), serviceName, serviceName, tr("Fixed Flags:"), localizedFixedFlagsHelp())
+`, tr("Usage:"), serviceName, trf(`"%s" is not bundled in local metadata. Use ---force with ---version, and a fixed endpoint via ---endpoint or profile/VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough).`, serviceName), tr("Examples:"), serviceName, serviceName, tr("CLI Control Flags:"), localizedFixedFlagsHelp())
 	return err
 }
 

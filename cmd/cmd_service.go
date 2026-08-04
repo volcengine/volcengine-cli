@@ -92,7 +92,7 @@ func serviceUsageTemplate() string {
 
 ` + tr(`Use "{{.CommandPath}} [action] --help" for more information about an action.`) + `{{end}}
 
-` + tr("Fixed Flags:") + `
+` + tr("CLI Control Flags:") + `
 ` + localizedFixedFlagsHelp() + `
 `
 }

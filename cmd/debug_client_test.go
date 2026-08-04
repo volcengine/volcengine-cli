@@ -88,6 +88,52 @@ func TestNewSimpleClientUsesProfileEndpointWhenNoFlag(t *testing.T) {
 	}
 }
 
+func TestCallSdkAppliesCustomHeadersAndJSONContentType(t *testing.T) {
+	var gotCT, gotFoo string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCT = r.Header.Get("Content-Type")
+		gotFoo = r.Header.Get("X-Foo")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ResponseMetadata":{"RequestId":"req-header-1","Action":"DescribeInstances","Version":"2020-01-01","Service":"ecs","Region":"cn-beijing"},"Result":{"Ok":true}}`))
+	}))
+	defer server.Close()
+
+	defer setenvForTest(t, "VOLCENGINE_ACCESS_KEY", "ak-test")()
+	defer setenvForTest(t, "VOLCENGINE_SECRET_KEY", "sk-test")()
+	defer setenvForTest(t, "VOLCENGINE_REGION", "cn-beijing")()
+
+	ctx := NewContext()
+	endpointFlag, err := ctx.fixedFlags.AddByName("endpoint")
+	if err != nil {
+		t.Fatalf("add endpoint flag: %v", err)
+	}
+	endpointFlag.SetValue(server.URL)
+
+	sdk, err := NewSimpleClient(ctx)
+	if err != nil {
+		t.Fatalf("NewSimpleClient: %v", err)
+	}
+	if _, err := sdk.CallSdk(SdkClientInfo{
+		ServiceName: "ecs",
+		Action:      "DescribeInstances",
+		Version:     "2020-01-01",
+		Method:      "POST",
+		ContentType: "application/json; charset=utf-8",
+		Headers: []requestHeader{
+			{Name: "X-Foo", Value: "bar"},
+			{Name: "Content-Type", Value: "application/json; charset=utf-8"},
+		},
+	}, &map[string]interface{}{"k": "v"}); err != nil {
+		t.Fatalf("CallSdk: %v", err)
+	}
+	if gotFoo != "bar" {
+		t.Fatalf("X-Foo = %q, want bar", gotFoo)
+	}
+	if !strings.HasPrefix(strings.ToLower(gotCT), "application/json") {
+		t.Fatalf("Content-Type = %q, want application/json…", gotCT)
+	}
+}
+
 func TestCallSdkWritesDebugRequestAttemptWithRequestID(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

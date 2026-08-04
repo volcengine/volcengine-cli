@@ -45,7 +45,7 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 
 		// only used to enable auto-completion
 		// todo not support application/json
-		if meta.ApiInfo == nil || strings.ToLower(meta.ApiInfo.ContentType) != "application/json" {
+		if meta.ApiInfo == nil || !isJSONContentType(meta.ApiInfo.ContentType) {
 			params := meta.GetRequestParams(apiMeta)
 			paramValues := make([]paramValue, len(params))
 			for i := 0; i < len(params); i++ {
@@ -108,12 +108,12 @@ func doAction(ctx *Context, serviceName, action string) error {
 	}
 
 	apiMeta := rootSupport.GetApiMeta(serviceName, action)
-	method, contentType, err := resolveCallStyle(ctx, serviceName, action)
+	method, contentType, headers, err := resolveCallStyle(ctx, serviceName, action)
 	if err != nil {
 		return err
 	}
 	version := apiVersionForCall(ctx, serviceName)
-	jsonBody := strings.ToLower(contentType) == "application/json"
+	jsonBody := isJSONContentType(contentType)
 
 	return executeInvocation(ctx, invocationParams{
 		serviceName: serviceName,
@@ -121,6 +121,7 @@ func doAction(ctx *Context, serviceName, action string) error {
 		version:     version,
 		method:      method,
 		contentType: contentType,
+		headers:     headers,
 	}, func() (invocationInput, error) {
 		input, fromBody, err := buildActionInput(ctx.dynamicFlags.flags, apiMeta, jsonBody)
 		if err != nil {
@@ -136,6 +137,7 @@ type invocationParams struct {
 	version     string
 	method      string
 	contentType string
+	headers     []requestHeader
 }
 
 type invocationInput struct {
@@ -187,6 +189,7 @@ func executeInvocation(ctx *Context, p invocationParams, buildInput func() (invo
 		Version:     p.version,
 		Method:      p.method,
 		ContentType: p.contentType,
+		Headers:     p.headers,
 	}
 
 	start := time.Now()

@@ -247,5 +247,5 @@ func TestActionUsageIncludesFixedFlags(t *testing.T) {
 
 func expectedFixedFlagsForTest() []string {
 	// 与 localizedFixedFlagsHelp / root·service·action usage 保持一致
-	return []string{"---profile", "---region", "---endpoint", "---version", "---method", "---content-type", "---force", "---lang"}
+	return []string{"---profile", "---region", "---endpoint", "---version", "---method", "---force", "---lang", "--header", "--body"}
 }
