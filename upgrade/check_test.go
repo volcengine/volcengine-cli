@@ -437,6 +437,159 @@ func TestMaybePrintUpgradeNotice_PrintsReadyCachedUpdate(t *testing.T) {
 	if !strings.Contains(string(output), "9.9.9") || !strings.Contains(string(output), "ve upgrade") {
 		t.Fatalf("expected cached upgrade notice, got %q", output)
 	}
+
+	c, ok := loadCheckCacheFile()
+	if !ok || c.NoticedAt <= 0 || c.NoticedCurrent != "1.0.0" {
+		t.Fatalf("expected notice stamp after print, got ok=%v noticed_at=%d noticed_current=%q",
+			ok, c.NoticedAt, c.NoticedCurrent)
+	}
+}
+
+func TestMaybePrintUpgradeNotice_OncePerDayPerCurrent(t *testing.T) {
+	dir := t.TempDir()
+	origConfigDirFunc := ConfigDirFunc
+	ConfigDirFunc = func() (string, error) { return dir, nil }
+	defer func() { ConfigDirFunc = origConfigDirFunc }()
+
+	oldDisable := os.Getenv(EnvDisableUpdateCheck)
+	os.Unsetenv(EnvDisableUpdateCheck)
+	defer func() {
+		if oldDisable == "" {
+			os.Unsetenv(EnvDisableUpdateCheck)
+		} else {
+			os.Setenv(EnvDisableUpdateCheck, oldDisable)
+		}
+	}()
+
+	readNotice := func(ac *AsyncCheck, current string) string {
+		stderrPath := filepath.Join(t.TempDir(), "stderr.txt")
+		stderr, err := os.Create(stderrPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		MaybePrintUpgradeNotice(stderr, current, ac)
+		if err := stderr.Close(); err != nil {
+			t.Fatal(err)
+		}
+		output, err := ioutil.ReadFile(stderrPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(output)
+	}
+
+	if err := SaveCheckCache("1.0.51", "1.0.50"); err != nil {
+		t.Fatal(err)
+	}
+	ac50 := StartBackgroundCheck("1.0.50", []string{"version"})
+
+	// current=1.0.50, latest=1.0.51: first command reminds, rest of day silent.
+	first := readNotice(ac50, "1.0.50")
+	if !strings.Contains(first, "1.0.51") {
+		t.Fatalf("expected first notice, got %q", first)
+	}
+	second := readNotice(ac50, "1.0.50")
+	if second != "" {
+		t.Fatalf("expected same-day same-current suppressed, got %q", second)
+	}
+
+	// User upgrades to 1.0.51 but latest is now 1.0.52: current changed → remind again today.
+	if err := SaveCheckCache("1.0.52", "1.0.51"); err != nil {
+		t.Fatal(err)
+	}
+	ac51 := StartBackgroundCheck("1.0.51", []string{"version"})
+	afterUpgrade := readNotice(ac51, "1.0.51")
+	if !strings.Contains(afterUpgrade, "1.0.52") {
+		t.Fatalf("expected re-notice after current changed, got %q", afterUpgrade)
+	}
+	if again := readNotice(ac51, "1.0.51"); again != "" {
+		t.Fatalf("expected same-day suppress for 1.0.51, got %q", again)
+	}
+
+	// Previous local calendar day (not rolling hours), same current: remind again.
+	c, ok := loadCheckCacheFile()
+	if !ok {
+		t.Fatal("expected cache after notice")
+	}
+	y, m, d := time.Now().In(time.Local).Date()
+	c.NoticedAt = time.Date(y, m, d-1, 12, 0, 0, 0, time.Local).Unix()
+	if err := writeCheckCache(c); err != nil {
+		t.Fatal(err)
+	}
+	nextDay := readNotice(ac51, "1.0.51")
+	if !strings.Contains(nextDay, "1.0.52") {
+		t.Fatalf("expected notice on a new calendar day, got %q", nextDay)
+	}
+}
+
+func TestSaveCheckCache_PreservesNoticeThrottle(t *testing.T) {
+	dir := t.TempDir()
+	orig := ConfigDirFunc
+	ConfigDirFunc = func() (string, error) { return dir, nil }
+	defer func() { ConfigDirFunc = orig }()
+
+	if err := SaveCheckCache("9.9.9", "1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	c, ok := loadCheckCacheFile()
+	if !ok {
+		t.Fatal("expected cache")
+	}
+	c.NoticedAt = time.Now().Add(-time.Hour).Unix()
+	c.NoticedCurrent = "1.0.0"
+	if err := writeCheckCache(c); err != nil {
+		t.Fatal(err)
+	}
+	wantAt := c.NoticedAt
+	wantCur := c.NoticedCurrent
+
+	if err := SaveCheckCache("9.9.10", "1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := loadCheckCacheFile()
+	if !ok {
+		t.Fatal("expected cache after save")
+	}
+	if got.NoticedAt != wantAt || got.NoticedCurrent != wantCur {
+		t.Fatalf("notice stamp=%d/%q, want %d/%q preserved across SaveCheckCache",
+			got.NoticedAt, got.NoticedCurrent, wantAt, wantCur)
+	}
+	if got.Latest != "9.9.10" {
+		t.Fatalf("latest=%s", got.Latest)
+	}
+}
+
+func TestSameLocalCalendarDay(t *testing.T) {
+	y, m, d := time.Now().In(time.Local).Date()
+	todayMorning := time.Date(y, m, d, 1, 0, 0, 0, time.Local)
+	todayEvening := time.Date(y, m, d, 23, 0, 0, 0, time.Local)
+	yesterday := time.Date(y, m, d-1, 12, 0, 0, 0, time.Local)
+	if !sameLocalCalendarDay(todayMorning, todayEvening) {
+		t.Fatal("same calendar day expected")
+	}
+	if sameLocalCalendarDay(todayMorning, yesterday) {
+		t.Fatal("different calendar day expected")
+	}
+}
+
+func TestNoticeAlreadyClaimedToday(t *testing.T) {
+	now := time.Now()
+	y, m, d := now.In(time.Local).Date()
+	today := time.Date(y, m, d, 10, 0, 0, 0, time.Local).Unix()
+	yesterday := time.Date(y, m, d-1, 10, 0, 0, 0, time.Local).Unix()
+
+	if !noticeAlreadyClaimedToday(versionCheckCache{NoticedAt: today, NoticedCurrent: "1.0.50"}, "1.0.50", now) {
+		t.Fatal("same current same day should claim")
+	}
+	if noticeAlreadyClaimedToday(versionCheckCache{NoticedAt: today, NoticedCurrent: "1.0.50"}, "1.0.51", now) {
+		t.Fatal("different current should not claim")
+	}
+	if noticeAlreadyClaimedToday(versionCheckCache{NoticedAt: yesterday, NoticedCurrent: "1.0.50"}, "1.0.50", now) {
+		t.Fatal("previous day should not claim")
+	}
+	if noticeAlreadyClaimedToday(versionCheckCache{}, "1.0.50", now) {
+		t.Fatal("empty stamp should not claim")
+	}
 }
 
 func TestCheckCachePath(t *testing.T) {

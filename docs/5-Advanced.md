@@ -202,6 +202,8 @@ Standalone flow: download the platform zip and checksum from the official CDN (`
 
 On any `ve` invocation the CLI may start a lightweight background version check (at most once every 24 hours by default; about 1.5s network timeout). Command exit never waits for an in-flight check. If a cached or already-completed check finds a newer version, the CLI prints a notice to **stderr** (the suggested command is install-source aware); it never writes to stdout, so pipelines stay intact.
 
+Upgrade notices are throttled by **running current version + local calendar day**: the same `current` version is reminded at most once per day; after the user upgrades (`current` changes), another notice is allowed the same day (e.g. 1.50→1.51 while latest is already 1.52). State is stored as `noticed_at` / `noticed_current` in the check cache. Disabling the version check also disables notices.
+
 Environment variables:
 
 | Variable | Description |

@@ -41,6 +41,12 @@ type versionCheckCache struct {
 	// Failed marks a soft failure (network/timeout). Used only for short backoff so
 	// offline clients do not pay CheckHTTPTimeout on every command.
 	Failed bool `json:"failed,omitempty"`
+	// NoticedAt is when the upgrade notice was last printed (unix seconds).
+	// Paired with NoticedCurrent: same running binary version is reminded at most
+	// once per local calendar day; after the user upgrades (current changes), a
+	// new notice is allowed the same day.
+	NoticedAt      int64  `json:"noticed_at,omitempty"`
+	NoticedCurrent string `json:"noticed_current,omitempty"`
 }
 
 // failureBackoff is how long to skip remote checks after a failed probe.
@@ -83,6 +89,13 @@ func checkTTL() time.Duration {
 		return defaultCheckTTL
 	}
 	return time.Duration(hours) * time.Hour
+}
+
+// sameLocalCalendarDay reports whether a and b fall on the same local date.
+func sameLocalCalendarDay(a, b time.Time) bool {
+	ay, am, ad := a.In(time.Local).Date()
+	by, bm, bd := b.In(time.Local).Date()
+	return ay == by && am == bm && ad == bd
 }
 
 // rootBoolFlags are root-level boolean flags that do not consume a following token.
@@ -235,25 +248,75 @@ func LoadCheckCache() (versionCheckCache, bool) {
 }
 
 // SaveCheckCache persists a successful check result.
+// Preserves notice throttle fields so a refresh check does not re-enable spam.
 func SaveCheckCache(latest, current string) error {
-	return writeCheckCache(versionCheckCache{
-		CheckedAt: time.Now().Unix(),
-		Latest:    NormalizeVersion(latest),
-		Current:   NormalizeVersion(current),
-		Failed:    false,
-	})
+	return saveVersionCheckCache(latest, current, false)
 }
 
 // SaveCheckFailure persists a short backoff marker after a failed remote check.
 // Keeps the previous Latest when available so we can still surface a notice
 // from the last known good value without hitting the network.
+// Preserves notice throttle fields so throttling survives a soft failure.
 func SaveCheckFailure(previousLatest, current string) error {
+	return saveVersionCheckCache(previousLatest, current, true)
+}
+
+func saveVersionCheckCache(latest, current string, failed bool) error {
+	prev, _ := loadCheckCacheFile()
 	return writeCheckCache(versionCheckCache{
-		CheckedAt: time.Now().Unix(),
-		Latest:    NormalizeVersion(previousLatest),
-		Current:   NormalizeVersion(current),
-		Failed:    true,
+		CheckedAt:      time.Now().Unix(),
+		Latest:         NormalizeVersion(latest),
+		Current:        NormalizeVersion(current),
+		Failed:         failed,
+		NoticedAt:      prev.NoticedAt,
+		NoticedCurrent: prev.NoticedCurrent,
 	})
+}
+
+// noticeAlreadyClaimedToday reports whether currentVersion was already reminded
+// on the local calendar day of now (and NoticedAt is not absurdly in the future).
+func noticeAlreadyClaimedToday(c versionCheckCache, currentVersion string, now time.Time) bool {
+	if c.NoticedAt <= 0 {
+		return false
+	}
+	// Same guard as CheckedAt: future timestamps must not permanently silence notices.
+	if c.NoticedAt > now.Unix()+3600 {
+		return false
+	}
+	if NormalizeVersion(c.NoticedCurrent) != NormalizeVersion(currentVersion) {
+		return false
+	}
+	return sameLocalCalendarDay(time.Unix(c.NoticedAt, 0), now)
+}
+
+// tryClaimUpgradeNotice claims the once-per-day notice slot for currentVersion.
+// Returns true if the caller should print; false if already claimed today for
+// this running version. Best-effort write: a disk error still returns true so a
+// transient FS issue does not permanently hide upgrades, at the cost of possible
+// re-print on the next command.
+func tryClaimUpgradeNotice(latest, current string) bool {
+	current = NormalizeVersion(current)
+	now := time.Now()
+	c, ok := loadCheckCacheFile()
+	if ok && noticeAlreadyClaimedToday(c, current, now) {
+		return false
+	}
+	ts := now.Unix()
+	if ok {
+		c.NoticedAt = ts
+		c.NoticedCurrent = current
+		_ = writeCheckCache(c)
+		return true
+	}
+	// Rare: print path without a readable cache. Persist enough state to throttle.
+	_ = writeCheckCache(versionCheckCache{
+		CheckedAt:      ts,
+		Latest:         NormalizeVersion(latest),
+		Current:        current,
+		NoticedAt:      ts,
+		NoticedCurrent: current,
+	})
+	return true
 }
 
 // InvalidateCheckCache removes the version check cache (best-effort).
@@ -436,13 +499,19 @@ func FormatUpgradeNoticeFor(current, latest string, info InstallInfo) string {
 }
 
 // MaybePrintUpgradeNotice prints to stderr when an update is available.
-// Never writes to stdout. Silent on errors / no update.
+// Throttle: the same running current version is reminded at most once per local
+// calendar day; after current changes (upgrade), another notice is allowed even
+// the same day. Claims the slot before printing so concurrent ve processes are
+// less likely to double-print. Never writes to stdout.
 func MaybePrintUpgradeNotice(stderr *os.File, currentVersion string, ac *AsyncCheck) {
 	if ac == nil || stderr == nil {
 		return
 	}
 	res, ready := ac.TryResult()
 	if !ready || res.Err != nil || !res.HasUpdate {
+		return
+	}
+	if !tryClaimUpgradeNotice(res.Latest, currentVersion) {
 		return
 	}
 	fmt.Fprintln(stderr, FormatUpgradeNotice(currentVersion, res.Latest))
