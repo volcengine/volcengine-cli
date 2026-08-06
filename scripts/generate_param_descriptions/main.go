@@ -35,7 +35,7 @@
 //
 // Full asset rebuild (metadata + explorer + params + bindata):
 //
-//	sh build_asset.sh <metadata-git-url> [branch]
+//	bash build_asset.sh <metadata-git-url> [branch]
 package main
 
 import (
@@ -645,10 +645,23 @@ func extractParamsFromOpenAPI(doc *openAPIDoc, language string) map[string]param
 }
 
 func collectSchemaParams(prefix string, s *schemaNode, schemas map[string]*schemaNode, out map[string]paramDescription, language string) {
+	collectSchemaParamsVisited(prefix, s, schemas, out, language, make(map[*schemaNode]bool))
+}
+
+// collectSchemaParamsVisited walks object/array schemas while tracking the current
+// recursion path so cyclic $ref graphs (self- or mutually-referential models) cannot
+// unbounded-recurse and stack-overflow the generator.
+func collectSchemaParamsVisited(prefix string, s *schemaNode, schemas map[string]*schemaNode, out map[string]paramDescription, language string, visiting map[*schemaNode]bool) {
 	s = resolveSchema(s, schemas)
 	if s == nil {
 		return
 	}
+	if visiting[s] {
+		return
+	}
+	visiting[s] = true
+	defer delete(visiting, s)
+
 	for name, prop := range s.Properties {
 		key := name
 		if prefix != "" {
@@ -660,16 +673,16 @@ func collectSchemaParams(prefix string, s *schemaNode, schemas map[string]*schem
 		if prop != nil {
 			desc = sanitizeDescription(prop.Description)
 			example = exampleString(prop.Example)
-			// nested object
+			// nested object / array
 			if len(prop.Properties) > 0 || (prop.Items != nil) {
-				collectSchemaParams(key, prop, schemas, out, language)
+				collectSchemaParamsVisited(key, prop, schemas, out, language, visiting)
 			}
 		}
 		putParam(out, key, desc, example, language)
 	}
 	if s.Items != nil && (len(s.Properties) == 0) {
 		// array of objects: expose item fields under prefix
-		collectSchemaParams(prefix, s.Items, schemas, out, language)
+		collectSchemaParamsVisited(prefix, s.Items, schemas, out, language, visiting)
 	}
 }
 

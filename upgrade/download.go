@@ -117,6 +117,7 @@ func DownloadFile(w io.Writer, url, destPath string) error {
 }
 
 // FetchURLBytes GETs url and returns the body (limited for small payloads).
+// If the response is larger than limit, returns an error instead of a truncated body.
 func FetchURLBytes(client *http.Client, url string, limit int64) ([]byte, error) {
 	if client == nil {
 		client = httpClient
@@ -132,7 +133,15 @@ func FetchURLBytes(client *http.Client, url string, limit int64) ([]byte, error)
 	if limit <= 0 {
 		limit = 1 << 20
 	}
-	return io.ReadAll(io.LimitReader(resp.Body, limit))
+	// Read one extra byte so callers can tell "complete ≤ limit" from "truncated".
+	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("GET %s: response body exceeds %d bytes", url, limit)
+	}
+	return data, nil
 }
 
 func formatSize(bytes int64) string {

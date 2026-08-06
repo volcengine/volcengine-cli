@@ -10,16 +10,67 @@ import (
 
 const actionHelpDetailAnnotation = "ve-help-detail"
 
-// parseActionHelpArgs detects -h/--help and optional --detail.
+// isCLIFlagToken reports tokens that start a new CLI/API flag (-- or ---),
+// matching parser.parseArg (single-dash tokens are values, not flags).
+func isCLIFlagToken(a string) bool {
+	return strings.HasPrefix(a, "--")
+}
+
+// parseActionHelpArgs detects bare -h/--help switches and optional --detail.
 // --detail alone does not trigger help (it may be a business parameter with a value).
+//
+// Tokens that are values of a preceding value-taking flag are not treated as help
+// switches (same consumption rules as the invocation parser). Example:
+//
+//	--Description -h   → -h is a value, not help
+//	--Description --help → --help is a flag (and help); previous flag is missing its value
+//	-h / --help        → help
 func parseActionHelpArgs(args []string) (wantHelp, detail bool) {
+	expectValue := false
 	for _, a := range args {
+		if expectValue {
+			if isCLIFlagToken(a) {
+				// Previous flag is missing a value; re-process this token as a flag.
+				expectValue = false
+			} else {
+				// Consumed as a flag value (including a literal "-h").
+				expectValue = false
+				continue
+			}
+		}
 		switch a {
 		case "-h", "--help":
 			wantHelp = true
+			continue
 		case "--detail":
+			// Help-mode control when paired with -h/--help; does not consume the next
+			// token so `--detail --help` still enables detail help.
 			detail = true
+			continue
 		}
+		if !isCLIFlagToken(a) {
+			continue
+		}
+		if strings.HasPrefix(a, "---") {
+			name := a[3:]
+			if name == "" {
+				continue
+			}
+			if strings.Contains(name, "=") {
+				continue
+			}
+			if isPresenceOnlyFixedFlag(name) {
+				continue
+			}
+			expectValue = true
+			continue
+		}
+		// Double-dash API / reserved control flag.
+		body := a[2:]
+		if body == "" || strings.Contains(body, "=") {
+			continue
+		}
+		expectValue = true
 	}
 	if !wantHelp {
 		return false, false
@@ -44,7 +95,8 @@ func bareDetailWithoutValue(args []string) bool {
 		if strings.HasPrefix(next, "--") {
 			return true
 		}
-		return false
+		// This --detail has a value; keep scanning for a later bare --detail.
+		continue
 	}
 	return false
 }

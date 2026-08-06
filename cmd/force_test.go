@@ -788,6 +788,17 @@ func TestTryExecuteGenericInvokeRequiresForce(t *testing.T) {
 	}
 }
 
+func TestTryExecuteGenericInvokeDescriptionDashHIsNotHelp(t *testing.T) {
+	// -h as an API flag value must not short-circuit to unknown-service help (nil error).
+	err := tryExecuteGenericInvoke([]string{"newservice", "DescribeNewResource", "--Description", "-h"})
+	if err == nil {
+		t.Fatal("expected force validation error, got nil (help short-circuit?)")
+	}
+	if !strings.Contains(err.Error(), "---force") {
+		t.Fatalf("expected ---force requirement after skipping help scan, got: %v", err)
+	}
+}
+
 // TestForcePathAcceptsArgsAfterLanguageStrip 锁住 rebase 后的交界约定：
 // ---lang 必须在 tryExecuteGenericInvoke 之前由 resolveLanguage 剥离；
 // runMain 应传 processLanguageResolution.args，而不是 os.Args[1:]。

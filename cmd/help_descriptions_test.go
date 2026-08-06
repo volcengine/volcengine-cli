@@ -237,6 +237,9 @@ func TestServiceUsageIncludesFixedFlags(t *testing.T) {
 }
 
 func TestActionUsageIncludesFixedFlags(t *testing.T) {
+	restoreLanguage := setLanguageForTest(LanguageEnglish)
+	defer restoreLanguage()
+
 	out := actionUsageTemplate("", []string{"InstanceId string"}, false)
 	for _, want := range expectedFixedFlagsForTest() {
 		if !strings.Contains(out, want) {

@@ -224,3 +224,80 @@ func TestMergeActionParamsWhitespaceDoesNotClear(t *testing.T) {
 		t.Fatalf("whitespace should not clear prev: %+v", got["Name"])
 	}
 }
+
+func TestCollectSchemaParamsStopsOnCyclicRef(t *testing.T) {
+	// Node.Children[] → Node (self-ref via components/schemas).
+	node := &schemaNode{
+		Type: "object",
+		Properties: map[string]*schemaNode{
+			"Name": {Type: "string", Description: "node name"},
+			"Children": {
+				Type:        "array",
+				Description: "child nodes",
+				Items: &schemaNode{
+					Ref: "#/components/schemas/Node",
+				},
+			},
+		},
+	}
+	schemas := map[string]*schemaNode{"Node": node}
+	out := map[string]paramDescription{}
+	// Must return (not stack-overflow) and still record top-level fields.
+	collectSchemaParams("", node, schemas, out, "en")
+	if _, ok := out["Name"]; !ok {
+		t.Fatalf("expected Name param, got %#v", out)
+	}
+	if got, ok := out["Children"]; !ok || got.DescriptionEn != "child nodes" {
+		t.Fatalf("expected Children param with description, got %#v", out)
+	}
+	// Cycle break must not invent infinite Children.Children... keys.
+	for k := range out {
+		if strings.Count(k, "Children") > 1 {
+			t.Fatalf("unexpected deep cycle key %q in %#v", k, out)
+		}
+	}
+}
+
+func TestCollectSchemaParamsStopsOnMutualRef(t *testing.T) {
+	// A.BRef → B, B.ARef → A (mutual $ref cycle).
+	a := &schemaNode{
+		Type: "object",
+		Properties: map[string]*schemaNode{
+			"AName": {Type: "string", Description: "a name"},
+			"BRef":  {Ref: "#/components/schemas/B"},
+		},
+	}
+	b := &schemaNode{
+		Type: "object",
+		Properties: map[string]*schemaNode{
+			"BName": {Type: "string", Description: "b name"},
+			"ARef":  {Ref: "#/components/schemas/A"},
+		},
+	}
+	schemas := map[string]*schemaNode{"A": a, "B": b}
+	out := map[string]paramDescription{}
+	collectSchemaParams("", a, schemas, out, "en")
+	if _, ok := out["AName"]; !ok {
+		t.Fatalf("expected AName, got %#v", out)
+	}
+	// B is expanded once under BRef; mutual back-edge must not overflow.
+	if _, ok := out["BRef.BName"]; !ok {
+		// Depending on putParam + nesting, BName may appear as BRef.BName when B expands.
+		// If BRef itself has no description, only nested fields with desc appear.
+		foundBName := false
+		for k := range out {
+			if strings.HasSuffix(k, "BName") || k == "BName" {
+				foundBName = true
+				break
+			}
+		}
+		if !foundBName {
+			t.Fatalf("expected nested BName under cycle-safe walk, got %#v", out)
+		}
+	}
+	for k := range out {
+		if strings.Count(k, "ARef") > 1 || strings.Count(k, "BRef") > 1 {
+			t.Fatalf("unexpected deep mutual-ref key %q in %#v", k, out)
+		}
+	}
+}

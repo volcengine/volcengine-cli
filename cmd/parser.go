@@ -154,14 +154,11 @@ func (p *Parser) readArg(ctx *Context) (arg string, flag *Flag, more bool, err e
 		err = p.currentFlagValueError(ctx)
 	}
 
-	if flag == nil { //解析普通参数
+	if flag == nil { //解析普通参数（含显式空字符串 ""，与「未提供 value」区分）
 		if p.currentFlag != nil {
-			if value == "" {
-				err = p.currentFlagValueError(ctx)
-			} else {
-				p.currentFlag.SetValue(value)
-				p.currentFlag = nil
-			}
+			// 空字符串是合法参数值；缺失 value 由「连续 flag」或 ReadArgs 收尾检查报错。
+			p.currentFlag.SetValue(value)
+			p.currentFlag = nil
 		} else {
 			arg = value
 		}

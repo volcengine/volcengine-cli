@@ -45,10 +45,22 @@ func TestWaitForProcessExit_AlreadyExited(t *testing.T) {
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("run short process: %v", err)
 	}
-	// PID is recycled eventually; OpenProcess with invalid/exited handle should
-	// return nil (errno 87) or succeed if the wait still applies. Using pid 0
-	// is treated as no-op success by waitForProcessExit.
-	if err := waitForProcessExit(0); err != nil {
-		t.Fatalf("pid 0: %v", err)
+	// Exercise OpenProcess/WaitForSingleObject against a PID that has already exited
+	// (errno 87 / wait success). Do not use pid 0: that is a no-op success path.
+	if cmd.Process == nil {
+		t.Fatal("expected process handle after Run")
+	}
+	// Bound wait so a rare PID-reuse collision cannot hang for the production 2m timeout.
+	orig := parentWaitTimeout
+	parentWaitTimeout = 300 * time.Millisecond
+	defer func() { parentWaitTimeout = orig }()
+
+	pid := cmd.Process.Pid
+	if err := waitForProcessExit(pid); err != nil {
+		// PID reuse onto a still-living process can make the wait time out; skip rather than flake.
+		if strings.Contains(err.Error(), "timed out") {
+			t.Skipf("pid %d likely reused by another process: %v", pid, err)
+		}
+		t.Fatalf("wait for exited pid %d: %v", pid, err)
 	}
 }

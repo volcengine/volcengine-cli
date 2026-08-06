@@ -108,19 +108,18 @@ func parseSemver(v string) (semver, bool) {
 		return semver{}, false
 	}
 
+	// Drop build metadata first (SemVer: +build does not affect precedence).
+	// Must run before prerelease split so e.g. 1.2.3+build-1 is not treated as pre "build-1".
+	if i := strings.IndexByte(v, '+'); i >= 0 {
+		v = v[:i]
+	}
+
 	pre := ""
 	hasPre := false
 	if i := strings.IndexByte(v, '-'); i >= 0 {
 		pre = v[i+1:]
 		v = v[:i]
 		hasPre = true
-	}
-	// drop build metadata if present on core
-	if i := strings.IndexByte(v, '+'); i >= 0 {
-		v = v[:i]
-	}
-	if i := strings.IndexByte(pre, '+'); i >= 0 {
-		pre = pre[:i]
 	}
 
 	parts := strings.Split(v, ".")

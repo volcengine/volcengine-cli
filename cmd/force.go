@@ -151,14 +151,11 @@ func isRegisteredRootSubcommand(name string) bool {
 	return false
 }
 
-// argsContainHelp 判断参数列表中是否出现 -h / --help。
+// argsContainHelp 判断参数列表中是否出现独立的 -h / --help 帮助开关。
+// 与 parseActionHelpArgs 相同：前一个待取值 flag 的值不会被当成帮助开关。
 func argsContainHelp(args []string) bool {
-	for _, a := range args {
-		if a == "-h" || a == "--help" {
-			return true
-		}
-	}
-	return false
+	wantHelp, _ := parseActionHelpArgs(args)
+	return wantHelp
 }
 
 // printUnknownServiceHelp 打印未收录 service 的用法提示（要求 ---force / ---version / 固定 endpoint）。

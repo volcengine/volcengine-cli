@@ -5,6 +5,32 @@ import (
 	"testing"
 )
 
+func TestParserAcceptsEmptyStringFlagValue(t *testing.T) {
+	// Explicit empty token is a valid value (shell: --Name "").
+	// Missing value remains an error (trailing flag / consecutive flags).
+	parser := NewParser([]string{"--Name", "", "--ZoneId", "cn-beijing"})
+	ctx := NewContext()
+	_, err := parser.ReadArgs(ctx)
+	if err != nil {
+		t.Fatalf("empty string value should be accepted: %v", err)
+	}
+	name := ctx.dynamicFlags.GetByName("Name")
+	if name == nil {
+		t.Fatal("expected Name flag")
+	}
+	if name.GetValue() != "" {
+		t.Fatalf("Name value = %q, want empty string", name.GetValue())
+	}
+	// Empty string must still count as "set" (values slice non-empty), not as missing.
+	if len(name.GetValues()) != 1 || name.GetValues()[0] != "" {
+		t.Fatalf("Name GetValues = %v, want [\"\"]", name.GetValues())
+	}
+	zone := ctx.dynamicFlags.GetByName("ZoneId")
+	if zone == nil || zone.GetValue() != "cn-beijing" {
+		t.Fatalf("ZoneId should still parse after empty Name, got %#v", zone)
+	}
+}
+
 func TestParserReturnsErrorWhenTrailingFlagHasNoValue(t *testing.T) {
 	tests := []struct {
 		name    string

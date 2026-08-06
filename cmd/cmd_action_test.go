@@ -135,6 +135,16 @@ func TestParseActionHelpArgs(t *testing.T) {
 		{[]string{"--Detail"}, false, false}, // case-sensitive; not a help control
 		{[]string{"--help=true"}, false, false},
 		{[]string{"--detail=true", "-h"}, true, false}, // equals form is not the bare --detail token
+		// -h as a preceding flag's value is not a help switch
+		{[]string{"--Description", "-h"}, false, false},
+		{[]string{"--Description", "-h", "--help"}, true, false}, // bare --help still help
+		// --help is always a flag token under this CLI grammar (cannot be a value).
+		{[]string{"--Description", "--help"}, true, false},
+		{[]string{"--Description", "--help", "--detail"}, true, true},
+		{[]string{"---region", "-h"}, false, false}, // -h is ---region value
+		{[]string{"---region", "cn-beijing", "-h"}, true, false},
+		{[]string{"---region=cn-beijing", "-h"}, true, false}, // equals form does not consume next
+		{[]string{"---force", "-h"}, true, false},             // ---force is presence-only
 	}
 	for _, c := range cases {
 		gotHelp, gotDetail := parseActionHelpArgs(c.args)
@@ -207,6 +217,10 @@ func TestBareDetailWithoutValue(t *testing.T) {
 		{[]string{"--detail", "-1"}, false},      // dash-prefixed value is valid
 		{[]string{"--ZoneId", "cn", "--detail"}, true},
 		{[]string{"--detail", "foo"}, false},
+		// First --detail has a value; a later bare --detail must still be detected.
+		{[]string{"--detail", "foo", "--detail"}, true},
+		{[]string{"--detail", "foo", "--detail", "--ZoneId"}, true},
+		{[]string{"--detail", "foo", "--detail", "bar"}, false},
 		{[]string{"--Detail"}, false},
 		{nil, false},
 	}
@@ -301,6 +315,12 @@ func TestCreateCommandUsageRendersLiteralTemplateBraces(t *testing.T) {
 	command.SetErr(&output)
 	// {{Param}} appears in full parameter descriptions/examples (detail help only).
 	setActionHelpDetail(command, true)
+	t.Cleanup(func() {
+		setActionHelpDetail(command, false)
+		// Shared root command: restore writers so later tests do not inherit this buffer.
+		command.SetOut(nil)
+		command.SetErr(nil)
+	})
 	if err := command.Usage(); err != nil {
 		t.Fatalf("CreateCommand Usage: %v", err)
 	}

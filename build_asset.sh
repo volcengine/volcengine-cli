@@ -1,8 +1,9 @@
 #!/bin/bash
 # Build CLI bindata assets from vestack/volcengine-sdk-metadata.
 #
-# Usage:
-#   sh build_asset.sh <metadata-git-url> [branch] [--target all|explorer|param|metadata]
+# Usage (bash required; shebang is #!/bin/bash — do not run under dash as `sh`):
+#   bash build_asset.sh <metadata-git-url> [branch] [--target all|explorer|param|metadata]
+#   ./build_asset.sh <metadata-git-url> [branch] [--target all|explorer|param|metadata]
 #
 # Targets (param generation is optional; explorer follows master: always attempt):
 #   all       Generate explorer + param descriptions, then bindata (default)
@@ -39,7 +40,10 @@ cd "$ROOT"
 
 usage() {
   cat <<'USAGE'
-Usage: sh build_asset.sh <metadata-git-url> [branch] [--target all|explorer|param|metadata]
+Usage: bash build_asset.sh <metadata-git-url> [branch] [--target all|explorer|param|metadata]
+       ./build_asset.sh <metadata-git-url> [branch] [--target all|explorer|param|metadata]
+
+  Requires bash (Bash arrays). Prefer bash build_asset.sh or ./build_asset.sh — not sh.
 
   all       Explorer + param descriptions + bindata (default)
   explorer  Explorer only + asset/typeset/structset bindata (params package left as-is)
@@ -56,9 +60,9 @@ Interactive menu is shown only when --target is omitted and the terminal is inte
 CI / pipes default to "all" (or BUILD_ASSET_TARGET).
 
 Examples:
-  sh build_asset.sh https://code.byted.org/iaasng/vestack-sdk-metadata master
-  sh build_asset.sh https://code.byted.org/iaasng/vestack-sdk-metadata master --target param
-  BUILD_ASSET_TARGET=explorer sh build_asset.sh <url>
+  bash build_asset.sh https://code.byted.org/iaasng/vestack-sdk-metadata master
+  bash build_asset.sh https://code.byted.org/iaasng/vestack-sdk-metadata master --target param
+  BUILD_ASSET_TARGET=explorer bash build_asset.sh <url>
 USAGE
 }
 

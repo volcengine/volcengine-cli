@@ -33,11 +33,29 @@ func TestIsNewer(t *testing.T) {
 		{"1.0.0-alpha", "1.0.0-beta", true},
 		{"1.0.0-rc.2", "1.0.0-rc.10", true},
 		{"1.0.0-rc.10", "1.0.0-rc.2", false},
+		// Build metadata does not affect precedence (including hyphens inside +build).
+		{"1.2.3+build-1", "1.2.3", false},
+		{"1.2.3", "1.2.3+build-1", false},
+		{"1.2.3+build-1", "1.2.4", true},
+		{"1.2.3-rc.1+build-1", "1.2.3", true},
 	}
 	for _, tt := range tests {
 		if got := IsNewer(tt.current, tt.latest); got != tt.want {
 			t.Errorf("IsNewer(%q,%q)=%v want %v", tt.current, tt.latest, got, tt.want)
 		}
+	}
+}
+
+func TestParseSemverBuildMetadataWithHyphen(t *testing.T) {
+	got, ok := parseSemver("1.2.3+build-1")
+	if !ok {
+		t.Fatal("expected parse ok")
+	}
+	if got.hasPre {
+		t.Fatalf("build metadata must not set prerelease, got pre=%q", got.pre)
+	}
+	if got.major != 1 || got.minor != 2 || got.patch != 3 {
+		t.Fatalf("core version: %+v", got)
 	}
 }
 

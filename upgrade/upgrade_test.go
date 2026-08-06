@@ -212,8 +212,9 @@ func TestDoUpgrade_ChecksumMismatch(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
+	oldDownloadBase := os.Getenv(EnvDownloadBaseURL)
 	os.Setenv(EnvDownloadBaseURL, srv.URL)
-	defer os.Unsetenv(EnvDownloadBaseURL)
+	defer os.Setenv(EnvDownloadBaseURL, oldDownloadBase)
 	SetHTTPClient(srv.Client())
 	defer SetHTTPClient(&http.Client{Timeout: DefaultHTTPTimeout})
 

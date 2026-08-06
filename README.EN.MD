@@ -57,7 +57,7 @@ ve upgrade
 
 - **standalone / Release**: download and replace the current binary in place  
 - **npm**: runs `npm install -g @volcengine/cli@latest` (on failure, prints the same manual command)  
-- **Homebrew**: runs `brew upgrade volcengine-cli`
+- **Homebrew**: runs `brew update`, then `brew upgrade volcengine-cli`
 
 ### Quick Start
 

@@ -18,6 +18,13 @@ func TestHelpUnknownCommandShowsRootUsage(t *testing.T) {
 	rootCmd.SetErr(&buf)
 	helpCmd.SetOut(&buf)
 	helpCmd.SetErr(&buf)
+	t.Cleanup(func() {
+		// Restore shared root/help writers so later tests do not inherit this buffer.
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		helpCmd.SetOut(nil)
+		helpCmd.SetErr(nil)
+	})
 
 	runErr := helpCmd.RunE(helpCmd, []string{"definitely-not-a-command"})
 	if runErr == nil {
