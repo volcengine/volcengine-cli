@@ -72,7 +72,7 @@ func explicitHTTPMethod(c *Context) (string, error) {
 		return "", nil
 	}
 	if method != "GET" && method != "POST" {
-		return "", fmt.Errorf("---method value %q is not supported, please set method in {GET|POST}", method)
+		return "", fmt.Errorf("--method value %q is not supported, please set method in {GET|POST}", method)
 	}
 	return method, nil
 }

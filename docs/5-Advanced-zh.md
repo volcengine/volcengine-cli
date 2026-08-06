@@ -4,7 +4,7 @@
 
 ## 高级用法
 
-本文包含自动补全、彩色输出、debug 日志、`---force` 强制泛化调用和常见问题。这些能力不是调用 API 的必需步骤，但能提升日常使用效率和排障效率。
+本文包含自动补全、彩色输出、debug 日志、`--force` 强制泛化调用和常见问题。这些能力不是调用 API 的必需步骤，但能提升日常使用效率和排障效率。
 
 ## 自动补全
 
@@ -180,7 +180,7 @@ tail -n 100 ~/.volcengine/logs/$(date +%Y%m%d%H).log
 行为取决于安装来源：
 
 | 安装来源 | 默认行为 |
-|----------|----------|
+|--------|--------|
 | **Homebrew**（macOS/Linux；Homebrew/Linuxbrew/Cellar 路径） | 执行 `brew update` 再 `brew upgrade volcengine-cli`（需网络；不支持 `--version`） |
 | **npm**（`node_modules/@volcengine/cli`） | 执行 `npm install -g @volcengine/cli@...`（需网络）；不原地替换二进制；失败时打印手动命令并以非 0 退出 |
 | **standalone**（Release 解压、源码编译等） | 下载并原地替换当前二进制 |
@@ -207,7 +207,7 @@ standalone 升级流程：从官方 CDN（`https://cloudcache.volccdn.com/ve`）
 相关环境变量：
 
 | 变量 | 说明 |
-|------|------|
+|-----|-----|
 | `VOLCENGINE_CLI_DISABLE_UPDATE_CHECK=1` | 关闭后台版本检测与提醒 |
 | `VOLCENGINE_CLI_UPDATE_CHECK_TTL_HOURS` | 检测缓存 TTL（小时），默认 24 |
 | `VOLCENGINE_CLI_DOWNLOAD_BASE_URL` | 覆盖下载基址（默认 CDN） |
@@ -217,38 +217,38 @@ standalone 升级流程：从官方 CDN（`https://cloudcache.volccdn.com/ve`）
 
 <a id="force-invocation"></a>
 
-## 强制泛化调用 (`---force`)
+## 强制泛化调用 (`--force`)
 
-CLI 内置了部分云产品的元数据，正常调用时会校验 service 和 action 是否存在。若产品或接口尚未收录、或元数据版本滞后，直接调用可能报 `unsupported action` 或 `unknown command`。此时可使用 `---force` 跳过 service/action 校验，强制发起 RPC 调用。
+CLI 内置了部分云产品的元数据，正常调用时会校验 service 和 action 是否存在。若产品或接口尚未收录、或元数据版本滞后，直接调用可能报 `unsupported action` 或 `unknown command`。此时可使用 `--force` 跳过 service/action 校验，强制发起 RPC 调用。
 
 ### 适用场景
 
 - 调用 **metadata 中尚未收录** 的 service
 - 调用 **已收录 service 下的新 action**
-- 使用 **非内置元数据版本** 的 API（通过 `---version` 指定）
+- 使用 **非内置元数据版本** 的 API（通过 `--version` 指定）
 
-未知 API 参数在正常模式下已可透传；`---force` 主要解决的是 **service / action / API 版本** 层面的限制。
+未知 API 参数在正常模式下已可透传；`--force` 主要解决的是 **service / action / API 版本** 层面的限制。
 
 ### 固定参数要求
 
 | 参数 | 是否必填 | 说明 |
 | --- | --- | --- |
-| `---force` | 是 | 纯开关型参数，出现即表示启用；不接受 `true`/`false` 等后续赋值 |
-| `---version` | 视 service | **未收录 service 时必填**；**已收录 service 可省略**，回落内置元数据版本。也可用于覆盖元数据中的 API 版本 |
-| `---endpoint` | 视 service | 与正常调用相同：`---endpoint` > `endpoint-resolver=standard` > profile/env endpoint >（已收录）按 service+region 解析。**未收录**需要最终生效的**固定 host**（`endpoint-resolver=standard` 或 `auto-addressing` 不够） |
-| `---method` | 否 | HTTP 方法：`GET` 或 `POST`；正常路径与 force 路径规则一致：显式值优先 → action 元数据 → 默认 `GET` |
-| `---region` | 视凭证配置 | 与正常调用相同，必须能解析到 region |
+| `--force` | 是 | 纯开关型参数，出现即表示启用；不接受 `true`/`false` 等后续赋值 |
+| `--version` | 视 service | **未收录 service 时必填**；**已收录 service 可省略**，回落内置元数据版本。也可用于覆盖元数据中的 API 版本 |
+| `--endpoint` | 视 service | 与正常调用相同：`--endpoint` > `endpoint-resolver=standard` > profile/env endpoint >（已收录）按 service+region 解析。**未收录**需要最终生效的**固定 host**（`endpoint-resolver=standard` 或 `auto-addressing` 不够） |
+| `--method` | 否 | HTTP 方法：`GET` 或 `POST`；正常路径与 force 路径规则一致：显式值优先 → action 元数据 → 默认 `GET` |
+| `--region` | 视凭证配置 | 与正常调用相同，必须能解析到 region |
 | `--header` | 否 | **双横线保留控制参数**，`Name=Value`，可重复；自定义 HTTP 头。`Content-Type` 覆盖元数据；不进请求体。禁止 `Host`/`Authorization`/`Content-Length` |
 
 注意：
 
-- `---version` 指 **OpenAPI 接口版本**，不是 CLI 工具版本。查看 CLI 版本请用 `ve version` 或 `ve -v`。
-- **endpoint 解析与是否 `---force` 无关**，与正常调用同一套规则。
-- 未收录 service 没有元数据可推 host：需要固定 host（`---endpoint`，或 profile/`VOLCENGINE_ENDPOINT` 在**未**设置 `endpoint-resolver=standard` 时）。仅配置 `endpoint-resolver=standard` / `auto-addressing` 不够。
-- 已收录 service 在 force 模式下可不传 `---version`，行为与正常路径一致（如 `ve sts GetCallerIdentity ---force`）。
-- `---method` 在正常路径与 force 路径使用相同解析顺序：显式 `---method` 覆盖元数据；未指定时优先用已收录 action 的 Method；均无则默认 `GET`（不因 `---force` 而改变）。
-- force 相关控制参数多用 **三横线** `---`；HTTP 头/JSON body 用双横线保留控制参数 **`--header` / `--body`**（见 [使用指南](4-Usage-zh.md#双横线保留控制参数)）。
-- `---force` 是**纯开关**：只写 `---force` 本身。不要写 `---force true` 或 `---force false`；其后的 token 会被当成位置参数（常被误当成 action 名）。
+- `--version` 指 **OpenAPI 接口版本**，不是 CLI 工具版本。查看 CLI 版本请用 `ve version` 或 `ve -v`。
+- **endpoint 解析与是否 `--force` 无关**，与正常调用同一套规则。
+- 未收录 service 没有元数据可推 host：需要固定 host（`--endpoint`，或 profile/`VOLCENGINE_ENDPOINT` 在**未**设置 `endpoint-resolver=standard` 时）。仅配置 `endpoint-resolver=standard` / `auto-addressing` 不够。
+- 已收录 service 在 force 模式下可不传 `--version`，行为与正常路径一致（如 `ve sts GetCallerIdentity --force`）。
+- `--method` 在正常路径与 force 路径使用相同解析顺序：显式 `--method` 覆盖元数据；未指定时优先用已收录 action 的 Method；均无则默认 `GET`（不因 `--force` 而改变）。
+- 对外系统参数统一用 **双横线** `--`（含 `--force` / `--version` / `--method`）。历史三横线别名在与 API 参数冲突时仍可作为逃逸，但不对外宣传。HTTP 头/JSON body 用双横线保留控制参数 **`--header` / `--body`**（见 [使用指南](4-Usage-zh.md#双横线保留控制参数)）。
+- `--force` 是**纯开关**：只写 `--force` 本身。不要写 `--force true` 或 `--force false`；其后的 token 会被当成位置参数（常被误当成 action 名）。
 
 ### 示例
 
@@ -265,35 +265,35 @@ ve rds_mysql ModifyDBInstanceIPList \
 
 ```shell
 ve newservice DescribeNewResource \
-  ---version 2024-01-01 \
-  ---endpoint open.volcengineapi.com \
+  --version 2024-01-01 \
+  --endpoint open.volcengineapi.com \
   --SomeParam value \
-  ---force
+  --force
 ```
 
-已知 service、未知 action（可省略 `---version`，回落 service 元数据版本）：
+已知 service、未知 action（可省略 `--version`，回落 service 元数据版本）：
 
 ```shell
 ve sts SomeNewAction \
-  ---region cn-beijing \
+  --region cn-beijing \
   --Param1 value \
-  ---force
+  --force
 ```
 
 已知 service、已知 action，仅跳过校验：
 
 ```shell
-ve sts GetCallerIdentity ---region cn-beijing ---force
+ve sts GetCallerIdentity --region cn-beijing --force
 ```
 
 指定 endpoint 并覆盖 API 版本：
 
 ```shell
 ve ecs DescribeInstances \
-  ---version 2024-01-01 \
-  ---endpoint ecs.cn-beijing.volcengineapi.com \
-  ---region cn-beijing \
-  ---force
+  --version 2024-01-01 \
+  --endpoint ecs.cn-beijing.volcengineapi.com \
+  --region cn-beijing \
+  --force
 ```
 
 ### 未收录 service 的帮助
@@ -307,34 +307,34 @@ ve newservice
 
 ### 常见错误
 
-默认展示英文；使用 `---lang ZH`（或中文 locale）时，force 相关报错会显示为简体中文。英文示例如下：
+默认展示英文；使用 `--lang ZH`（或中文 locale）时，force 相关报错会显示为简体中文。英文示例如下：
 
-未收录 service 缺少 `---version`：
+未收录 service 缺少 `--version`：
 
 ```text
----version is required when using ---force for service "newservice"
+--version is required when using --force for service "newservice"
 ```
 
-未收录 service 且无可用**固定** endpoint（未传 `---endpoint`，或仅有 `endpoint-resolver=standard` / `auto-addressing`）：
+未收录 service 且无可用**固定** endpoint（未传 `--endpoint`，或仅有 `endpoint-resolver=standard` / `auto-addressing`）：
 
 ```text
-endpoint is required for unlisted service "newservice": set ---endpoint, or configure endpoint in the profile / VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)
+endpoint is required for unlisted service "newservice": set --endpoint, or configure endpoint in the profile / VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)
 ```
 
-未收录 service 且未加 `---force`：
+未收录 service 且未加 `--force`：
 
 ```text
-unknown service "newservice": use ---force with ---version, and a fixed endpoint via ---endpoint or profile/VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)
+unknown service "newservice": use --force with --version, and a fixed endpoint via --endpoint or profile/VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)
 ```
 
-误把 `---force` 写成带值开关（`true` 会被当成位置参数 / action）：
+误把 `--force` 写成带值开关（`true` 会被当成位置参数 / action）：
 
 ```text
-# 错误：不要在 ---force 后跟 true/false
-ve newservice true ---version 2024-01-01 ---endpoint open.volcengineapi.com ---force true
+# 错误：不要在 --force 后跟 true/false
+ve newservice true --version 2024-01-01 --endpoint open.volcengineapi.com --force true
 
 # 正确
-ve newservice DescribeNewResource ---version 2024-01-01 ---endpoint open.volcengineapi.com ---force
+ve newservice DescribeNewResource --version 2024-01-01 --endpoint open.volcengineapi.com --force
 ```
 
 ## 常见问题
@@ -350,13 +350,7 @@ VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity
 对外系统参数：
 
 ```text
---profile, --region, --endpoint, --lang
-```
-
-force 路径控制参数：
-
-```text
----force, ---version, ---method
+--profile, --region, --endpoint, --lang, --force, --version, --method
 ```
 
 双横线保留控制参数：

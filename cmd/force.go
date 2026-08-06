@@ -1,25 +1,25 @@
-// force.go 实现 ---force 强制泛化调用。
+// force.go 实现 --force 强制泛化调用。
 //
-// 正常模式下 CLI 仅允许 metadata 中已收录的 service/action；---force 跳过该校验，
+// 正常模式下 CLI 仅允许 metadata 中已收录的 service/action；--force 跳过该校验，
 // 直接通过 SDK 发起 RPC 请求，适用于未收录产品、新发布接口或需覆盖 API 版本的场景。
 //
 // 调用入口（维护时按此排查）：
 //  1. cmd_root.Execute       -> tryExecuteGenericInvoke：metadata 中不存在的 service
 //  2. cmd_service.runServiceCmd：已知 service、action 未匹配子命令时
-//  3. cmd_action action RunE：已知 action 子命令且带 ---force（可覆盖 ---version/---method）
+//  3. cmd_action action RunE：已知 action 子命令且带 --force（可覆盖 --version/--method）
 //
 // 共享调用前处理见 invocation.go；profile/endpoint 解析真相见 sdk_client.go
 // （selectInvocationProfile / resolveClientEndpoint / hasEffectiveFixedEndpoint）。
 //
-// 三横线固定参数：parser.go allowedFixedFlags / localizedFixedFlagsHelp。
+// 系统参数：parser.go publicSystemFlags / localizedSystemFlagsHelp（对外双横线；三横线为冲突逃逸）。
 // 双横线保留控制参数：reserved_dynamic.go（--header / --body）。
 // force 路径额外约定：
 //
-//	---force    纯开关，出现即启用（只放宽 service/action 元数据校验，不改变 endpoint 解析）
-//	---version  未收录 service 时必填；已收录可回落元数据
-//	---endpoint 与正常调用同一套解析（flag > resolver=standard > profile/env > 已收录 SDK 解析）；
+//	--force     纯开关，出现即启用（只放宽 service/action 元数据校验，不改变 endpoint 解析）
+//	--version   未收录 service 时必填；已收录可回落元数据
+//	--endpoint  与正常调用同一套解析（flag > resolver=standard > profile/env > 已收录 SDK 解析）；
 //	            未收录需要最终生效的固定 host（standard / auto-addressing 不够）
-//	---method   可选；未指定时优先元数据，否则 GET
+//	--method    可选；未指定时优先元数据，否则 GET
 //	--header    可重复 HTTP 头 Name=Value（Content-Type 可覆盖元数据；不进请求体）
 //	--body      JSON 请求体；与 flattened 业务参数互斥
 package cmd
@@ -36,7 +36,7 @@ import (
 // errNotGenericInvoke 表示当前参数不应走未知 service 兜底路径，应交给 cobra 正常分发。
 var errNotGenericInvoke = errors.New("not a generic force invoke")
 
-// isForceEnabled 判断 ---force 是否生效。---force 为纯开关，出现即启用。
+// isForceEnabled 判断 --force / ---force 是否生效。force 为纯开关，出现即启用。
 func isForceEnabled(c *Context) bool {
 	if c == nil || c.fixedFlags == nil {
 		return false
@@ -44,22 +44,22 @@ func isForceEnabled(c *Context) bool {
 	return c.fixedFlags.GetByName("force") != nil
 }
 
-// validateForceCall 校验 force 模式最低要求：---force 已启用，且能解析到 API 版本。
+// validateForceCall 校验 force 模式最低要求：--force 已启用，且能解析到 API 版本。
 // 已收录 service 可回落元数据版本；endpoint 与正常调用相同。
-// 未收录 service 须有 ---version，且最终会生效一个固定 host
-// （---endpoint 或 profile/env endpoint；endpoint_resolver=standard / auto-addressing 不算固定 host）。
+// 未收录 service 须有 --version，且最终会生效一个固定 host
+// （--endpoint 或 profile/env endpoint；endpoint_resolver=standard / auto-addressing 不算固定 host）。
 func validateForceCall(c *Context, serviceName string) error {
 	if !isForceEnabled(c) {
-		return trErrorf("---force is required for force invocation")
+		return trErrorf("--force is required for force invocation")
 	}
 	if err := validateProfileIfSpecified(c); err != nil {
 		return err
 	}
 	if apiVersionForCall(c, serviceName) == "" {
-		return trErrorf("---version is required when using ---force for service %q", serviceName)
+		return trErrorf("--version is required when using --force for service %q", serviceName)
 	}
 	if !rootSupport.IsValidSvc(serviceName) && !hasEffectiveFixedEndpoint(c) {
-		return trErrorf("endpoint is required for unlisted service %q: set ---endpoint, or configure endpoint in the profile / VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)", serviceName)
+		return trErrorf("endpoint is required for unlisted service %q: set --endpoint, or configure endpoint in the profile / VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)", serviceName)
 	}
 	return nil
 }
@@ -158,21 +158,21 @@ func argsContainHelp(args []string) bool {
 	return wantHelp
 }
 
-// printUnknownServiceHelp 打印未收录 service 的用法提示（要求 ---force / ---version / 固定 endpoint）。
-// CLI Control Flags 与 root/service/action usage 共用 localizedFixedFlagsHelp，随 ---lang 本地化。
+// printUnknownServiceHelp 打印未收录 service 的用法提示（要求 --force / --version / 固定 endpoint）。
+// System Flags 与 root/service/action usage 共用 localizedSystemFlagsHelp。
 func printUnknownServiceHelp(serviceName string) error {
 	_, err := fmt.Fprintf(os.Stdout, `%s
-  ve %s <action> [--Param value ...] [CLI control flags]
+  ve %s <action> [--Param value ...] [system flags]
 
 %s
 
 %s
-  ve %s DescribeNewResource ---version 2024-01-01 ---region cn-beijing ---endpoint newservice.cn-beijing.volcengineapi.com ---force
-  ve %s DescribeNewResource ---version 2024-01-01 ---endpoint open.volcengineapi.com --SomeParam value ---force
+  ve %s DescribeNewResource --version 2024-01-01 --region cn-beijing --endpoint newservice.cn-beijing.volcengineapi.com --force
+  ve %s DescribeNewResource --version 2024-01-01 --endpoint open.volcengineapi.com --SomeParam value --force
 
 %s
 %s
-`, tr("Usage:"), serviceName, trf(`"%s" is not bundled in local metadata. Use ---force with ---version, and a fixed endpoint via ---endpoint or profile/VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough).`, serviceName), tr("Examples:"), serviceName, serviceName, tr("System Flags:"), localizedSystemFlagsHelp())
+`, tr("Usage:"), serviceName, trf(`"%s" is not bundled in local metadata. Use --force with --version, and a fixed endpoint via --endpoint or profile/VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough).`, serviceName), tr("Examples:"), serviceName, serviceName, tr("System Flags:"), localizedSystemFlagsHelp())
 	return err
 }
 
@@ -206,7 +206,7 @@ func tryExecuteGenericInvoke(args []string) error {
 	action := positional[0]
 
 	if !isForceEnabled(ctx) {
-		return trErrorf("unknown service %q: use ---force with ---version, and a fixed endpoint via ---endpoint or profile/VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)", serviceName)
+		return trErrorf("unknown service %q: use --force with --version, and a fixed endpoint via --endpoint or profile/VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)", serviceName)
 	}
 
 	return doForceAction(ctx, serviceName, action)

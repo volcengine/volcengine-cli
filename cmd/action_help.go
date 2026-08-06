@@ -65,9 +65,14 @@ func parseActionHelpArgs(args []string) (wantHelp, detail bool) {
 			expectValue = true
 			continue
 		}
-		// Double-dash API / reserved control flag.
+		// Double-dash API / reserved control / public system flag.
 		body := a[2:]
 		if body == "" || strings.Contains(body, "=") {
+			continue
+		}
+		// System --force is presence-only when not an action API parameter name.
+		// Help parsing has no action metadata here; treat bare --force as presence-only.
+		if isPresenceOnlyFixedFlag(body) {
 			continue
 		}
 		expectValue = true

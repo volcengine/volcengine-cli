@@ -123,8 +123,14 @@ func publicActionParameterNames(serviceName, action string) map[string]struct{} 
 }
 
 func registerActionSystemFlags(actionCmd *cobra.Command) {
-	for _, name := range []string{"profile", "region", "endpoint", "lang"} {
+	// Completion only; DisableFlagParsing means values are handled by Parser.
+	// Do not register names already exposed as API parameters on this action.
+	for _, name := range []string{"profile", "region", "endpoint", "lang", "version", "method", "force"} {
 		if actionCmd.Flags().Lookup(name) != nil {
+			continue
+		}
+		if name == "force" {
+			actionCmd.Flags().Bool(name, false, "")
 			continue
 		}
 		actionCmd.Flags().String(name, "", "")

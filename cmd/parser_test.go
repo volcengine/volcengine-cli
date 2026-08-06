@@ -118,12 +118,22 @@ func TestParserRejectsUnsupportedFixedFlags(t *testing.T) {
 			if !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("error = %q, want to contain %q", err.Error(), tt.want)
 			}
-			if !strings.Contains(err.Error(), "supported fixed flags") {
-				t.Fatalf("error = %q, want supported fixed flags", err.Error())
+			if !strings.Contains(err.Error(), "supported system flags") {
+				t.Fatalf("error = %q, want supported system flags", err.Error())
 			}
-			// ---lang is preprocessed, so the parser hint lists other triple-dash control flags.
-			if !strings.Contains(err.Error(), supportedLegacyFixedFlagsMessage) {
-				t.Fatalf("error = %q, want legacy fixed-flag list %q", err.Error(), supportedLegacyFixedFlagsMessage)
+			// Public help/error lists only double-dash system flags.
+			if !strings.Contains(err.Error(), supportedSystemFlagsMessage) {
+				t.Fatalf("error = %q, want system-flag list %q", err.Error(), supportedSystemFlagsMessage)
+			}
+			parts := strings.SplitN(err.Error(), "supported system flags:", 2)
+			if len(parts) != 2 {
+				t.Fatalf("error missing supported system flags list: %q", err.Error())
+			}
+			hint := parts[1]
+			for _, alias := range []string{"---profile", "---region", "---endpoint", "---lang", "---force", "---version", "---method"} {
+				if strings.Contains(hint, alias) {
+					t.Fatalf("supported flag hint exposes historical alias %q: %q", alias, hint)
+				}
 			}
 		})
 	}
@@ -173,7 +183,8 @@ func TestParserForceFlagBeforeActionName(t *testing.T) {
 }
 
 func TestParserDynamicForceFlagRequiresValue(t *testing.T) {
-	parser := NewParser([]string{"--force", "true", "SomeAction"})
+	// Exact-name API conflict: double-dash --force is a business parameter.
+	parser := NewParser([]string{"--force", "true", "SomeAction"}, map[string]struct{}{"force": {}})
 	ctx := NewContext()
 
 	positional, err := parser.ReadArgs(ctx)
@@ -187,10 +198,32 @@ func TestParserDynamicForceFlagRequiresValue(t *testing.T) {
 		t.Fatalf("expected dynamic --force=true, got %q", got)
 	}
 	if isForceEnabled(ctx) {
-		t.Fatal("---force switch must not be enabled by dynamic --force")
+		t.Fatal("system force must not be enabled by conflicting API --force")
 	}
 	if len(positional) != 1 || positional[0] != "SomeAction" {
 		t.Fatalf("expected action positional arg, got %#v", positional)
+	}
+}
+
+func TestParserDoubleDashForceIsSystemWhenNoConflict(t *testing.T) {
+	parser := NewParser([]string{"--force", "SomeAction", "--version", "2024-01-01"})
+	ctx := NewContext()
+
+	positional, err := parser.ReadArgs(ctx)
+	if err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+	if !isForceEnabled(ctx) {
+		t.Fatal("expected system --force when no API conflict")
+	}
+	if got := ctx.fixedFlags.GetByName("version"); got == nil || got.GetValue() != "2024-01-01" {
+		t.Fatalf("expected system --version, got %#v", got)
+	}
+	if ctx.dynamicFlags.GetByName("force") != nil || ctx.dynamicFlags.GetByName("version") != nil {
+		t.Fatal("system flags must not enter dynamicFlags")
+	}
+	if len(positional) != 1 || positional[0] != "SomeAction" {
+		t.Fatalf("positional = %#v", positional)
 	}
 }
 

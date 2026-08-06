@@ -102,15 +102,24 @@ func TestShouldSkipBackgroundCheck_TripleDashFixedFlags(t *testing.T) {
 		}
 	}()
 
-	// S8/S9: value-taking fixed flags must not turn their values into the root positional.
+	// S8/S9: value-taking system flags must not turn their values into the root positional.
 	if !ShouldSkipBackgroundCheck([]string{"---lang", "ZH", "upgrade"}) {
 		t.Fatal("expected skip for ---lang ZH upgrade")
+	}
+	if !ShouldSkipBackgroundCheck([]string{"--lang", "ZH", "upgrade"}) {
+		t.Fatal("expected skip for --lang ZH upgrade")
 	}
 	if !ShouldSkipBackgroundCheck([]string{"---profile", "default", "upgrade", "--yes"}) {
 		t.Fatal("expected skip for ---profile default upgrade")
 	}
+	if !ShouldSkipBackgroundCheck([]string{"--profile", "default", "upgrade", "--yes"}) {
+		t.Fatal("expected skip for --profile default upgrade")
+	}
 	if !ShouldSkipBackgroundCheck([]string{"---force", "upgrade"}) {
 		t.Fatal("expected skip for ---force upgrade (presence-only)")
+	}
+	if !ShouldSkipBackgroundCheck([]string{"--force", "upgrade"}) {
+		t.Fatal("expected skip for --force upgrade (presence-only)")
 	}
 	if !ShouldSkipBackgroundCheck([]string{"--header", "X-Foo=bar", "upgrade"}) {
 		t.Fatal("expected skip for --header … upgrade")

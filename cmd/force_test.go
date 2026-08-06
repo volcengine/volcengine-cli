@@ -25,11 +25,11 @@ func TestForceErrorMessagesLocalized(t *testing.T) {
 		t.Fatal("expected missing version error")
 	}
 	// Chinese locale should not fall back to the English catalog key.
-	if strings.Contains(err.Error(), "---version is required when using ---force") {
-		t.Fatalf("expected localized ---version error, still English: %v", err)
+	if strings.Contains(err.Error(), "--version is required when using --force") {
+		t.Fatalf("expected localized --version error, still English: %v", err)
 	}
-	if !strings.Contains(err.Error(), "---version") || !strings.Contains(err.Error(), "newservice") {
-		t.Fatalf("expected localized ---version error mentioning service, got: %v", err)
+	if !strings.Contains(err.Error(), "--version") || !strings.Contains(err.Error(), "newservice") {
+		t.Fatalf("expected localized --version error mentioning service, got: %v", err)
 	}
 
 	err = tryExecuteGenericInvoke([]string{"newservice", "DescribeNewResource"})
@@ -39,7 +39,7 @@ func TestForceErrorMessagesLocalized(t *testing.T) {
 	if strings.Contains(err.Error(), "unknown service") {
 		t.Fatalf("expected localized unknown service error, still English: %v", err)
 	}
-	if !strings.Contains(err.Error(), "---force") || !strings.Contains(err.Error(), "newservice") {
+	if !strings.Contains(err.Error(), "--force") || !strings.Contains(err.Error(), "newservice") {
 		t.Fatalf("expected localized unknown service error, got: %v", err)
 	}
 }
@@ -92,7 +92,7 @@ func TestValidateForceCallRequiresVersion(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected missing version error")
 	}
-	if !strings.Contains(err.Error(), "---version is required") {
+	if !strings.Contains(err.Error(), "--version is required") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -773,7 +773,7 @@ func TestTryExecuteGenericInvokeForceBeforeActionName(t *testing.T) {
 	if !errors.Is(err, errStubInvocation) {
 		t.Fatalf("expected stub invocation after force path, got: %v", err)
 	}
-	if strings.Contains(err.Error(), "use ---force with ---version") {
+	if strings.Contains(err.Error(), "use --force with --version") {
 		t.Fatalf("---force before action should be recognized, got: %v", err)
 	}
 }
@@ -781,9 +781,9 @@ func TestTryExecuteGenericInvokeForceBeforeActionName(t *testing.T) {
 func TestTryExecuteGenericInvokeRequiresForce(t *testing.T) {
 	err := tryExecuteGenericInvoke([]string{"newservice", "DescribeNewResource", "---version", "2024-01-01"})
 	if err == nil {
-		t.Fatal("expected error without ---force")
+		t.Fatal("expected error without --force")
 	}
-	if !strings.Contains(err.Error(), "---force") {
+	if !strings.Contains(err.Error(), "--force") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -794,8 +794,8 @@ func TestTryExecuteGenericInvokeDescriptionDashHIsNotHelp(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected force validation error, got nil (help short-circuit?)")
 	}
-	if !strings.Contains(err.Error(), "---force") {
-		t.Fatalf("expected ---force requirement after skipping help scan, got: %v", err)
+	if !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("expected --force requirement after skipping help scan, got: %v", err)
 	}
 }
 
@@ -849,16 +849,21 @@ func TestPrintUnknownServiceHelp(t *testing.T) {
 		t.Fatalf("expected help output without error, got: %v", err)
 	}
 	help := buf.String()
-	if !strings.Contains(help, "Use ---force with ---version") {
-		t.Fatalf("help should mention ---force and ---version, got:\n%s", help)
+	if !strings.Contains(help, "Use --force with --version") {
+		t.Fatalf("help should mention --force and --version, got:\n%s", help)
 	}
 	if !strings.Contains(help, "endpoint") {
 		t.Fatalf("expected unknown service help text, got: %q", help)
 	}
-	// 与 root/service/action usage 共用 localizedSystemFlagsHelp：对外 --lang，force 路径仍为三横线。
-	for _, flag := range []string{"---force", "---version", "---method", "--header", "--body", "--lang"} {
+	// 与 root/service/action usage 共用 localizedSystemFlagsHelp：对外只展示双横线。
+	for _, flag := range []string{"--force", "--version", "--method", "--header", "--body", "--lang"} {
 		if !strings.Contains(help, flag) {
 			t.Fatalf("unknown service help missing %q:\n%s", flag, help)
+		}
+	}
+	for _, alias := range []string{"---force", "---version", "---method", "---lang"} {
+		if strings.Contains(help, alias) {
+			t.Fatalf("unknown service help exposes historical alias %q:\n%s", alias, help)
 		}
 	}
 	if !strings.Contains(help, "Reserved double-dash") && !strings.Contains(help, "双横线保留") {

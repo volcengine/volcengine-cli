@@ -4,7 +4,7 @@
 
 ## Advanced Usage
 
-This document covers shell completion, colored output, debug logs, `---force` invocation, and common questions. These features are not required for API calls, but they improve daily ergonomics and troubleshooting.
+This document covers shell completion, colored output, debug logs, `--force` invocation, and common questions. These features are not required for API calls, but they improve daily ergonomics and troubleshooting.
 
 ## Shell Completion
 
@@ -180,7 +180,7 @@ tail -n 100 ~/.volcengine/logs/$(date +%Y%m%d%H).log
 Behavior depends on how `ve` was installed:
 
 | Install source | Default action |
-|----------------|----------------|
+|------------|------------|
 | **Homebrew** (macOS/Linux; Homebrew/Linuxbrew/Cellar paths) | `brew update` then `brew upgrade volcengine-cli` (network required; `--version` not supported) |
 | **npm** (`node_modules/@volcengine/cli`) | Runs `npm install -g @volcengine/cli@...` (network required); no in-place binary replace; on failure prints the manual command and exits non-zero |
 | **standalone** (Release zip, source build, etc.) | Download and replace the current binary in place |
@@ -207,7 +207,7 @@ Upgrade notices are throttled by **running current version + local calendar day*
 Environment variables:
 
 | Variable | Description |
-|----------|-------------|
+|--------|----------|
 | `VOLCENGINE_CLI_DISABLE_UPDATE_CHECK=1` | Disable background version checks and notices |
 | `VOLCENGINE_CLI_UPDATE_CHECK_TTL_HOURS` | Cache TTL in hours (default 24) |
 | `VOLCENGINE_CLI_DOWNLOAD_BASE_URL` | Override download base URL (default CDN) |
@@ -219,36 +219,36 @@ Cache file: `~/.volcengine/cli/version_check.json`.
 
 ## Force Invocation
 
-The CLI ships with metadata for a subset of cloud products. In normal mode it validates that the service and action exist. If a product or API is not yet bundled, or local metadata lags behind the service, you may see `unsupported action` or `unknown command`. Use `---force` to skip service/action validation and issue an RPC call directly.
+The CLI ships with metadata for a subset of cloud products. In normal mode it validates that the service and action exist. If a product or API is not yet bundled, or local metadata lags behind the service, you may see `unsupported action` or `unknown command`. Use `--force` to skip service/action validation and issue an RPC call directly.
 
 ### When to Use It
 
 - Call a **service not yet listed** in metadata
 - Call a **new action** under a known service
-- Call an API with a **version not in bundled metadata** (via `---version`)
+- Call an API with a **version not in bundled metadata** (via `--version`)
 
-Unknown API parameters already pass through in normal mode. `---force` mainly removes limits at the **service / action / API version** level.
+Unknown API parameters already pass through in normal mode. `--force` mainly removes limits at the **service / action / API version** level.
 
 ### Fixed Flag Requirements
 
 | Flag | Required | Description |
 | --- | --- | --- |
-| `---force` | Yes | Presence-only switch; enables force mode when present; does not accept `true`/`false` values |
-| `---version` | Depends on service | **Required for unlisted services**; **optional for bundled services**, falling back to metadata. Can also override the bundled API version |
-| `---endpoint` | Depends on service | Same as normal calls: `---endpoint` > `endpoint-resolver=standard` > profile/env endpoint > (bundled) resolve by service+region. **Unlisted** services need an effective **fixed host** (`endpoint-resolver=standard` or `auto-addressing` alone is not enough) |
-| `---method` | No | HTTP method: `GET` or `POST`; same on normal and force paths: explicit value → action metadata → default `GET` |
-| `---region` | Depends on config | Same as normal calls; a region must be resolvable |
+| `--force` | Yes | Presence-only switch; enables force mode when present; does not accept `true`/`false` values |
+| `--version` | Depends on service | **Required for unlisted services**; **optional for bundled services**, falling back to metadata. Can also override the bundled API version |
+| `--endpoint` | Depends on service | Same as normal calls: `--endpoint` > `endpoint-resolver=standard` > profile/env endpoint > (bundled) resolve by service+region. **Unlisted** services need an effective **fixed host** (`endpoint-resolver=standard` or `auto-addressing` alone is not enough) |
+| `--method` | No | HTTP method: `GET` or `POST`; same on normal and force paths: explicit value → action metadata → default `GET` |
+| `--region` | Depends on config | Same as normal calls; a region must be resolvable |
 | `--header` | No | **Reserved double-dash control**, `Name=Value`, repeatable; custom HTTP headers. `Content-Type` overrides metadata; never enters the body. `Host`/`Authorization`/`Content-Length` are blocked |
 
 Notes:
 
-- `---version` is the **OpenAPI version**, not the CLI tool version. Use `ve version` or `ve -v` for the CLI version.
-- **Endpoint resolution is independent of `---force`** and matches normal invocation rules.
-- Unlisted services have no metadata host: you need a fixed host (`---endpoint`, or profile/`VOLCENGINE_ENDPOINT` when `endpoint-resolver` is **not** `standard`). `endpoint-resolver=standard` or `auto-addressing` alone is not enough.
-- Bundled services can omit `---version` in force mode, same as normal calls (e.g. `ve sts GetCallerIdentity ---force`).
-- `---method` uses the same resolution order on normal and force paths: explicit `---method` overrides metadata; otherwise bundled action `Method`; otherwise defaults to `GET` (`---force` does not change this).
-- Most force control flags use **three hyphens** `---`; HTTP headers/JSON body use reserved double-dash controls **`--header` / `--body`** (see [Usage](4-Usage.md#reserved-double-dash-controls)).
-- `---force` is **presence-only**: write `---force` by itself. Do **not** write `---force true` or `---force false`; the next token is treated as a positional argument (often mistaken for an action name).
+- `--version` is the **OpenAPI version**, not the CLI tool version. Use `ve version` or `ve -v` for the CLI version.
+- **Endpoint resolution is independent of `--force`** and matches normal invocation rules.
+- Unlisted services have no metadata host: you need a fixed host (`--endpoint`, or profile/`VOLCENGINE_ENDPOINT` when `endpoint-resolver` is **not** `standard`). `endpoint-resolver=standard` or `auto-addressing` alone is not enough.
+- Bundled services can omit `--version` in force mode, same as normal calls (e.g. `ve sts GetCallerIdentity --force`).
+- `--method` uses the same resolution order on normal and force paths: explicit `--method` overrides metadata; otherwise bundled action `Method`; otherwise defaults to `GET` (`--force` does not change this).
+- Public system flags use **double hyphens** `--` (including `--force` / `--version` / `--method`). Historical triple-dash aliases still work as a conflict escape but are not advertised. HTTP headers/JSON body use reserved double-dash controls **`--header` / `--body`** (see [Usage](4-Usage.md#reserved-double-dash-controls)).
+- `--force` is **presence-only**: write `--force` by itself. Do **not** write `--force true` or `--force false`; the next token is treated as a positional argument (often mistaken for an action name).
 
 ### Examples
 
@@ -265,35 +265,35 @@ Force-call an unlisted service:
 
 ```shell
 ve newservice DescribeNewResource \
-  ---version 2024-01-01 \
-  ---endpoint open.volcengineapi.com \
+  --version 2024-01-01 \
+  --endpoint open.volcengineapi.com \
   --SomeParam value \
-  ---force
+  --force
 ```
 
-Known service, unknown action (`---version` optional; falls back to service metadata):
+Known service, unknown action (`--version` optional; falls back to service metadata):
 
 ```shell
 ve sts SomeNewAction \
-  ---region cn-beijing \
+  --region cn-beijing \
   --Param1 value \
-  ---force
+  --force
 ```
 
 Known service and action, skip validation only:
 
 ```shell
-ve sts GetCallerIdentity ---region cn-beijing ---force
+ve sts GetCallerIdentity --region cn-beijing --force
 ```
 
 Override API version and endpoint:
 
 ```shell
 ve ecs DescribeInstances \
-  ---version 2024-01-01 \
-  ---endpoint ecs.cn-beijing.volcengineapi.com \
-  ---region cn-beijing \
-  ---force
+  --version 2024-01-01 \
+  --endpoint ecs.cn-beijing.volcengineapi.com \
+  --region cn-beijing \
+  --force
 ```
 
 ### Help for Unlisted Services
@@ -307,34 +307,34 @@ ve newservice
 
 ### Common Errors
 
-With `---lang ZH` (or a Chinese locale), the same messages are shown in Simplified Chinese. English defaults are:
+With `--lang ZH` (or a Chinese locale), the same messages are shown in Simplified Chinese. English defaults are:
 
-Missing `---version` for an unlisted service:
+Missing `--version` for an unlisted service:
 
 ```text
----version is required when using ---force for service "newservice"
+--version is required when using --force for service "newservice"
 ```
 
-Missing **fixed** endpoint for an unlisted service (no effective host — e.g. no `---endpoint`, or only `endpoint-resolver=standard` / `auto-addressing`):
+Missing **fixed** endpoint for an unlisted service (no effective host — e.g. no `--endpoint`, or only `endpoint-resolver=standard` / `auto-addressing`):
 
 ```text
-endpoint is required for unlisted service "newservice": set ---endpoint, or configure endpoint in the profile / VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)
+endpoint is required for unlisted service "newservice": set --endpoint, or configure endpoint in the profile / VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)
 ```
 
-Unlisted service without `---force`:
+Unlisted service without `--force`:
 
 ```text
-unknown service "newservice": use ---force with ---version, and a fixed endpoint via ---endpoint or profile/VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)
+unknown service "newservice": use --force with --version, and a fixed endpoint via --endpoint or profile/VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)
 ```
 
 Wrong presence-only usage (`true` becomes a positional token / action):
 
 ```text
-# incorrect — do not pass a value after ---force
-ve newservice true ---version 2024-01-01 ---endpoint open.volcengineapi.com ---force true
+# incorrect — do not pass a value after --force
+ve newservice true --version 2024-01-01 --endpoint open.volcengineapi.com --force true
 
 # correct
-ve newservice DescribeNewResource ---version 2024-01-01 ---endpoint open.volcengineapi.com ---force
+ve newservice DescribeNewResource --version 2024-01-01 --endpoint open.volcengineapi.com --force
 ```
 
 ## FAQ
@@ -350,13 +350,7 @@ VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity
 Public system flags:
 
 ```text
---profile, --region, --endpoint, --lang
-```
-
-Force-path control flags:
-
-```text
----force, ---version, ---method
+--profile, --region, --endpoint, --lang, --force, --version, --method
 ```
 
 Reserved double-dash controls:

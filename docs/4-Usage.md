@@ -9,17 +9,16 @@ Basic command format:
 ```shell
 ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
                       [--profile name] [--region region] [--endpoint endpoint] [--lang language]
-                      [---version api-version] [---method GET|POST] [---force]
+                      [--version api-version] [--method GET|POST] [--force]
 ```
 
 Argument kinds:
 
 - **API parameters**: double-dash `--Param value` (enter request body/query; reserved names `body` / `header` excluded)
-- **Public system flags** (after the action): `--profile` / `--region` / `--endpoint` / `--lang`
-- **Force-path control flags**: `---version` / `---method` / `---force`
+- **Public system flags** (after the action): `--profile` / `--region` / `--endpoint` / `--lang` / `--version` / `--method` / `--force`
 - **Reserved double-dash controls**: `--header` (HTTP headers), `--body` (JSON body); **not** API parameters
 
-`--profile`, `--region`, `--endpoint`, and `--lang` are the public CLI system flags. System flags in API calls are placed after the action. Historical triple-dash aliases (`---profile` / `---region` / `---endpoint` / `---lang`) still work but are not advertised.
+System flags in API calls are placed after the action. If an action exposes an exact-name API parameter (case-sensitive), the double-dash form is parsed as the API parameter; use the historical triple-dash alias (`---profile`, `---force`, …) as a system-flag escape. Triple-dash aliases work but are not advertised.
 
 ## Discover Services and Actions
 
@@ -87,13 +86,14 @@ Public system flags use the standard double-hyphen form:
 | `--region` | Override region for this invocation |
 | `--endpoint` | Override endpoint for this invocation and clear endpoint resolver |
 | `--lang` | Set the language of CLI-owned help, prompts, and errors for this invocation |
-| `---version` | Set the **API version** for this call; if omitted, uses the bundled service version (not the CLI version from `ve -v` / `ve --version`) |
-| `---force` | Skip service/action metadata validation and force-call unlisted or newly released APIs; **unlisted services** require `---version` and a fixed endpoint (`--endpoint` or profile/`VOLCENGINE_ENDPOINT` when resolver is not `standard`); bundled services can fall back to metadata |
-| `---method` | HTTP method (`GET`/`POST`); same rules on normal and `---force` paths: explicit value wins, else action metadata, else `GET` |
+| `--version` | Set the **API version** for this call; if omitted, uses the bundled service version (not the CLI binary version from root `ve -v` / `ve --version` / `ve version`) |
+| `--force` | Skip service/action metadata validation and force-call unlisted or newly released APIs; **unlisted services** require `--version` and a fixed endpoint (`--endpoint` or profile/`VOLCENGINE_ENDPOINT` when resolver is not `standard`); bundled services can fall back to metadata. Presence-only: write `--force` alone, not `--force true` |
+| `--method` | HTTP method (`GET`/`POST`); same rules on normal and `--force` paths: explicit value wins, else action metadata, else `GET` |
 
 After the action, a double-dash flag whose exact case-sensitive name is exposed by that action is parsed as an API parameter. Without such a conflict, it is parsed as a system flag.
 
 Names with different casing, such as `--Region` or `--Endpoint`, are always API parameters.
+
 
 ### Reserved Double-Dash Controls
 
@@ -104,7 +104,7 @@ Names with different casing, such as `--Region` or `--Endpoint`, are always API 
 
 ```shell
 ve sts GetCallerIdentity --header X-Custom-Trace=abc
-ve newsvc Act ---force ---version 2024-01-01 --endpoint open.volcengineapi.com \
+ve newsvc Act --force --version 2024-01-01 --endpoint open.volcengineapi.com \
   --header Content-Type=application/json \
   --header X-Feature=on \
   --body '{"k":1}'
@@ -227,14 +227,14 @@ This is useful when the service has added a parameter but local metadata has not
 
 ## Unlisted Services and Actions
 
-The CLI validates services and actions against built-in metadata. If the **service or action is not yet bundled**, use `---force` to bypass validation; unlisted services also require `---version` and a **fixed** endpoint (`---endpoint`, or profile / `VOLCENGINE_ENDPOINT` when `endpoint-resolver` is not `standard`) because the CLI has no metadata from which to resolve a host. Bundled services can omit these overrides in force mode and use metadata with the same endpoint rules as normal calls. See [Advanced Usage: Force Invocation](5-Advanced.md#force-invocation).
+The CLI validates services and actions against built-in metadata. If the **service or action is not yet bundled**, use `--force` to bypass validation; unlisted services also require `--version` and a **fixed** endpoint (`--endpoint`, or profile / `VOLCENGINE_ENDPOINT` when `endpoint-resolver` is not `standard`) because the CLI has no metadata from which to resolve a host. Bundled services can omit these overrides in force mode and use metadata with the same endpoint rules as normal calls. See [Advanced Usage: Force Invocation](5-Advanced.md#force-invocation).
 
 ```shell
 ve newservice DescribeNewResource \
-  ---version 2024-01-01 \
-  ---endpoint open.volcengineapi.com \
+  --version 2024-01-01 \
+  --endpoint open.volcengineapi.com \
   --SomeParam value \
-  ---force
+  --force
 ```
 
 ## Common Scenarios
@@ -294,13 +294,12 @@ region not set, please set it via profile, --region flag, or VOLCENGINE_REGION e
 Unsupported system flag:
 
 ```text
----debug is not supported, supported fixed flags: ---profile, ---region, ---endpoint, ---force, ---version, ---method
+---debug is not supported, supported system flags: --profile, --region, --endpoint, --lang, --force, --version, --method
 ```
 
-Public system flags (double-dash): `--profile`, `--region`, `--endpoint`, `--lang`.  
-Force-path control flags (triple-dash): `---force`, `---version`, `---method`.  
-Historical triple-dash aliases for profile/region/endpoint/lang still work.  
-`---lang` / non-conflicting `--lang` is resolved before argument parsing, so the parser error list above does not include it.  
+Public system flags (double-dash): `--profile`, `--region`, `--endpoint`, `--lang`, `--force`, `--version`, `--method`.  
+Historical triple-dash aliases still work as a system-flag escape when an API parameter uses the same name.  
+Non-conflicting `--lang` / `---lang` is resolved before argument parsing, so the parser error list above does not include it.  
 Reserved double-dash controls: `--header`, `--body` (see “Reserved Double-Dash Controls” above).
 
 ---

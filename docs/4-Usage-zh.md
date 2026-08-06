@@ -9,17 +9,16 @@ CLI 的基本调用格式：
 ```shell
 ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
                       [--profile name] [--region region] [--endpoint endpoint] [--lang language]
-                      [---version api-version] [---method GET|POST] [---force]
+                      [--version api-version] [--method GET|POST] [--force]
 ```
 
 参数分几类：
 
 - **API 业务参数**：双横线 `--Param value`，进入请求体/查询参数（保留名 `body` / `header` 除外）
-- **对外系统参数**（放在 Action 后）：`--profile` / `--region` / `--endpoint` / `--lang`
-- **force 路径控制参数**：`---version` / `---method` / `---force`
+- **对外系统参数**（放在 Action 后）：`--profile` / `--region` / `--endpoint` / `--lang` / `--version` / `--method` / `--force`
 - **双横线保留控制参数**：`--header`（HTTP 头）、`--body`（JSON 请求体）；**不是**业务参数
 
-`--profile` / `--region` / `--endpoint` / `--lang` 是对外公开的 CLI 系统参数。API 调用中的系统参数统一放在 Action 后。历史三横线别名（`---profile` / `---region` / `---endpoint` / `---lang`）仍可用，但不对外宣传。
+API 调用中的系统参数统一放在 Action 后。若当前 Action 暴露了大小写完全相同的业务参数，双横线优先按 API 参数解析；此时可用历史三横线别名（`---profile`、`---force` 等）强制走系统参数。三横线别名仍可用，但不对外宣传。
 
 ## 查看服务和接口
 
@@ -87,9 +86,9 @@ ve rds_mysql ListDBInstanceIPLists --InstanceId mysql-xxxxxx --GroupName default
 | `--region` | 本次调用覆盖 region |
 | `--endpoint` | 本次调用覆盖 endpoint，并清空 endpoint resolver |
 | `--lang` | 设置本次调用中 CLI 自有帮助、提示和错误的显示语言 |
-| `---version` | 指定本次调用的 **API 版本**；未指定时使用内置元数据中的 service 版本（与根命令 `ve -v` / `ve --version` 的 CLI 版本无关） |
-| `---force` | 跳过 service/action 元数据校验，强制调用未收录或新发布的接口；**未收录 service** 须提供 `---version` 与固定 endpoint（`--endpoint` 或非 standard 下的 profile/`VOLCENGINE_ENDPOINT`）；已收录 service 可回落元数据 |
-| `---method` | 指定 HTTP 方法（`GET`/`POST`）；正常路径与 `---force` 路径规则一致：显式值优先，否则用 action 元数据，均无则默认 `GET` |
+| `--version` | 指定本次调用的 **API 版本**；未指定时使用内置元数据中的 service 版本（与根命令 `ve -v` / `ve --version` / `ve version` 的 CLI 二进制版本无关） |
+| `--force` | 跳过 service/action 元数据校验，强制调用未收录或新发布的接口；**未收录 service** 须提供 `--version` 与固定 endpoint（`--endpoint` 或非 standard 下的 profile/`VOLCENGINE_ENDPOINT`）；已收录 service 可回落元数据。纯开关：只写 `--force`，不要写 `--force true` |
+| `--method` | 指定 HTTP 方法（`GET`/`POST`）；正常路径与 `--force` 路径规则一致：显式值优先，否则用 action 元数据，均无则默认 `GET` |
 
 Action 后如果当前 Action 暴露了大小写完全相同的参数，双横线形式优先按 API 业务参数解析；没有同名冲突时按系统参数解析。
 
@@ -104,7 +103,7 @@ Action 后如果当前 Action 暴露了大小写完全相同的参数，双横�
 
 ```shell
 ve sts GetCallerIdentity --header X-Custom-Trace=abc
-ve newsvc Act ---force ---version 2024-01-01 --endpoint open.volcengineapi.com \
+ve newsvc Act --force --version 2024-01-01 --endpoint open.volcengineapi.com \
   --header Content-Type=application/json \
   --header X-Feature=on \
   --body '{"k":1}'
@@ -227,14 +226,14 @@ ve ecs DescribeInstances --NewServerSideParam value
 
 ## 未收录 service / action
 
-CLI 会校验 service 和 action 是否在内置元数据中。若调用的 **service 或 action 尚未收录**，需使用 `---force` 跳过校验；未收录 service 还须指定 `---version`，并提供**固定** endpoint（`---endpoint`，或未启用 `endpoint-resolver=standard` 时的 profile / `VOLCENGINE_ENDPOINT`），因为 CLI 无法从元数据中解析接入地址。已收录 service 在 force 模式下可省略这些覆盖参数并使用元数据与正常 endpoint 规则。详见 [高级用法：强制泛化调用](5-Advanced-zh.md#force-invocation)。
+CLI 会校验 service 和 action 是否在内置元数据中。若调用的 **service 或 action 尚未收录**，需使用 `--force` 跳过校验；未收录 service 还须指定 `--version`，并提供**固定** endpoint（`--endpoint`，或未启用 `endpoint-resolver=standard` 时的 profile / `VOLCENGINE_ENDPOINT`），因为 CLI 无法从元数据中解析接入地址。已收录 service 在 force 模式下可省略这些覆盖参数并使用元数据与正常 endpoint 规则。详见 [高级用法：强制泛化调用](5-Advanced-zh.md#force-invocation)。
 
 ```shell
 ve newservice DescribeNewResource \
-  ---version 2024-01-01 \
-  ---endpoint open.volcengineapi.com \
+  --version 2024-01-01 \
+  --endpoint open.volcengineapi.com \
   --SomeParam value \
-  ---force
+  --force
 ```
 
 ## 常用调用场景
@@ -294,13 +293,12 @@ region not set, please set it via profile, --region flag, or VOLCENGINE_REGION e
 系统参数不支持时：
 
 ```text
----debug is not supported, supported fixed flags: ---profile, ---region, ---endpoint, ---force, ---version, ---method
+---debug is not supported, supported system flags: --profile, --region, --endpoint, --lang, --force, --version, --method
 ```
 
-对外系统参数（双横线）：`--profile`、`--region`、`--endpoint`、`--lang`。  
-force 路径控制参数（三横线）：`---force`、`---version`、`---method`。  
-profile/region/endpoint/lang 的历史三横线别名仍可用。  
-`---lang` / 无冲突的 `--lang` 会在参数解析前被预处理剥离，因此上面 parser 报错列表中不包含它。  
+对外系统参数（双横线）：`--profile`、`--region`、`--endpoint`、`--lang`、`--force`、`--version`、`--method`。  
+历史三横线别名在与 API 参数同名冲突时仍可作为系统参数逃逸。  
+无冲突的 `--lang` / `---lang` 会在参数解析前被预处理剥离，因此上面 parser 报错列表中不包含它。  
 双横线保留控制参数：`--header`、`--body`（见上文「双横线保留控制参数」）。
 
 ---

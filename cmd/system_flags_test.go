@@ -46,6 +46,9 @@ func TestParserRoutesSystemFlagsAfterAction(t *testing.T) {
 		"--profile", "prod",
 		"--endpoint", "sts.volcengineapi.com",
 		"--lang", "ZH",
+		"--version", "2024-01-01",
+		"--method", "POST",
+		"--force",
 	}, map[string]struct{}{})
 	if _, err := parser.ReadArgs(c); err != nil {
 		t.Fatalf("ReadArgs returned error: %v", err)
@@ -53,6 +56,7 @@ func TestParserRoutesSystemFlagsAfterAction(t *testing.T) {
 	for name, want := range map[string]string{
 		"region": "cn-beijing", "profile": "prod",
 		"endpoint": "sts.volcengineapi.com", "lang": "ZH",
+		"version": "2024-01-01", "method": "POST", "force": "true",
 	} {
 		flag := c.fixedFlags.GetByName(name)
 		if flag == nil || flag.GetValue() != want {
@@ -68,12 +72,16 @@ func TestParserUsesExactActionParameterConflict(t *testing.T) {
 	c := NewContext()
 	params := map[string]struct{}{
 		"profile": {}, "region": {}, "endpoint": {}, "lang": {},
+		"force": {}, "version": {}, "method": {},
 	}
 	parser := NewParser([]string{
 		"--profile", "business-profile",
 		"--region", "business-region",
 		"--endpoint", "business-endpoint",
 		"--lang", "1",
+		"--force", "business-force",
+		"--version", "business-version",
+		"--method", "business-method",
 		"--Lang", "ZH",
 		"--Region", "business-cased-region",
 	}, params)
@@ -83,6 +91,7 @@ func TestParserUsesExactActionParameterConflict(t *testing.T) {
 	for name, want := range map[string]string{
 		"profile": "business-profile", "region": "business-region",
 		"endpoint": "business-endpoint", "lang": "1",
+		"force": "business-force", "version": "business-version", "method": "business-method",
 		"Lang": "ZH", "Region": "business-cased-region",
 	} {
 		flag := c.dynamicFlags.GetByName(name)
@@ -94,6 +103,34 @@ func TestParserUsesExactActionParameterConflict(t *testing.T) {
 		if c.fixedFlags.GetByName(name) != nil {
 			t.Fatalf("conflicting --%s must not also enter fixedFlags", name)
 		}
+	}
+}
+
+func TestTripleDashEscapesForceVersionMethodConflicts(t *testing.T) {
+	c := NewContext()
+	params := map[string]struct{}{"force": {}, "version": {}, "method": {}}
+	parser := NewParser([]string{
+		"--force", "api-force",
+		"--version", "api-version",
+		"--method", "api-method",
+		"---force",
+		"---version", "2024-01-01",
+		"---method", "POST",
+	}, params)
+	if _, err := parser.ReadArgs(c); err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+	if !isForceEnabled(c) {
+		t.Fatal("expected ---force system escape")
+	}
+	if got := c.fixedFlags.GetByName("version"); got == nil || got.GetValue() != "2024-01-01" {
+		t.Fatalf("fixed version = %#v", got)
+	}
+	if got := c.fixedFlags.GetByName("method"); got == nil || got.GetValue() != "POST" {
+		t.Fatalf("fixed method = %#v", got)
+	}
+	if got := c.dynamicFlags.GetByName("force"); got == nil || got.GetValue() != "api-force" {
+		t.Fatalf("dynamic force = %#v", got)
 	}
 }
 
@@ -251,12 +288,12 @@ func TestSystemFlagsAreExposedToCompletionWithoutLegacyAliases(t *testing.T) {
 		t.Fatalf("GenBashCompletion returned error: %v", err)
 	}
 	completion := output.String()
-	for _, name := range []string{"--profile", "--region", "--endpoint", "--lang"} {
+	for _, name := range []string{"--profile", "--region", "--endpoint", "--lang", "--force", "--version", "--method"} {
 		if !strings.Contains(completion, name) {
 			t.Fatalf("completion missing %q", name)
 		}
 	}
-	for _, name := range []string{"---profile", "---region", "---endpoint", "---lang"} {
+	for _, name := range []string{"---profile", "---region", "---endpoint", "---lang", "---force", "---version", "---method"} {
 		if strings.Contains(completion, name) {
 			t.Fatalf("completion exposes historical alias %q", name)
 		}

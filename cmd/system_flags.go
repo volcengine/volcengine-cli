@@ -22,6 +22,10 @@ type systemFlagsResolution struct {
 // resolveSystemFlags extracts flags that must be applied before Cobra renders
 // help or runs an action. API system flags must follow the action; other action
 // flags stay in place for Parser to resolve against the action's metadata.
+//
+// Only preprocessableSystemFlags (profile/region/endpoint/lang) are stripped
+// here. force/version/method remain in-place for Parser so root `ve --version`
+// (CLI version) and presence-only --force keep working.
 func resolveSystemFlags(args []string) (systemFlagsResolution, error) {
 	result := systemFlagsResolution{
 		args:       make([]string, 0, len(args)),
@@ -58,7 +62,7 @@ func resolveSystemFlags(args []string) (systemFlagsResolution, error) {
 		}
 
 		result.args = append(result.args, arg)
-		if state == afterAPIAction && isValueTakingFlag(arg) {
+		if state == afterAPIAction && isValueTakingFlag(arg, actionParameters) {
 			if i+1 < len(args) {
 				result.args = append(result.args, args[i+1])
 				i++
@@ -67,7 +71,7 @@ func resolveSystemFlags(args []string) (systemFlagsResolution, error) {
 		}
 
 		if strings.HasPrefix(arg, "-") {
-			if state == beforeAPIAction && isValueTakingFlag(arg) && i+1 < len(args) {
+			if state == beforeAPIAction && isValueTakingFlag(arg, actionParameters) && i+1 < len(args) {
 				result.args = append(result.args, args[i+1])
 				i++
 			}
@@ -115,6 +119,10 @@ func parseSystemFlagToken(arg string) (name string, legacy, equals, ok bool) {
 }
 
 func shouldExtractSystemFlag(name string, legacy bool, state commandScanState, actionParameters map[string]struct{}) bool {
+	if _, ok := preprocessableSystemFlags[name]; !ok {
+		// force/version/method: position-checked as system flags but parsed later.
+		return false
+	}
 	switch state {
 	case beforeCommand:
 		// Root help and non-API commands have no action. If a service is found
@@ -147,17 +155,25 @@ func systemFlagDisplayName(name string, legacy bool) string {
 	return "--" + name
 }
 
-func isValueTakingFlag(arg string) bool {
-	if arg == "-h" || arg == "--help" || arg == "-v" || arg == "--version" {
+func isValueTakingFlag(arg string, actionParameters map[string]struct{}) bool {
+	if arg == "-h" || arg == "--help" || arg == "-v" {
 		return false
 	}
-	// Presence-only ---force must not swallow the following token while scanning.
-	if strings.HasPrefix(arg, "---") {
-		name := arg[3:]
-		if j := strings.IndexByte(name, '='); j >= 0 {
+	// Root CLI version switch is not a value-taking flag. Action-scoped API
+	// --version is value-taking and is handled after action via Parser.
+	if arg == "--version" {
+		return false
+	}
+	name, legacy := flagNameFromToken(arg)
+	if name == "" {
+		return strings.HasPrefix(arg, "--")
+	}
+	// Presence-only system force must not swallow the following token.
+	if isPresenceOnlyFixedFlag(name) {
+		if legacy {
 			return false
 		}
-		if isPresenceOnlyFixedFlag(name) {
+		if _, isActionParameter := actionParameters[name]; !isActionParameter {
 			return false
 		}
 	}

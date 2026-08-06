@@ -99,21 +99,29 @@ func sameLocalCalendarDay(a, b time.Time) bool {
 }
 
 // rootBoolFlags are root-level boolean flags that do not consume a following token.
-// Keep in sync with cmd/cmd_root.go local flags and presence-only fixed flags.
+// Keep in sync with cmd/cmd_root.go local flags and presence-only system flags.
+// Note: root CLI --version (binary version) is boolean; action-scoped API --version
+// only appears after a service positional and is not scanned here for subcommand id.
 var rootBoolFlags = map[string]struct{}{
 	"-h": {}, "--help": {},
 	"-v": {}, "--version": {},
-	// Triple-dash fixed flag (presence-only); same as cmd/parser booleanFixedFlags.
+	// Presence-only system force (public + legacy triple-dash escape).
+	"--force":  {},
 	"---force": {},
 }
 
 // rootValueFlags are root-level flags that take a following argument.
-// Include CLI fixed flags (---lang / ---profile / …) so firstRootPositional does not
-// treat their values as the root subcommand (e.g. ve ---lang ZH upgrade).
+// Include public system flags and triple-dash aliases so firstRootPositional does not
+// treat their values as the root subcommand (e.g. ve --lang ZH upgrade).
 // Keep in sync with:
-//   - cmd/parser allowedFixedFlags (value-taking --- flags) and ---lang
+//   - cmd/parser publicSystemFlags / allowedLegacyFixedFlags
 //   - cmd/reservedDynamicFlags (double-dash reserved controls: --header, --body)
 var rootValueFlags = map[string]struct{}{
+	"--lang":      {},
+	"--profile":   {},
+	"--region":    {},
+	"--endpoint":  {},
+	"--method":    {},
 	"---lang":     {},
 	"---profile":  {},
 	"---region":   {},
