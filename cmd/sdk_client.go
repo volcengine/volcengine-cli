@@ -22,9 +22,10 @@ import (
 )
 
 type SdkClient struct {
-	Config      *volcengine.Config
-	Session     *session.Session
-	DebugLogger *DebugLogger
+	Config          *volcengine.Config
+	Session         *session.Session
+	DebugLogger     *DebugLogger
+	customUserAgent string
 }
 
 type SdkClientInfo struct {
@@ -194,6 +195,10 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 	if ctx == nil || ctx.fixedFlags == nil {
 		return nil, fmt.Errorf("invalid context for creating sdk client")
 	}
+	customUserAgent, err := customUserAgentFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	profileName, profileSource, currentProfile, err := selectInvocationProfile(ctx)
 	if err != nil {
@@ -318,10 +323,22 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 	sess, _ := session.NewSession(config)
 
 	return &SdkClient{
-		Config:      config,
-		Session:     sess,
-		DebugLogger: debugLoggerFromContext(ctx),
+		Config:          config,
+		Session:         sess,
+		DebugLogger:     debugLoggerFromContext(ctx),
+		customUserAgent: customUserAgent,
 	}, nil
+}
+
+func customUserAgentFromContext(ctx *Context) (string, error) {
+	if ctx == nil || ctx.fixedFlags == nil {
+		return "", nil
+	}
+	flag := ctx.fixedFlags.GetByName(customUserAgentFlagName)
+	if flag == nil {
+		return "", nil
+	}
+	return normalizeCustomUserAgent(flag.GetValue())
 }
 
 func hasLocalCredentialSignal() bool {
@@ -427,7 +444,7 @@ func (s *SdkClient) initClient(svc string, version string) (*client.Client, erro
 		config.Handlers,
 	)
 
-	c.Handlers.Build.PushBackNamed(clientVersionAndUserAgentHandler)
+	c.Handlers.Build.PushBackNamed(newClientVersionAndUserAgentHandler(s.customUserAgent))
 	c.Handlers.Sign.PushBackNamed(volc.SignRequestHandler)
 	c.Handlers.Build.PushBackNamed(volcenginequery.BuildHandler)
 	c.Handlers.Unmarshal.PushBackNamed(volcenginequery.UnmarshalHandler)

@@ -5,16 +5,10 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"unicode"
 
 	"github.com/volcengine/volcengine-go-sdk/volcengine/request"
 )
-
-var clientVersionAndUserAgentHandler = request.NamedHandler{
-	Name: "VolcengineCliUserAgentHandler",
-	Fn: func(r *request.Request) {
-		request.AddToUserAgent(r, clientUserAgent(os.Getenv))
-	},
-}
 
 const clientName = "volcengine-cli"
 
@@ -106,6 +100,31 @@ func clientUserAgent(getenv envGetter) string {
 		}
 	}
 	return fmt.Sprintf("%s/%s/(%s)", clientName, clientVersion, strings.Join(extra, "; "))
+}
+
+func newClientVersionAndUserAgentHandler(customUserAgent string) request.NamedHandler {
+	return request.NamedHandler{
+		Name: "VolcengineCliUserAgentHandler",
+		Fn: func(r *request.Request) {
+			request.AddToUserAgent(r, clientUserAgent(os.Getenv))
+			if customUserAgent != "" {
+				request.AddToUserAgent(r, customUserAgent)
+			}
+		},
+	}
+}
+
+func normalizeCustomUserAgent(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("--user-agent must set value")
+	}
+	for _, r := range value {
+		if unicode.IsControl(r) {
+			return "", fmt.Errorf("--user-agent must not contain control characters")
+		}
+	}
+	return value, nil
 }
 
 func detectSkillInvokers(getenv envGetter) []string {

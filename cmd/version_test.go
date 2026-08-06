@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"runtime"
 	"strings"
 	"testing"
@@ -302,7 +303,7 @@ func TestClientVersionAndUserAgentHandlerAddsSkillInvokerToHeader(t *testing.T) 
 			httpRequest.Header.Set("User-Agent", "existing-client/0.1")
 			req := &request.Request{HTTPRequest: httpRequest}
 
-			clientVersionAndUserAgentHandler.Fn(req)
+			newClientVersionAndUserAgentHandler("").Fn(req)
 			got := req.HTTPRequest.Header.Get("User-Agent")
 			for _, want := range []string{
 				"existing-client/0.1 ",
@@ -332,6 +333,83 @@ func TestClientVersionAndUserAgentHandlerAddsSkillInvokerToHeader(t *testing.T) 
 				}
 			}
 		})
+	}
+}
+
+func TestClientVersionAndUserAgentHandlerAppendsCustomUserAgent(t *testing.T) {
+	clearSkillInvokerEnv(t)
+
+	httpRequest, err := http.NewRequest(http.MethodGet, "https://example.com", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpRequest.Header.Set("User-Agent", "existing-client/0.1")
+	req := &request.Request{HTTPRequest: httpRequest}
+
+	customUserAgent := "deployment-tool/2.1"
+	newClientVersionAndUserAgentHandler(customUserAgent).Fn(req)
+	got := req.HTTPRequest.Header.Get("User-Agent")
+	defaultIndex := strings.Index(got, clientName+"/"+clientVersion+"/(")
+	customIndex := strings.Index(got, customUserAgent)
+	if !strings.HasPrefix(got, "existing-client/0.1 ") {
+		t.Fatalf("User-Agent = %q, want existing value to be preserved", got)
+	}
+	if defaultIndex < 0 || customIndex < 0 || defaultIndex >= customIndex {
+		t.Fatalf("User-Agent = %q, want CLI default before custom value", got)
+	}
+	if strings.Count(got, customUserAgent) != 1 {
+		t.Fatalf("User-Agent = %q, want custom value exactly once", got)
+	}
+}
+
+func TestCallSdkUsesUserAgentSystemParameter(t *testing.T) {
+	clearSkillInvokerEnv(t)
+	defer setenvForTest(t, "VOLCENGINE_ACCESS_KEY", "ak-test")()
+	defer setenvForTest(t, "VOLCENGINE_SECRET_KEY", "sk-test")()
+	defer setenvForTest(t, "VOLCENGINE_REGION", "cn-beijing")()
+
+	var gotUserAgent string
+	var gotAPIParameter string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUserAgent = r.Header.Get("User-Agent")
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("parse request form: %v", err)
+		}
+		gotAPIParameter = r.Form.Get(customUserAgentFlagName)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ResponseMetadata":{"RequestId":"req-user-agent"},"Result":{"Ok":true}}`))
+	}))
+	defer server.Close()
+
+	customUserAgent := "deployment-tool/2.1"
+	ctx := NewContext()
+	if _, err := NewParser([]string{
+		"--user-agent", customUserAgent,
+		"--endpoint", server.URL,
+	}).ReadArgs(ctx); err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+
+	sdk, err := NewSimpleClient(ctx)
+	if err != nil {
+		t.Fatalf("NewSimpleClient returned error: %v", err)
+	}
+	if _, err := sdk.CallSdk(SdkClientInfo{
+		ServiceName: "ecs",
+		Action:      "DescribeInstances",
+		Version:     "2020-01-01",
+		Method:      http.MethodGet,
+	}, &map[string]interface{}{}); err != nil {
+		t.Fatalf("CallSdk returned error: %v", err)
+	}
+
+	defaultIndex := strings.Index(gotUserAgent, clientName+"/"+clientVersion+"/(")
+	customIndex := strings.Index(gotUserAgent, customUserAgent)
+	if defaultIndex < 0 || customIndex < 0 || defaultIndex >= customIndex {
+		t.Fatalf("User-Agent = %q, want CLI default followed by custom value", gotUserAgent)
+	}
+	if gotAPIParameter != "" {
+		t.Fatalf("user-agent was sent as an API parameter: %q", gotAPIParameter)
 	}
 }
 

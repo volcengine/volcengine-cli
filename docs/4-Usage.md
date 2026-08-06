@@ -8,7 +8,7 @@ Basic command format:
 
 ```shell
 ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
-                      [--profile name] [--region region] [--endpoint endpoint] [--lang language]
+                      [--profile name] [--region region] [--endpoint endpoint] [--lang language] [--user-agent value]
                       [--version api-version] [--method GET|POST] [--force]
                       [--output json|table|table-num|text|yaml|off] [--query jmespath]
 ```
@@ -16,7 +16,7 @@ ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json
 Argument kinds:
 
 - **API parameters**: double-dash `--Param value` (enter request body/query; reserved names `body` / `header` excluded)
-- **Public system flags** (after the action): `--profile` / `--region` / `--endpoint` / `--lang` / `--version` / `--method` / `--force` / `--output` / `--query`
+- **Public system flags** (after the action): `--profile` / `--region` / `--endpoint` / `--lang` / `--user-agent` / `--version` / `--method` / `--force` / `--output` / `--query`
 - **Reserved double-dash controls**: `--header` (HTTP headers) and `--body` (JSON body); the controls themselves are **not** API parameters
 
 System flags in API calls use double hyphens and are placed after the action. If an action exposes an exact-name API parameter (case-sensitive), the double-dash form is parsed as the API parameter.
@@ -89,10 +89,11 @@ Parameter names and values are separated by spaces. The supported syntax is:
 
 ```shell
 --Param value
+--user-agent deployment-tool/2.1
 --region cn-beijing
 ```
 
-Do not use `--Param=value`, `--region=cn-beijing`, or `--lang=ZH`. Flag names and values must be separated by a space.
+Do not use `--Param=value`, `--user-agent=deployment-tool/2.1`, `--region=cn-beijing`, or `--lang=ZH`. Flag names and values must be separated by a space.
 
 ## CLI System Flags
 
@@ -104,6 +105,7 @@ Public system flags use the standard double-hyphen form:
 | `--region` | Override region for this invocation |
 | `--endpoint` | Override endpoint for this invocation and clear endpoint resolver |
 | `--lang` | Set the language of CLI-owned help, prompts, and errors for this invocation |
+| `--user-agent` | Append a custom identifier to the default HTTP `User-Agent` for this invocation |
 | `--version` | Set the **API version** for this call; if omitted, uses the bundled service version (not the CLI binary version from root `ve -v` / `ve --version` / `ve version`) |
 | `--force` | Skip service/action metadata validation and force-call unlisted or newly released APIs; **unlisted services** require `--version` and a fixed endpoint (`--endpoint` or profile/`VOLCENGINE_ENDPOINT` when resolver is not `standard`); bundled services can fall back to metadata. Presence-only: write `--force` alone, not `--force true` |
 | `--method` | HTTP method (`GET`/`POST`); same rules on normal and `--force` paths: explicit value wins, else action metadata, else `GET` |
@@ -113,6 +115,15 @@ Public system flags use the standard double-hyphen form:
 After the action, a double-dash flag whose exact case-sensitive name is exposed by that action is parsed as an API parameter. Without such a conflict, it is parsed as a system flag.
 
 Names with different casing, such as `--Region` or `--Endpoint`, are always API parameters.
+
+`--user-agent` preserves the CLI default User-Agent and appends the supplied value. Leading and trailing whitespace is removed; empty values and values containing control characters such as newlines are rejected.
+
+```shell
+ve ecs DescribeInstances --user-agent deployment-tool/2.1
+ve ecs DescribeInstances \
+  --InstanceIds.1 i-1234567890abcdef0 \
+  --user-agent "inventory-sync/3.4 team/compute"
+```
 
 
 ### Reserved Double-Dash Controls
