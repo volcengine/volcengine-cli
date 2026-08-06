@@ -174,4 +174,6 @@ var simplifiedChineseMessages = map[string]string{
 	`Use "{{.CommandPath}} [service] --help" for more information about a service.`: "使用 \"{{.CommandPath}} [service] --help\" 查看服务的更多信息。",
 	`Use "{{.CommandPath}} [action] --help" for more information about an action.`:  "使用 \"{{.CommandPath}} [action] --help\" 查看操作的更多信息。",
 	`Use "{{.CommandPath}} [command] --help" for more information about a command.`: "使用 \"{{.CommandPath}} [command] --help\" 查看命令的更多信息。",
+	"Default help is concise. For full parameter descriptions and examples: -h --detail (or --help --detail).": "默认帮助为简洁模式。查看完整参数描述与示例：-h --detail（或 --help --detail）。",
+	"--detail only expands help when used with -h/--help. Use -h --detail (or --help --detail). If you meant an API parameter named Detail, pass a value with matching case: --Detail <value>.": "--detail 仅在与 -h/--help 联用时展开帮助。请使用 -h --detail（或 --help --detail）。若指 API 参数 Detail，请用匹配大小写传值：--Detail <value>。",
 }

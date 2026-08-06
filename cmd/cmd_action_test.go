@@ -9,18 +9,22 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func TestLazyActionUsageBuildsOnceOnDemand(t *testing.T) {
+func TestLazyActionUsageBuildsOnDemand(t *testing.T) {
 	command := &cobra.Command{
 		Use:  "DemoAction",
 		Long: "demo",
 	}
-	var calls int
-	setLazyActionUsage(command, func() []string {
-		calls++
+	var conciseCalls, detailCalls int
+	setLazyActionUsage(command, func(detail bool) []string {
+		if detail {
+			detailCalls++
+			return []string{"Name string with-desc"}
+		}
+		conciseCalls++
 		return []string{"Name string"}
 	})
-	if calls != 0 {
-		t.Fatalf("usage built eagerly: calls=%d", calls)
+	if conciseCalls != 0 || detailCalls != 0 {
+		t.Fatalf("usage built eagerly: concise=%d detail=%d", conciseCalls, detailCalls)
 	}
 
 	var output bytes.Buffer
@@ -29,14 +33,40 @@ func TestLazyActionUsageBuildsOnceOnDemand(t *testing.T) {
 	if err := command.Usage(); err != nil {
 		t.Fatalf("first Usage: %v", err)
 	}
-	if err := command.Usage(); err != nil {
-		t.Fatalf("second Usage: %v", err)
+	if conciseCalls != 1 {
+		t.Fatalf("concise build calls=%d, want 1", conciseCalls)
 	}
-	if calls != 1 {
-		t.Fatalf("usage build calls=%d, want 1", calls)
+	if detailCalls != 0 {
+		t.Fatalf("detail build calls=%d, want 0 for default Usage", detailCalls)
 	}
 	if !strings.Contains(output.String(), "Name string") {
 		t.Fatalf("rendered usage missing params:\n%s", output.String())
+	}
+	if !strings.Contains(output.String(), "--detail") {
+		t.Fatalf("concise usage missing --detail tip:\n%s", output.String())
+	}
+
+	// Detail mode rebuilds with detail=true (no dual template cache).
+	output.Reset()
+	setActionHelpDetail(command, true)
+	if err := command.Usage(); err != nil {
+		t.Fatalf("detail Usage: %v", err)
+	}
+	if detailCalls != 1 {
+		t.Fatalf("detail build calls=%d, want 1", detailCalls)
+	}
+	if !strings.Contains(output.String(), "with-desc") {
+		t.Fatalf("detail usage missing full params:\n%s", output.String())
+	}
+
+	// Back to concise clears detail annotation path.
+	output.Reset()
+	setActionHelpDetail(command, false)
+	if err := command.Usage(); err != nil {
+		t.Fatalf("concise again: %v", err)
+	}
+	if conciseCalls != 2 {
+		t.Fatalf("concise rebuild calls=%d, want 2", conciseCalls)
 	}
 }
 
@@ -71,11 +101,190 @@ func TestGenerateActionCmdDoesNotLoadParamDescriptionsEagerly(t *testing.T) {
 	var output bytes.Buffer
 	commands[0].SetOut(&output)
 	commands[0].SetErr(&output)
+	// Default -h is concise: must not load the param description corpus.
 	if err := commands[0].Usage(); err != nil {
 		t.Fatalf("Usage: %v", err)
 	}
+	if loadCalls != 0 {
+		t.Fatalf("param descriptions load calls=%d, want 0 for concise help", loadCalls)
+	}
+
+	setActionHelpDetail(commands[0], true)
+	if err := commands[0].Usage(); err != nil {
+		t.Fatalf("detail Usage: %v", err)
+	}
 	if loadCalls != 1 {
-		t.Fatalf("param descriptions load calls=%d, want 1", loadCalls)
+		t.Fatalf("param descriptions load calls=%d, want 1 for --detail help", loadCalls)
+	}
+}
+
+func TestParseActionHelpArgs(t *testing.T) {
+	cases := []struct {
+		args           []string
+		wantHelp       bool
+		wantDetail     bool
+	}{
+		{nil, false, false},
+		{[]string{"-h"}, true, false},
+		{[]string{"--help"}, true, false},
+		{[]string{"-h", "--detail"}, true, true},
+		{[]string{"--detail", "--help"}, true, true},
+		{[]string{"--detail"}, false, false},
+		{[]string{"--ZoneId", "cn-beijing", "-h"}, true, false},
+		{[]string{"--ZoneId", "cn-beijing", "-h", "--detail"}, true, true},
+		{[]string{"--Detail"}, false, false}, // case-sensitive; not a help control
+		{[]string{"--help=true"}, false, false},
+		{[]string{"--detail=true", "-h"}, true, false}, // equals form is not the bare --detail token
+	}
+	for _, c := range cases {
+		gotHelp, gotDetail := parseActionHelpArgs(c.args)
+		if gotHelp != c.wantHelp || gotDetail != c.wantDetail {
+			t.Fatalf("parseActionHelpArgs(%v)=(%v,%v), want (%v,%v)",
+				c.args, gotHelp, gotDetail, c.wantHelp, c.wantDetail)
+		}
+	}
+}
+
+func TestBuildActionHelpParamLinesPreservesPrefixAndSortsKeys(t *testing.T) {
+	restoreLang := setLanguageForTest(LanguageEnglish)
+	defer restoreLang()
+	params := []param{
+		{key: "ZoneId", typeName: "string", required: true, description: "zone help"},
+		{key: "Count", typeName: "integer", required: false, description: "count help"},
+	}
+	lines := buildActionHelpParamLines("ecs", "RunInstances", params, []string{"body '{}'"}, false)
+	if len(lines) < 3 {
+		t.Fatalf("want prefix + 2 params, got %#v", lines)
+	}
+	if lines[0] != "body '{}'" {
+		t.Fatalf("prefix must stay first, got %q", lines[0])
+	}
+	// Keys sorted: Count before ZoneId
+	if !strings.Contains(lines[1], "Count") || !strings.Contains(lines[2], "ZoneId") {
+		t.Fatalf("expected Count then ZoneId skeleton, got %#v", lines[1:])
+	}
+	// Concise must not embed descriptions
+	joined := strings.Join(lines, "\n")
+	if strings.Contains(joined, "zone help") || strings.Contains(joined, "count help") {
+		t.Fatalf("concise lines leaked descriptions:\n%s", joined)
+	}
+	// Input slice must not be mutated
+	if params[0].key != "ZoneId" {
+		t.Fatalf("input params reordered or mutated: %+v", params)
+	}
+}
+
+func TestActionUsageDetailTipChinese(t *testing.T) {
+	restore := setLanguageForTest(LanguageSimplifiedChinese)
+	defer restore()
+	out := actionUsageTemplate("", []string{"Id string"}, false)
+	want := "默认帮助为简洁模式。查看完整参数描述与示例：-h --detail（或 --help --detail）。"
+	if !strings.Contains(out, want) {
+		t.Fatalf("missing Chinese detail tip %q in:\n%s", want, out)
+	}
+	detailOut := actionUsageTemplate("", []string{"Id string"}, true)
+	if strings.Contains(detailOut, want) {
+		t.Fatalf("detail mode should omit tip:\n%s", detailOut)
+	}
+	// Bare-detail error ZH catalog entry stays in sync with English tr() key.
+	err := errBareDetailWithoutHelp()
+	if !strings.Contains(err.Error(), "--Detail") {
+		t.Fatalf("ZH bare-detail error should mention --Detail casing: %v", err)
+	}
+	if strings.Contains(err.Error(), "--detail <value>") {
+		t.Fatalf("should not suggest lowercase --detail as API value form: %v", err)
+	}
+}
+
+func TestBareDetailWithoutValue(t *testing.T) {
+	cases := []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"--detail"}, true},
+		{[]string{"--detail", "--ZoneId"}, true}, // next is a flag → bare
+		{[]string{"--detail", "-h"}, false},      // single-dash is a value to the parser (help path still wins if -h present)
+		{[]string{"--detail", "-1"}, false},      // dash-prefixed value is valid
+		{[]string{"--ZoneId", "cn", "--detail"}, true},
+		{[]string{"--detail", "foo"}, false},
+		{[]string{"--Detail"}, false},
+		{nil, false},
+	}
+	for _, c := range cases {
+		if got := bareDetailWithoutValue(c.args); got != c.want {
+			t.Fatalf("bareDetailWithoutValue(%v)=%v, want %v", c.args, got, c.want)
+		}
+	}
+}
+
+func TestActionRunE_HelpShortCircuitAndBareDetail(t *testing.T) {
+	restoreLang := setLanguageForTest(LanguageEnglish)
+	defer restoreLang()
+
+	basic := []string{"Name"}
+	commands := generateActionCmd("demo", map[string]*VolcengineMeta{
+		"DoThing": {Request: &MetaInfo{Basic: &basic}},
+	}, nil)
+	if len(commands) != 1 {
+		t.Fatalf("commands=%d", len(commands))
+	}
+	action := commands[0]
+	// Parent only for CommandPath in usage template; call RunE directly (DisableFlagParsing).
+	parent := &cobra.Command{Use: "demo"}
+	parent.AddCommand(action)
+
+	// -h: shows concise help, does not require credentials / SDK.
+	var out bytes.Buffer
+	action.SetOut(&out)
+	action.SetErr(&out)
+	if err := action.RunE(action, []string{"-h"}); err != nil {
+		t.Fatalf("-h RunE: %v", err)
+	}
+	if !strings.Contains(out.String(), "Name") {
+		t.Fatalf("-h missing skeleton:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "-h --detail") {
+		t.Fatalf("-h missing improved tip:\n%s", out.String())
+	}
+	// Annotation must be cleared after help.
+	if getActionHelpDetail(action) {
+		t.Fatal("detail annotation should be cleared after -h")
+	}
+
+	// bare --detail: friendly error, not generic must-set-value.
+	out.Reset()
+	err := action.RunE(action, []string{"--detail"})
+	if err == nil {
+		t.Fatal("expected error for bare --detail")
+	}
+	if !strings.Contains(err.Error(), "only expands help when used with") {
+		t.Fatalf("unexpected bare --detail error: %v", err)
+	}
+	if strings.Contains(err.Error(), "must set value") {
+		t.Fatalf("should not use generic parser error: %v", err)
+	}
+
+	// --detail with value is not the bare-detail help error (may be API param).
+	// We only assert it does not return errBareDetailWithoutHelp; it may fail later on credentials.
+	out.Reset()
+	err = action.RunE(action, []string{"--detail", "x"})
+	if err != nil && strings.Contains(err.Error(), "only expands help when used with") {
+		t.Fatalf("--detail with value should not use bare-detail help error: %v", err)
+	}
+
+	// -h --detail: full help path sets annotation then clears; corpus may load.
+	out.Reset()
+	if err := action.RunE(action, []string{"-h", "--detail"}); err != nil {
+		t.Fatalf("-h --detail RunE: %v", err)
+	}
+	if !strings.Contains(out.String(), "Name") {
+		t.Fatalf("-h --detail missing params:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "Default help is concise") {
+		t.Fatalf("detail help should omit concise tip:\n%s", out.String())
+	}
+	if getActionHelpDetail(action) {
+		t.Fatal("detail annotation should be cleared after -h --detail")
 	}
 }
 
@@ -90,6 +299,8 @@ func TestCreateCommandUsageRendersLiteralTemplateBraces(t *testing.T) {
 	var output bytes.Buffer
 	command.SetOut(&output)
 	command.SetErr(&output)
+	// {{Param}} appears in full parameter descriptions/examples (detail help only).
+	setActionHelpDetail(command, true)
 	if err := command.Usage(); err != nil {
 		t.Fatalf("CreateCommand Usage: %v", err)
 	}

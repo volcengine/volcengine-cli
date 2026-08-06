@@ -236,7 +236,7 @@ func TestAttachAndFormatParamsHelpUsage(t *testing.T) {
 		{key: "Unknown", typeName: "string"},
 	}
 	attachParamDescriptions("ecs", "RunInstances", params)
-	lines := formatParamsHelpUsage(params)
+	lines := formatParamsHelpUsage(params, true)
 	// Described params get a blank separator between entries.
 	var content []string
 	for _, line := range lines {
@@ -269,7 +269,7 @@ func TestFormatParamsHelpUsageWithoutDescriptionUnchangedStyle(t *testing.T) {
 		{key: "Id", typeName: "string"},
 		{key: "Name", typeName: "string"},
 	}
-	lines := formatParamsHelpUsage(params)
+	lines := formatParamsHelpUsage(params, true)
 	if len(lines) != 2 {
 		t.Fatalf("want 2 lines, got %v", lines)
 	}
@@ -340,7 +340,7 @@ func TestAttachParamDescriptionsKeepsSDKRequired(t *testing.T) {
 		t.Fatalf("ZoneId must keep SDK required: %+v", params[3])
 	}
 
-	lines := formatParamsHelpUsage(params)
+	lines := formatParamsHelpUsage(params, true)
 	joined := strings.Join(lines, "\n")
 	if !strings.Contains(joined, "必选") || !strings.Contains(joined, "可选") {
 		t.Fatalf("want localized required labels in:\n%s", joined)
@@ -379,7 +379,7 @@ func TestFormatParamsHelpUsageEscapesTemplateBraces(t *testing.T) {
 	params := []param{
 		{key: "X", typeName: "string", description: "use {{value}} carefully"},
 	}
-	lines := formatParamsHelpUsage(params)
+	lines := formatParamsHelpUsage(params, true)
 	if len(lines) != 1 {
 		t.Fatalf("want 1 line, got %v", lines)
 	}
@@ -391,7 +391,7 @@ func TestFormatParamsHelpUsageEscapesTemplateBraces(t *testing.T) {
 	}
 
 	cmd := &cobra.Command{Use: "test"}
-	cmd.SetUsageTemplate(actionUsageTemplate("", lines))
+	cmd.SetUsageTemplate(actionUsageTemplate("", lines, true))
 	var output bytes.Buffer
 	cmd.SetOut(&output)
 	cmd.SetErr(&output)
@@ -400,6 +400,37 @@ func TestFormatParamsHelpUsageEscapesTemplateBraces(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "use {{value}} carefully") {
 		t.Fatalf("literal braces not preserved in rendered help:\n%s", output.String())
+	}
+}
+
+func TestFormatParamsHelpUsageConciseOmitsDescriptionAndExample(t *testing.T) {
+	restoreLang := setLanguageForTest(LanguageEnglish)
+	defer restoreLang()
+	params := []param{
+		{
+			key:         "ZoneId",
+			typeName:    "string",
+			required:    true,
+			description: "Availability zone ID.\nSecond line should not appear.",
+			example:     "cn-beijing-a",
+		},
+		{key: "Count", typeName: "integer", required: false, description: "Count help"},
+	}
+	lines := formatParamsHelpUsage(params, false)
+	if len(lines) != 2 {
+		t.Fatalf("want 2 skeleton lines, got %d: %#v", len(lines), lines)
+	}
+	joined := strings.Join(lines, "\n")
+	for _, forbidden := range []string{"Availability", "Second line", "Count help", "cn-beijing-a", "Example:"} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("concise help must omit descriptions/examples, found %q in:\n%s", forbidden, joined)
+		}
+	}
+	if !strings.Contains(joined, "ZoneId") || !strings.Contains(joined, "Required") {
+		t.Fatalf("concise help missing skeleton columns:\n%s", joined)
+	}
+	if !strings.Contains(joined, "Count") || !strings.Contains(joined, "Optional") {
+		t.Fatalf("concise help missing Count Optional:\n%s", joined)
 	}
 }
 
@@ -415,7 +446,7 @@ func TestFormatParamsHelpUsageMultiLineDescription(t *testing.T) {
 		},
 		{key: "Name", typeName: "string", required: true, description: "单行"},
 	}
-	lines := formatParamsHelpUsage(params)
+	lines := formatParamsHelpUsage(params, true)
 	// Described params: trailing "\n" on previous entry so Join("\n") yields a blank
 	// separator without inserting an empty "" entry (which would become bare "--").
 	if len(lines) != 2 {
@@ -482,7 +513,7 @@ func TestFormatParamsHelpUsageCJKColumnAlignment(t *testing.T) {
 		{key: "A", typeName: "string", required: true, description: "短"},
 		{key: "LongerName", typeName: "boolean", required: false, description: "较长参数名"},
 	}
-	lines := formatParamsHelpUsage(params)
+	lines := formatParamsHelpUsage(params, true)
 	var content []string
 	for _, line := range lines {
 		if line == "" {
@@ -514,7 +545,7 @@ func TestFormatParamsHelpUsageBlankSeparatorBetweenDescribedParams(t *testing.T)
 		{key: "A", typeName: "string", description: "line1\nline2"},
 		{key: "B", typeName: "string", description: "only"},
 	}
-	lines := formatParamsHelpUsage(params)
+	lines := formatParamsHelpUsage(params, true)
 	if len(lines) != 2 {
 		t.Fatalf("want 2 entries with trailing-newline separator, got %#v", lines)
 	}
@@ -548,7 +579,7 @@ func TestFormatParamsHelpUsageCompactsInternalBlankLines(t *testing.T) {
 	}
 	restoreLang := setLanguageForTest(LanguageEnglish)
 	defer restoreLang()
-	lines := formatParamsHelpUsage(params)
+	lines := formatParamsHelpUsage(params, true)
 	if len(lines) != 1 {
 		t.Fatalf("want 1 entry, got %#v", lines)
 	}
@@ -627,7 +658,7 @@ func TestFormatParamsHelpUsageWrapsLongEnglishDescription(t *testing.T) {
 		{key: "ClientToken", typeName: "string", required: false, description: long, example: "123e4567-e89b-12d3-a456-42665544****"},
 		{key: "Name", typeName: "string", required: false, description: "short"},
 	}
-	lines := formatParamsHelpUsage(params)
+	lines := formatParamsHelpUsage(params, true)
 	if len(lines) != 2 {
 		t.Fatalf("want 2 entries, got %#v", lines)
 	}

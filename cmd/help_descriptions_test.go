@@ -115,7 +115,7 @@ func TestExplorerDescriptionsLoadFromAssetJSON(t *testing.T) {
 func TestActionUsageIncludesLongDescription(t *testing.T) {
 	restoreLanguage := setLanguageForTest(LanguageSimplifiedChinese)
 	defer restoreLanguage()
-	out := actionUsageTemplate("获取请求者身份信息 - Get identity information for the request credential", []string{"InstanceId string"})
+	out := actionUsageTemplate("获取请求者身份信息 - Get identity information for the request credential", []string{"InstanceId string"}, false)
 	if !strings.Contains(out, "获取请求者身份信息 - Get identity information for the request credential") {
 		t.Fatalf("action usage missing long description:\n%s", out)
 	}
@@ -237,11 +237,22 @@ func TestServiceUsageIncludesFixedFlags(t *testing.T) {
 }
 
 func TestActionUsageIncludesFixedFlags(t *testing.T) {
-	out := actionUsageTemplate("", []string{"InstanceId string"})
+	out := actionUsageTemplate("", []string{"InstanceId string"}, false)
 	for _, want := range expectedFixedFlagsForTest() {
 		if !strings.Contains(out, want) {
 			t.Fatalf("action usage missing %q:\n%s", want, out)
 		}
+	}
+	if !strings.Contains(out, "--detail") {
+		t.Fatalf("concise action usage missing --detail tip:\n%s", out)
+	}
+	detailOut := actionUsageTemplate("", []string{"InstanceId string"}, true)
+	if strings.Contains(detailOut, "Use -h --detail") {
+		t.Fatalf("detail action usage should not include concise tip:\n%s", detailOut)
+	}
+	enTip := actionUsageTemplate("", []string{"InstanceId string"}, false)
+	if !strings.Contains(enTip, "Default help is concise") || !strings.Contains(enTip, "-h --detail") {
+		t.Fatalf("concise tip missing default/example form:\n%s", enTip)
 	}
 }
 

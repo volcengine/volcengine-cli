@@ -31,9 +31,16 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 			Long:               formatActionLong(serviceName, action),
 			DisableFlagParsing: true,
 			RunE: func(cmd *cobra.Command, args []string) error {
-				if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
-					cmd.Usage()
-					return nil
+				if wantHelp, detail := parseActionHelpArgs(args); wantHelp {
+					setActionHelpDetail(cmd, detail)
+					// Clear after help so a later in-process Usage() does not stick on detail mode.
+					defer setActionHelpDetail(cmd, false)
+					return cmd.Usage()
+				}
+				// Bare --detail (no value) is almost always a help mistake, not a valid API call.
+				// Prefer a clear hint over the generic "--detail must set value." parser error.
+				if bareDetailWithoutValue(args) {
+					return errBareDetailWithoutHelp()
 				}
 
 				if err := parseInvocationFlags(args); err != nil {
@@ -53,9 +60,8 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 				actionCmd.Flags().StringVar(&paramValues[i].value, paramValues[i].param, "", "")
 			}
 
-			setLazyActionUsage(actionCmd, func() []string {
-				attachParamDescriptions(serviceName, action, params)
-				return formatParamsHelpUsage(params)
+			setLazyActionUsage(actionCmd, func(detail bool) []string {
+				return buildActionHelpParamLines(serviceName, action, params, nil, detail)
 			})
 		} else {
 			var paramBody string
@@ -67,19 +73,9 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 				bodyStr, _ = json.MarshalIndent(bodyMap, "", "    ")
 				reqParams = apiMeta.GetRequestParams()
 			}
-			bodyParam := fmt.Sprintf(`body '%s'`, string(bodyStr))
-
-			// Feature branch: attachParamDescriptions only on first Usage() (-h).
-			// Master: Parameter Form + JSON Form via jsonActionUsageTemplate (body not mixed into params).
-			defaultUsage := rootCmd.UsageFunc()
-			var once sync.Once
-			actionCmd.SetUsageFunc(func(cmd *cobra.Command) error {
-				once.Do(func() {
-					attachParamDescriptions(serviceName, action, reqParams)
-					params := formatParamsHelpUsage(reqParams)
-					cmd.SetUsageTemplate(jsonActionUsageTemplate(cmd.Long, params, bodyParam))
-				})
-				return defaultUsage(cmd)
+			bodyLine := fmt.Sprintf(`body '%s'`, string(bodyStr))
+			setLazyActionUsage(actionCmd, func(detail bool) []string {
+				return buildActionHelpParamLines(serviceName, action, reqParams, []string{bodyLine}, detail)
 			})
 		}
 
@@ -89,17 +85,6 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 	}
 
 	return
-}
-
-func setLazyActionUsage(actionCmd *cobra.Command, buildParams func() []string) {
-	defaultUsage := rootCmd.UsageFunc()
-	var once sync.Once
-	actionCmd.SetUsageFunc(func(cmd *cobra.Command) error {
-		once.Do(func() {
-			cmd.SetUsageTemplate(actionUsageTemplate(cmd.Long, buildParams()))
-		})
-		return defaultUsage(cmd)
-	})
 }
 
 func doAction(ctx *Context, serviceName, action string) error {
@@ -373,58 +358,4 @@ func normalizeMetaTypeKey(name string) string {
 	}
 
 	return strings.Join(parts, ".")
-}
-
-func actionUsageTemplate(description string, params []string) string {
-	return renderActionUsageTemplate(description, formatActionUsageParams(params, "  "))
-}
-
-func jsonActionUsageTemplate(description string, params []string, bodyParam string) string {
-	sections := make([]string, 0, 2)
-	if len(params) > 0 {
-		sections = append(sections, fmt.Sprintf("  %s\n%s", tr("Parameter Form:"), formatActionUsageParams(params, "    ")))
-	}
-	if bodyParam != "" {
-		sections = append(sections, fmt.Sprintf("  %s\n%s", tr("JSON Form:"), formatActionUsageParams([]string{bodyParam}, "    ")))
-	}
-
-	parameterHelp := strings.Join(sections, "\n\n")
-	if parameterHelp != "" {
-		parameterHelp = "\n" + parameterHelp
-	}
-	return renderActionUsageTemplate(description, parameterHelp)
-}
-
-func formatActionUsageParams(params []string, indent string) string {
-	formatted := append([]string(nil), params...)
-	sort.Strings(formatted)
-
-	for i := 0; i < len(formatted); i++ {
-		param := "--" + formatted[i]
-		formatted[i] = indent + strings.ReplaceAll(param, "\n", "\n"+indent)
-	}
-	return strings.Join(formatted, "\n")
-}
-
-func renderActionUsageTemplate(description, parameterHelp string) string {
-	description = strings.TrimSpace(description)
-	if description != "" {
-		description += "\n\n"
-	}
-
-	return fmt.Sprintf(`%s%s{{if .Runnable}}
-  {{.CommandPath}} [params]{{end}}{{if .HasExample}}
-
-%s
-{{.Example}}{{end}}
-
-%s
-%s
-
-%s
-%s
-
-`, description, tr("Usage:"), tr("Examples:"), tr("Available Parameters:"), parameterHelp,
-		tr("Fixed Flags:"),
-		localizedFixedFlagsHelp())
 }

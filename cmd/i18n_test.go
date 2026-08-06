@@ -84,7 +84,7 @@ func TestLocalizedUsageTemplates(t *testing.T) {
 	for name, output := range map[string]string{
 		"root":      rootUsageTemplate(),
 		"service":   serviceUsageTemplate(),
-		"action":    actionUsageTemplate("", nil),
+		"action":    actionUsageTemplate("", nil, false),
 		"login":     loginUsageTemplate(),
 		"configure": configureUsageTemplate(),
 		"sso":       ssoUsageTemplate(),

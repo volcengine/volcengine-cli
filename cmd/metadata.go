@@ -40,46 +40,31 @@ type param struct {
 	example     string // optional Example from CAE (current language only)
 }
 
-func formatParamsHelpUsage(params []param) []string {
-	// Columns: key | type | Required/Optional | description
-	// Use display width (CJK-aware) so Chinese labels align in terminals.
-	maxKeyWidth := 0
-	maxTypeWidth := 0
-	maxReqWidth := 0
-	for _, p := range params {
-		if w := displayWidth(p.key); w > maxKeyWidth {
-			maxKeyWidth = w
-		}
-		if w := displayWidth(p.typeName); w > maxTypeWidth {
-			maxTypeWidth = w
-		}
-		if w := displayWidth(formatRequired(p.required)); w > maxReqWidth {
-			maxReqWidth = w
-		}
-	}
-	// Also reserve width for the other polarity label so columns stay stable
-	// within a single -h block under the current language.
-	for _, label := range []string{formatRequired(true), formatRequired(false)} {
-		if w := displayWidth(label); w > maxReqWidth {
-			maxReqWidth = w
-		}
-	}
-
+// formatParamsHelpUsage formats request parameters for Action -h/--help.
+// When detail is false (default help), only key/type/Required|Optional are shown.
+// When detail is true (-h --detail), full description and Example bodies are included.
+func formatParamsHelpUsage(params []param, detail bool) []string {
+	maxKeyWidth, maxTypeWidth, maxReqWidth := paramHelpColumnWidths(params)
 	// One trailing space between columns.
 	maxKeyWidth++
 	maxTypeWidth++
 	maxReqWidth++
 
+	if !detail {
+		out := make([]string, 0, len(params))
+		for _, p := range params {
+			out = append(out, formatParamHelpMeta(p, maxKeyWidth, maxTypeWidth, maxReqWidth))
+		}
+		return out
+	}
+
 	// actionUsageTemplate prefixes each entry with "  --" (4 columns).
 	// Continuation lines indent under the description column of the first line.
-	// Header line is: key + type + required + (pad already ends with space).
 	descColIndent := strings.Repeat(" ", 4+maxKeyWidth+maxTypeWidth+maxReqWidth)
 
 	var paramStrings []string
 	for i, p := range params {
-		meta := padRightDisplay(p.key, maxKeyWidth) +
-			padRightDisplay(p.typeName, maxTypeWidth) +
-			padRightDisplay(formatRequired(p.required), maxReqWidth)
+		meta := formatParamHelpMeta(p, maxKeyWidth, maxTypeWidth, maxReqWidth)
 		// Body under the description column: multi-line description, then optional example.
 		var bodyLines []string
 		if desc := strings.TrimSpace(p.description); desc != "" {
@@ -132,6 +117,35 @@ func formatParamsHelpUsage(params []param) []string {
 	}
 
 	return paramStrings
+}
+
+func paramHelpColumnWidths(params []param) (maxKeyWidth, maxTypeWidth, maxReqWidth int) {
+	// Use display width (CJK-aware) so Chinese labels align in terminals.
+	for _, p := range params {
+		if w := displayWidth(p.key); w > maxKeyWidth {
+			maxKeyWidth = w
+		}
+		if w := displayWidth(p.typeName); w > maxTypeWidth {
+			maxTypeWidth = w
+		}
+		if w := displayWidth(formatRequired(p.required)); w > maxReqWidth {
+			maxReqWidth = w
+		}
+	}
+	// Also reserve width for the other polarity label so columns stay stable
+	// within a single -h block under the current language.
+	for _, label := range []string{formatRequired(true), formatRequired(false)} {
+		if w := displayWidth(label); w > maxReqWidth {
+			maxReqWidth = w
+		}
+	}
+	return maxKeyWidth, maxTypeWidth, maxReqWidth
+}
+
+func formatParamHelpMeta(p param, maxKeyWidth, maxTypeWidth, maxReqWidth int) string {
+	return padRightDisplay(p.key, maxKeyWidth) +
+		padRightDisplay(p.typeName, maxTypeWidth) +
+		padRightDisplay(formatRequired(p.required), maxReqWidth)
 }
 
 // displayWidth returns terminal columns for s: ASCII=1, most CJK/fullwidth=2.
