@@ -149,18 +149,29 @@ func runMain() int {
 }
 
 func registerRootSystemFlags() {
+	// Only preprocessable system flags are registered on root (completion/help).
+	// force/version/method are action-scoped and stay off the root cobra flag set
+	// so root `ve --version` remains the CLI binary version switch.
 	flags := rootCmd.Flags()
-	if flags.Lookup("profile") == nil {
-		flags.String("profile", "", tr("Use a configured profile only for this invocation."))
-	}
-	if flags.Lookup("region") == nil {
-		flags.String("region", "", tr("Override the region only for this invocation."))
-	}
-	if flags.Lookup("endpoint") == nil {
-		flags.String("endpoint", "", tr("Override the endpoint only for this invocation."))
-	}
-	if flags.Lookup("lang") == nil {
-		flags.String("lang", "", tr("Set the display language for this invocation (EN or ZH)."))
+	for _, d := range systemFlagDefs {
+		if !d.preprocess || !d.public {
+			continue
+		}
+		if flags.Lookup(d.name) != nil {
+			continue
+		}
+		switch d.name {
+		case "profile":
+			flags.String(d.name, "", tr("Use a configured profile only for this invocation."))
+		case "region":
+			flags.String(d.name, "", tr("Override the region only for this invocation."))
+		case "endpoint":
+			flags.String(d.name, "", tr("Override the endpoint only for this invocation."))
+		case "lang":
+			flags.String(d.name, "", tr("Set the display language for this invocation (EN or ZH)."))
+		default:
+			flags.String(d.name, "", "")
+		}
 	}
 }
 

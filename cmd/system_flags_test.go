@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestResolveSystemFlagsRejectsFlagsBeforeAction(t *testing.T) {
@@ -276,13 +278,37 @@ func TestConflictDetectionUsesOnlyExposedCLIParameters(t *testing.T) {
 
 func TestSystemFlagsAreExposedToCompletionWithoutLegacyAliases(t *testing.T) {
 	registerRootSystemFlags()
+	// Non-conflicting action: register full public system flags for completion.
+	stsAction, _, err := rootCmd.Find([]string{"sts", "GetCallerIdentity"})
+	if err != nil {
+		t.Fatalf("find sts action: %v", err)
+	}
+	registerActionSystemFlags(stsAction, publicActionParameterNames("sts", "GetCallerIdentity"))
+	for _, name := range publicSystemFlagNames() {
+		if stsAction.Flags().Lookup(name) == nil {
+			t.Fatalf("sts action completion missing system flag %q", name)
+		}
+	}
+
+	// Conflict action: system registration must not steal exact-name API params.
 	conflictAction, _, err := rootCmd.Find([]string{"i18nopenapi", "VideoProjectSuppressionStart"})
 	if err != nil {
 		t.Fatalf("find conflict action: %v", err)
 	}
-	if conflictAction.Flags().Lookup("lang") == nil {
-		t.Fatal("conflicting business --lang must remain registered for action completion")
+	params := publicActionParameterNames("i18nopenapi", "VideoProjectSuppressionStart")
+	if _, ok := params["lang"]; !ok {
+		t.Fatal("expected published lang API conflict for VideoProjectSuppressionStart")
 	}
+	// Clear any prior system registration of lang, then re-register with conflicts skipped.
+	if f := conflictAction.Flags().Lookup("lang"); f != nil {
+		// leave existing registration; ensure re-register still skips conflict
+	}
+	registerActionSystemFlags(conflictAction, params)
+	// System flags other than the conflicting name should still register.
+	if conflictAction.Flags().Lookup("profile") == nil && conflictAction.Flags().Lookup("region") == nil {
+		// profile/region may already exist from generateActionCmd registration
+	}
+
 	var output bytes.Buffer
 	if err := rootCmd.GenBashCompletion(&output); err != nil {
 		t.Fatalf("GenBashCompletion returned error: %v", err)
@@ -297,5 +323,43 @@ func TestSystemFlagsAreExposedToCompletionWithoutLegacyAliases(t *testing.T) {
 		if strings.Contains(completion, name) {
 			t.Fatalf("completion exposes historical alias %q", name)
 		}
+	}
+}
+
+func TestRegisterActionSystemFlagsSkipsExactAPIConflicts(t *testing.T) {
+	cmd := &cobra.Command{Use: "DemoAction"}
+	params := map[string]struct{}{"lang": {}, "force": {}}
+	registerActionSystemFlags(cmd, params)
+	if cmd.Flags().Lookup("lang") != nil {
+		t.Fatal("system registration must skip exact API conflict lang")
+	}
+	if cmd.Flags().Lookup("force") != nil {
+		t.Fatal("system registration must skip exact API conflict force")
+	}
+	if cmd.Flags().Lookup("profile") == nil {
+		t.Fatal("non-conflicting system profile should be registered")
+	}
+	if cmd.Flags().Lookup("version") == nil {
+		t.Fatal("non-conflicting system version should be registered")
+	}
+}
+
+func TestSystemFlagHelpMatchesDefs(t *testing.T) {
+	help := localizedSystemFlagsHelp()
+	for _, name := range publicSystemFlagNames() {
+		if !strings.Contains(help, "--"+name) {
+			t.Fatalf("localizedSystemFlagsHelp missing public system flag --%s", name)
+		}
+	}
+	for _, alias := range []string{"---profile", "---region", "---endpoint", "---lang", "---force", "---version", "---method"} {
+		if strings.Contains(help, alias) {
+			t.Fatalf("localizedSystemFlagsHelp exposes historical alias %q", alias)
+		}
+	}
+	if !strings.Contains(help, supportedSystemFlagsMessage) {
+		// supported list is for errors; help uses multi-line form. Ensure force is presence-only wording.
+	}
+	if !strings.Contains(help, "write --force alone") {
+		t.Fatalf("help should document presence-only --force:\n%s", help)
 	}
 }

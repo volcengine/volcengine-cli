@@ -7,74 +7,9 @@ import (
 	"strings"
 )
 
-// allowedLegacyFixedFlags keeps triple-dash aliases as an explicit system-flag
-// escape when an action exposes the same double-dash parameter name.
-// Aliases are intentionally omitted from help and completion output.
-// 双横线保留控制参数（--header / --body）见 reservedDynamicFlags，不在此白名单。
-// --lang / ---lang 由 resolveSystemFlags 预处理剥离，不进入 parser 白名单。
-// 新增系统参数时需同步更新 publicSystemFlags、supportedSystemFlagsMessage、
-// localizedSystemFlagsHelp、upgrade.rootValueFlags（若为带值 flag）与文档。
-var allowedLegacyFixedFlags = map[string]struct{}{
-	"profile":  {},
-	"region":   {},
-	"endpoint": {},
-	"force":    {},
-	"version":  {},
-	"method":   {},
-}
-
-// publicSystemFlags are double-dash CLI system flags that route into fixedFlags
-// when the action does not expose an exact-name API parameter conflict.
-var publicSystemFlags = map[string]struct{}{
-	"profile":  {},
-	"region":   {},
-	"endpoint": {},
-	"lang":     {},
-	"force":    {},
-	"version":  {},
-	"method":   {},
-}
-
-// preprocessableSystemFlags are stripped/applied by resolveSystemFlags before
-// cobra/parser. force/version/method stay in-place for Parser (action-scoped).
-var preprocessableSystemFlags = map[string]struct{}{
-	"profile":  {},
-	"region":   {},
-	"endpoint": {},
-	"lang":     {},
-}
-
-// booleanFixedFlags 纯开关型固定参数：出现即生效，不消费后续 token。
-// 对双横线：仅在不与 action 参数冲突、作为系统参数解析时生效。
-// 对三横线：始终作为系统开关（冲突逃逸）。
-var booleanFixedFlags = map[string]struct{}{
-	"force": {},
-}
-
-// supportedSystemFlagsMessage lists public double-dash system flags for docs/errors.
-const supportedSystemFlagsMessage = "--profile, --region, --endpoint, --lang, --force, --version, --method"
-
-// localizedSystemFlagsHelp 返回已本地化的 CLI 系统参数说明。
-// 对外文档与 help 只展示双横线 system flags；三横线别名可用但不宣传。
-// root/service/action usage 与未知 service help 共用，避免英文常量与 tr() 模板双源漂移。
-func localizedSystemFlagsHelp() string {
-	return `  --profile string     ` + tr("Use a configured profile only for this invocation.") + `
-  --region string      ` + tr("Override the region only for this invocation.") + `
-  --endpoint string    ` + tr("Override the endpoint only for this invocation.") + `
-  --lang string        ` + tr("Set the display language for this invocation (EN or ZH).") + `
-  --version string     ` + tr("API version; uses metadata when omitted (required with --force for unlisted services).") + `
-  --method string      ` + tr("HTTP method GET or POST; explicit value overrides metadata, else metadata, else GET.") + `
-  --force              ` + tr("Skip service/action metadata validation and force the call (presence-only; write --force alone, not --force true).") + `
-
-` + tr("Reserved double-dash controls (not API parameters):") + `
-  --header string      ` + tr("Add a custom HTTP header as Name=Value; repeatable. Content-Type overrides metadata when set. Host/Authorization/Content-Length are blocked.") + `
-  --body string        ` + tr("JSON request body for application/json style calls; mutually exclusive with other API parameters.")
-}
-
-// localizedFixedFlagsHelp is kept as an alias for call sites that still use the old name.
-func localizedFixedFlagsHelp() string {
-	return localizedSystemFlagsHelp()
-}
+// System-flag name sets (publicSystemFlags, allowedLegacyFixedFlags,
+// preprocessableSystemFlags, booleanFixedFlags, supportedSystemFlagsMessage)
+// are derived from systemFlagDefs in system_flag_defs.go.
 
 type Parser struct {
 	currentIndex     int
@@ -114,17 +49,12 @@ func (p *Parser) hasFlagSyntaxAtPairStarts() bool {
 			return false
 		}
 		// Presence-only system --force / ---force must not pair-consume the next token.
-		name, legacy := flagNameFromToken(a)
-		if name == "" {
+		if isSystemPresenceOnlyToken(a, p.actionParameters) {
 			return false
 		}
-		if isPresenceOnlyFixedFlag(name) {
-			if legacy {
-				return false
-			}
-			if _, isActionParameter := p.actionParameters[name]; !isActionParameter {
-				return false
-			}
+		name, _ := flagNameFromToken(a)
+		if name == "" {
+			return false
 		}
 	}
 	return true
@@ -232,11 +162,6 @@ func (p *Parser) readArg(ctx *Context) (arg string, flag *Flag, more bool, err e
 		}
 	}
 	return
-}
-
-func isPresenceOnlyFixedFlag(name string) bool {
-	_, ok := booleanFixedFlags[name]
-	return ok
 }
 
 func (p *Parser) currentFlagValueError(ctx *Context) error {

@@ -79,7 +79,7 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 				return buildActionHelpParamLines(serviceName, action, reqParams, nil, detail)
 			})
 		}
-		registerActionSystemFlags(actionCmd)
+		registerActionSystemFlags(actionCmd, publicParameters)
 
 		actionCmd.Flags().BoolP("help", "h", false, "")
 
@@ -122,14 +122,18 @@ func publicActionParameterNames(serviceName, action string) map[string]struct{} 
 	return exposedActionParameterNames(actions[action], rootSupport.GetApiMeta(serviceName, action))
 }
 
-func registerActionSystemFlags(actionCmd *cobra.Command) {
+func registerActionSystemFlags(actionCmd *cobra.Command, actionParameters map[string]struct{}) {
 	// Completion only; DisableFlagParsing means values are handled by Parser.
-	// Do not register names already exposed as API parameters on this action.
-	for _, name := range []string{"profile", "region", "endpoint", "lang", "version", "method", "force"} {
+	// Skip names already registered or exact-name API parameters so business
+	// completions win over system flags when they conflict.
+	for _, name := range publicSystemFlagNames() {
 		if actionCmd.Flags().Lookup(name) != nil {
 			continue
 		}
-		if name == "force" {
+		if _, conflict := actionParameters[name]; conflict {
+			continue
+		}
+		if isPresenceOnlyFixedFlag(name) {
 			actionCmd.Flags().Bool(name, false, "")
 			continue
 		}

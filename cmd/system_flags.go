@@ -159,23 +159,15 @@ func isValueTakingFlag(arg string, actionParameters map[string]struct{}) bool {
 	if arg == "-h" || arg == "--help" || arg == "-v" {
 		return false
 	}
-	// Root CLI version switch is not a value-taking flag. Action-scoped API
-	// --version is value-taking and is handled after action via Parser.
+	// Root CLI version switch is not a value-taking flag when scanned before a
+	// service positional. Action-scoped API --version is still left in-place for
+	// Parser (preprocess=false); not consuming its value here only splits tokens
+	// and does not change parse results.
 	if arg == "--version" {
 		return false
 	}
-	name, legacy := flagNameFromToken(arg)
-	if name == "" {
-		return strings.HasPrefix(arg, "--")
-	}
-	// Presence-only system force must not swallow the following token.
-	if isPresenceOnlyFixedFlag(name) {
-		if legacy {
-			return false
-		}
-		if _, isActionParameter := actionParameters[name]; !isActionParameter {
-			return false
-		}
+	if isSystemPresenceOnlyToken(arg, actionParameters) {
+		return false
 	}
 	return strings.HasPrefix(arg, "--")
 }
