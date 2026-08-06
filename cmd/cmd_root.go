@@ -27,6 +27,7 @@ func initRootCmd() {
 	rootCmd.Flags().BoolP("help", "h", false, "")
 
 	rootCmd.Flags().BoolP("version", "v", false, tr("Show CLI version"))
+	registerRootSystemFlags()
 
 	rootCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
 		showVersion, _ := cmd.Flags().GetBool("version")
@@ -69,6 +70,10 @@ func Execute() {
 		os.Exit(1)
 	}
 	setCurrentLanguage(processLanguageResolution.language)
+	if err := applyResolvedSystemFlags(ctx, processLanguageResolution.fixedFlags); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	rootCmd.SetArgs(processLanguageResolution.args)
 	initRootCmd()
 	localizeHelpFlags(rootCmd)
@@ -76,6 +81,22 @@ func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+}
+
+func registerRootSystemFlags() {
+	flags := rootCmd.Flags()
+	if flags.Lookup("profile") == nil {
+		flags.String("profile", "", tr("Use a configured profile only for this invocation."))
+	}
+	if flags.Lookup("region") == nil {
+		flags.String("region", "", tr("Override the region only for this invocation."))
+	}
+	if flags.Lookup("endpoint") == nil {
+		flags.String("endpoint", "", tr("Override the endpoint only for this invocation."))
+	}
+	if flags.Lookup("lang") == nil {
+		flags.String("lang", "", tr("Set the display language for this invocation (EN or ZH)."))
 	}
 }
 
@@ -112,7 +133,7 @@ func localizeHelpFlag(command *cobra.Command) {
 
 func rootUsageTemplate() string {
 	return tr("Usage:") + `{{if .Runnable}}
-  {{.CommandPath}} [service]{{end}} [action] [params] {{if .HasExample}}
+  {{.CommandPath}} [system flags] [service]{{end}} [action] [params] {{if .HasExample}}
 
 ` + tr("Examples:") + `
 {{.Example}}{{end}}{{if .HasAvailableSubCommands}}{{$cmds := .Commands}}{{if eq (len .Groups) 0}}
@@ -133,15 +154,9 @@ func rootUsageTemplate() string {
 ` + tr("Flags:") + `
 {{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableSubCommands}}
 
-` + tr("Fixed Flags:") + `
-  ---profile string    ` + tr("Use a configured profile only for this invocation.") + `
-  ---region string     ` + tr("Override the region only for this invocation.") + `
-  ---endpoint string   ` + tr("Override the endpoint only for this invocation.") + `
-  ---lang string       ` + tr("Set the display language for this invocation (EN or ZH).") + `
-
 ` + tr("Examples:") + `
-  ve sts GetCallerIdentity ---profile default ---region cn-beijing
-  ve sts GetCallerIdentity ---region cn-beijing ---endpoint sts.volcengineapi.com
+  ve --profile default --region cn-beijing sts GetCallerIdentity
+  ve --region cn-beijing --endpoint sts.volcengineapi.com sts GetCallerIdentity
 
 ` + tr(`Use "{{.CommandPath}} [service] --help" for more information about a service.`) + `{{end}}
 `

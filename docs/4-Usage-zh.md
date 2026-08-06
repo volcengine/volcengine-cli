@@ -7,10 +7,10 @@
 CLI 的基本调用格式：
 
 ```shell
-ve <service> <action> [--Param value ...] [---profile name] [---region region] [---endpoint endpoint] [---lang language]
+ve [--profile name] [--region region] [--endpoint endpoint] [--lang language] <service> <action> [--Param value ...]
 ```
 
-其中 `--Param value` 是 API 参数，`---profile` / `---region` / `---endpoint` / `---lang` 是 CLI 固定参数。
+`--profile` / `--region` / `--endpoint` / `--lang` 是 CLI 系统参数，推荐放在 Service 前；`--Param value` 是 API 参数。
 
 ## 查看服务和接口
 
@@ -63,50 +63,58 @@ ve rds_mysql ListDBInstanceIPLists --InstanceId mysql-xxxxxx --GroupName default
 
 ```shell
 --Param value
----region cn-beijing
+--region cn-beijing
 ```
 
-不要写成 `--Param=value`、`---region=cn-beijing` 或 `---lang=ZH`。固定参数的名称和值之间必须使用空格。
+不要写成 `--Param=value`、`--region=cn-beijing` 或 `--lang=ZH`。参数名称和值之间必须使用空格。
 
-## CLI 固定参数
+## CLI 系统参数
 
-固定参数使用三横线 `---`，不会和 API 的双横线参数冲突：
+系统参数统一使用双横线：
 
 | 参数 | 作用 |
 | --- | --- |
-| `---profile` | 本次调用使用指定 profile，不修改 current |
-| `---region` | 本次调用覆盖 region |
-| `---endpoint` | 本次调用覆盖 endpoint，并清空 endpoint resolver |
-| `---lang` | 设置本次调用中 CLI 自有帮助、提示和错误的显示语言 |
+| `--profile` | 本次调用使用指定 profile，不修改 current |
+| `--region` | 本次调用覆盖 region |
+| `--endpoint` | 本次调用覆盖 endpoint，并清空 endpoint resolver |
+| `--lang` | 设置本次调用中 CLI 自有帮助、提示和错误的显示语言 |
+
+系统参数放在 Service 前时始终按系统参数解析。放在 Action 后时，如果当前 Action 暴露了大小写完全相同的参数，则按 API 参数解析；否则仍按系统参数解析。`--Region`、`--Endpoint` 等不同大小写名称始终是 API 参数。
 
 示例：
 
 ```shell
 # 使用指定 profile
-ve ecs DescribeInstances ---profile prod
+ve --profile prod ecs DescribeInstances
 
 # 使用指定 profile 并覆盖 region
-ve ecs DescribeInstances ---profile prod ---region ap-southeast-1
+ve --profile prod --region ap-southeast-1 ecs DescribeInstances
 
 # 只覆盖 region
-ve ecs DescribeInstances ---region cn-shanghai
+ve --region cn-shanghai ecs DescribeInstances
 
 # 调用 STS 时临时指定 endpoint
-ve sts GetCallerIdentity ---region cn-beijing ---endpoint sts.volcengineapi.com
+ve --region cn-beijing --endpoint sts.volcengineapi.com sts GetCallerIdentity
 ```
 
-如果 `---profile` 指向不存在的 profile，会直接报错。
+如果 `--profile` 指向不存在的 profile，会直接报错。
+
+当前唯一的精确同名冲突是 `i18nopenapi VideoProjectSuppressionStart` 的业务参数 `--lang`。同时设置系统显示语言和业务参数时写成：
+
+```shell
+ve --lang ZH i18nopenapi VideoProjectSuppressionStart --lang 1
+```
 
 ### 显示语言
 
-使用 `---lang EN` 显示英文，使用 `---lang ZH` 显示简体中文。同时支持 `en-US`、`en_US`、`zh-CN`、`zh_CN`、`zh-Hans` 等语言码。不支持的值统一回退英文。
+使用 `--lang EN` 显示英文，使用 `--lang ZH` 显示简体中文。同时支持 `en-US`、`en_US`、`zh-CN`、`zh_CN`、`zh-Hans` 等语言码。不支持的值统一回退英文。
 
-未传 `---lang` 时，CLI 依次读取 `LC_ALL`、`LC_MESSAGES`、`LANG`，均无法识别时回退英文。显式参数优先级最高，且不会写入配置文件。
+未传 `--lang` 时，CLI 依次读取 `LC_ALL`、`LC_MESSAGES`、`LANG`，均无法识别时回退英文。显式参数优先级最高，且不会写入配置文件。
 
 ```shell
-ve ---lang ZH --help
-ve ecs ---lang EN --help
-ve login ---lang zh-CN
+ve --lang ZH --help
+ve --lang EN ecs --help
+ve --lang zh-CN login
 ```
 
 语言选择只影响 CLI 自己生成的文案，不翻译或修改 API 响应体和服务端返回内容。
@@ -195,7 +203,7 @@ ve ecs DescribeInstances
 使用非默认 profile：
 
 ```shell
-ve ecs DescribeInstances ---profile prod
+ve --profile prod ecs DescribeInstances
 ```
 
 使用环境变量默认凭证链：
@@ -214,14 +222,14 @@ ve configure set --profile ci-oidc --mode oidc --region cn-beijing \
   --oidc-token-file /var/run/secrets/oidc-token \
   --role-trn trn:iam::2100000000:role/CIRole
 
-ve ecs DescribeInstances ---profile ci-oidc
+ve --profile ci-oidc ecs DescribeInstances
 ```
 
 使用 ECS 实例角色 profile：
 
 ```shell
 ve configure set --profile ecs-role --mode ecsrole --region cn-beijing --role-name MyRole
-ve ecs DescribeInstances ---profile ecs-role
+ve --profile ecs-role ecs DescribeInstances
 ```
 
 ## 错误提示
@@ -235,16 +243,16 @@ credentials not configured, please run 've login' or 've configure set', or set 
 缺少 region 时：
 
 ```text
-region not set, please set it via profile, ---region flag, or VOLCENGINE_REGION environment variable
+region not set, please set it via profile, --region flag, or VOLCENGINE_REGION environment variable
 ```
 
-固定参数不支持时：
+系统参数不支持时：
 
 ```text
----debug is not supported, supported fixed flags: ---profile, ---region, ---endpoint, ---lang
+unknown flag: --debug
 ```
 
-当前支持的固定参数只有 `---profile`、`---region`、`---endpoint`、`---lang`。
+当前支持的系统参数只有 `--profile`、`--region`、`--endpoint`、`--lang`。
 
 ---
 

@@ -1,0 +1,146 @@
+package cmd
+
+import (
+	"fmt"
+	"strings"
+)
+
+type commandScanState int
+
+const (
+	beforeCommand commandScanState = iota
+	beforeAPIAction
+	afterAPIAction
+	nonAPICommand
+)
+
+type systemFlagsResolution struct {
+	args       []string
+	fixedFlags map[string]string
+}
+
+// resolveSystemFlags extracts flags that must be known before Cobra resolves
+// the service and action. Other action flags stay in place for Parser, which
+// uses the action's public metadata to resolve name conflicts.
+func resolveSystemFlags(args []string) (systemFlagsResolution, error) {
+	result := systemFlagsResolution{
+		args:       make([]string, 0, len(args)),
+		fixedFlags: make(map[string]string),
+	}
+	state := beforeCommand
+	serviceName := ""
+	var actionParameters map[string]struct{}
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		name, legacy, equals, candidate := parseSystemFlagToken(arg)
+		if candidate && shouldExtractSystemFlag(name, legacy, state, actionParameters) {
+			if equals {
+				return result, fmt.Errorf("%s does not support '=' syntax; use '--%s <value>'", arg, name)
+			}
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") ||
+				(name == "lang" && strings.HasPrefix(args[i+1], "-")) {
+				return result, fmt.Errorf("--%s requires a value", name)
+			}
+			if _, exists := result.fixedFlags[name]; exists {
+				return result, fmt.Errorf("--%s cannot be specified more than once", name)
+			}
+			result.fixedFlags[name] = args[i+1]
+			i++
+			continue
+		}
+
+		result.args = append(result.args, arg)
+		if state == afterAPIAction && isValueTakingFlag(arg) {
+			if i+1 < len(args) {
+				result.args = append(result.args, args[i+1])
+				i++
+			}
+			continue
+		}
+
+		if strings.HasPrefix(arg, "-") {
+			if state == beforeAPIAction && isValueTakingFlag(arg) && i+1 < len(args) {
+				result.args = append(result.args, args[i+1])
+				i++
+			}
+			continue
+		}
+
+		switch state {
+		case beforeCommand:
+			serviceName = strings.ReplaceAll(arg, "_", "")
+			if rootSupport.IsValidSvc(serviceName) {
+				state = beforeAPIAction
+			} else {
+				state = nonAPICommand
+			}
+		case beforeAPIAction:
+			actionParameters = publicActionParameterNames(serviceName, arg)
+			state = afterAPIAction
+		}
+	}
+
+	return result, nil
+}
+
+func parseSystemFlagToken(arg string) (name string, legacy, equals, ok bool) {
+	trimmed := ""
+	if strings.HasPrefix(arg, "---") {
+		trimmed = arg[3:]
+		legacy = true
+	} else if strings.HasPrefix(arg, "--") {
+		trimmed = arg[2:]
+	} else {
+		return "", false, false, false
+	}
+	if index := strings.IndexByte(trimmed, '='); index >= 0 {
+		trimmed = trimmed[:index]
+		equals = true
+	}
+	if _, ok = publicSystemFlags[trimmed]; !ok {
+		return "", false, false, false
+	}
+	return trimmed, legacy, equals, true
+}
+
+func shouldExtractSystemFlag(name string, legacy bool, state commandScanState, actionParameters map[string]struct{}) bool {
+	switch state {
+	case beforeCommand, beforeAPIAction:
+		return true
+	case nonAPICommand:
+		return name == "lang"
+	case afterAPIAction:
+		if name != "lang" {
+			return false
+		}
+		if legacy {
+			return true
+		}
+		_, conflict := actionParameters[name]
+		return !conflict
+	default:
+		return false
+	}
+}
+
+func isValueTakingFlag(arg string) bool {
+	if arg == "-h" || arg == "--help" || arg == "-v" || arg == "--version" {
+		return false
+	}
+	return strings.HasPrefix(arg, "--")
+}
+
+func applyResolvedSystemFlags(ctx *Context, values map[string]string) error {
+	if ctx == nil || ctx.fixedFlags == nil {
+		return fmt.Errorf("invalid context for resolved system flags")
+	}
+	for name, value := range values {
+		flag, err := ctx.fixedFlags.AddByName(name)
+		if err != nil {
+			return err
+		}
+		flag.SetValue(value)
+	}
+	return nil
+}

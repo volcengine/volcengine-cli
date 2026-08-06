@@ -85,7 +85,7 @@ func TestLocalizedUsageTemplates(t *testing.T) {
 		"configure": configureUsageTemplate(),
 		"sso":       ssoUsageTemplate(),
 	} {
-		if !strings.Contains(output, "用法：") || !strings.Contains(output, "---lang") {
+		if !strings.Contains(output, "用法：") || (name != "root" && !strings.Contains(output, "--lang")) {
 			t.Fatalf("%s usage template was not localized:\n%s", name, output)
 		}
 	}

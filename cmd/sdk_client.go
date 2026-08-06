@@ -56,7 +56,7 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 	profileName := ""
 	profileSource := "default-chain"
 	if ctx.config != nil {
-		// profile selection priority: ---profile > Current > env.
+		// Profile selection priority: invocation flag > Current > env.
 		// Empty Current with no env does NOT fall back to a default profile;
 		// it goes to the default credential chain instead.
 		profileName, profileSource = defaultProfileNameWithSource(ctx.config)
@@ -138,12 +138,12 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		}
 	}
 
-	// ---region 运行时覆盖 region
+	// --region 运行时覆盖 region
 	if f := ctx.fixedFlags.GetByName("region"); f != nil && f.GetValue() != "" {
 		region = f.GetValue()
 	}
 
-	// ---endpoint 运行时覆盖 endpoint
+	// --endpoint 运行时覆盖 endpoint
 	if f := ctx.fixedFlags.GetByName("endpoint"); f != nil && f.GetValue() != "" {
 		endpoint = f.GetValue()
 		endpointResolver = ""
@@ -153,7 +153,7 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		if currentProfile == nil && !hasLocalCredentialSignal() {
 			return nil, fmt.Errorf("credentials not configured, please run 've login' or 've configure set', or set VOLCENGINE_ACCESS_KEY and VOLCENGINE_SECRET_KEY environment variables")
 		}
-		return nil, fmt.Errorf("region not set, please set it via profile, ---region flag, or VOLCENGINE_REGION environment variable")
+		return nil, fmt.Errorf("region not set, please set it via profile, --region flag, or VOLCENGINE_REGION environment variable")
 	}
 
 	config := volcengine.NewConfig().

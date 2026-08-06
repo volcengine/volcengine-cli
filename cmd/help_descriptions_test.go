@@ -9,6 +9,7 @@ import (
 )
 
 func TestRootHelpIncludesFixedFlags(t *testing.T) {
+	registerRootSystemFlags()
 	cmd := *rootCmd
 	cmd.SetUsageTemplate(rootUsageTemplate())
 	var b bytes.Buffer
@@ -245,6 +246,20 @@ func TestActionUsageIncludesFixedFlags(t *testing.T) {
 	}
 }
 
+func TestPublicHelpOmitsLegacySystemFlagAliases(t *testing.T) {
+	for name, output := range map[string]string{
+		"root":    rootUsageTemplate(),
+		"service": serviceUsageTemplate(),
+		"action":  actionUsageTemplate("", nil),
+	} {
+		for _, alias := range []string{"---profile", "---region", "---endpoint", "---lang"} {
+			if strings.Contains(output, alias) {
+				t.Fatalf("%s help exposes historical alias %q:\n%s", name, alias, output)
+			}
+		}
+	}
+}
+
 func expectedFixedFlagsForTest() []string {
-	return []string{"---profile", "---region", "---endpoint", "---lang"}
+	return []string{"--profile", "--region", "--endpoint", "--lang"}
 }

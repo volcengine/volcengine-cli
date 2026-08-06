@@ -21,6 +21,11 @@ func TestParserReturnsErrorWhenTrailingFlagHasNoValue(t *testing.T) {
 			args:    []string{"---profile"},
 			wantErr: "---profile must set value.",
 		},
+		{
+			name:    "double dash system flag",
+			args:    []string{"--profile"},
+			wantErr: "--profile must set value.",
+		},
 	}
 
 	for _, tt := range tests {
@@ -87,8 +92,14 @@ func TestParserRejectsUnsupportedFixedFlags(t *testing.T) {
 			if !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("error = %q, want to contain %q", err.Error(), tt.want)
 			}
-			if !strings.Contains(err.Error(), "supported fixed flags") {
-				t.Fatalf("error = %q, want supported fixed flags", err.Error())
+			if !strings.Contains(err.Error(), "supported system flags") {
+				t.Fatalf("error = %q, want supported system flags", err.Error())
+			}
+			hint := strings.SplitN(err.Error(), "supported system flags:", 2)[1]
+			for _, alias := range []string{"---profile", "---region", "---endpoint", "---lang"} {
+				if strings.Contains(hint, alias) {
+					t.Fatalf("supported flag hint exposes historical alias %q: %q", alias, hint)
+				}
 			}
 		})
 	}

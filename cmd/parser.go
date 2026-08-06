@@ -7,26 +7,48 @@ import (
 	"strings"
 )
 
-var allowedFixedFlags = map[string]struct{}{
+// allowedLegacyFixedFlags keeps the historical triple-dash aliases working.
+// The aliases are intentionally omitted from help and completion output.
+var allowedLegacyFixedFlags = map[string]struct{}{
 	"profile":  {},
 	"region":   {},
 	"endpoint": {},
 }
 
-const supportedFixedFlagsMessage = "---profile, ---region, ---endpoint"
-
-type Parser struct {
-	currentIndex int
-	args         []string
-	currentFlag  *Flag
+var publicSystemFlags = map[string]struct{}{
+	"profile":  {},
+	"region":   {},
+	"endpoint": {},
+	"lang":     {},
 }
 
-func NewParser(args []string) *Parser {
-	return &Parser{
-		args:         args,
-		currentIndex: 0,
-		currentFlag:  nil,
+const supportedSystemFlagsMessage = "--profile, --region, --endpoint, --lang"
+
+func localizedSystemFlagsHelp() string {
+	return `  --profile string    ` + tr("Use a configured profile only for this invocation.") + `
+  --region string     ` + tr("Override the region only for this invocation.") + `
+  --endpoint string   ` + tr("Override the endpoint only for this invocation.") + `
+  --lang string       ` + tr("Set the display language for this invocation (EN or ZH).")
+}
+
+type Parser struct {
+	currentIndex     int
+	args             []string
+	currentFlag      *Flag
+	actionParameters map[string]struct{}
+}
+
+func NewParser(args []string, actionParameters ...map[string]struct{}) *Parser {
+	p := &Parser{
+		args:             args,
+		currentIndex:     0,
+		currentFlag:      nil,
+		actionParameters: map[string]struct{}{},
 	}
+	if len(actionParameters) > 0 && actionParameters[0] != nil {
+		p.actionParameters = actionParameters[0]
+	}
+	return p
 }
 
 func (p *Parser) ReadArgs(ctx *Context) ([]string, error) {
@@ -137,32 +159,44 @@ func (p *Parser) readArg(ctx *Context) (arg string, flag *Flag, more bool, err e
 }
 
 func (p *Parser) currentFlagValueError(ctx *Context) error {
-	prefix := "--"
-	if ctx != nil && ctx.fixedFlags != nil && ctx.fixedFlags.GetByName(p.currentFlag.Name) == p.currentFlag {
-		prefix = "---"
+	prefix := p.currentFlag.prefix
+	if prefix == "" {
+		prefix = "--"
 	}
 	return fmt.Errorf("%s%s must set value. ", prefix, p.currentFlag.Name)
 }
 
 func (p *Parser) parseArg(arg string, ctx *Context) (flag *Flag, value string, err error) {
 	if strings.HasPrefix(arg, "---") {
-		// CLI 内部 flag（如 ---profile, ---region），存入 fixedFlags
+		// Historical aliases remain accepted but are no longer advertised.
 		name := arg[3:]
 		if name == "" {
 			err = fmt.Errorf("--- is not a valid flag")
 			return
 		}
-		if _, ok := allowedFixedFlags[name]; !ok {
-			err = fmt.Errorf("---%s is not supported, supported fixed flags: %s", name, supportedFixedFlagsMessage)
+		if _, ok := allowedLegacyFixedFlags[name]; !ok {
+			err = fmt.Errorf("---%s is not supported, supported system flags: %s", name, supportedSystemFlagsMessage)
 			return
 		}
 		flag, err = ctx.fixedFlags.AddByName(name)
+		if flag != nil {
+			flag.prefix = "---"
+		}
 	} else if strings.HasPrefix(arg, "--") {
 		if len(arg) == 2 {
 			err = fmt.Errorf("-- is not support command")
 		} else {
-			//可变参数放入动态参数集合中
-			flag, err = ctx.dynamicFlags.AddByName(arg[2:])
+			name := arg[2:]
+			_, isSystemFlag := publicSystemFlags[name]
+			_, isActionParameter := p.actionParameters[name]
+			if isSystemFlag && !isActionParameter {
+				flag, err = ctx.fixedFlags.AddByName(name)
+			} else {
+				flag, err = ctx.dynamicFlags.AddByName(name)
+			}
+			if flag != nil {
+				flag.prefix = "--"
+			}
 		}
 	} else {
 		value = arg

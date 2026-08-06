@@ -7,8 +7,9 @@ import (
 )
 
 type Flag struct {
-	Name  string
-	value string
+	Name   string
+	value  string
+	prefix string
 }
 
 func (f *Flag) SetValue(value string) {

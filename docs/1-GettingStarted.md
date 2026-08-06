@@ -132,10 +132,10 @@ ve sts GetCallerIdentity
 Override region for one invocation:
 
 ```shell
-ve sts GetCallerIdentity ---region cn-beijing
+ve --region cn-beijing sts GetCallerIdentity
 ```
 
-`---region` is a CLI fixed flag and does not conflict with API parameters written as `--Param value`. See [Usage](4-Usage.md) for more examples.
+`--region` is a CLI system flag and should normally precede the service. See [Usage](4-Usage.md) for more examples and exact-name conflict rules.
 
 ---
 

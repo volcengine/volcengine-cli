@@ -23,6 +23,8 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 		if len(apiMetas) > 0 {
 			apiMeta = apiMetas[action]
 		}
+		params := exposedActionParams(meta, apiMeta)
+		publicParameters := exposedActionParameterNames(meta, apiMeta)
 		actionCmd := &cobra.Command{
 			Use:                action,
 			Short:              formatActionShort(serviceName, action),
@@ -34,7 +36,7 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 					return nil
 				}
 
-				parser := NewParser(args)
+				parser := NewParser(args, publicParameters)
 				if _, err := parser.ReadArgs(ctx); err != nil {
 					return err
 				}
@@ -46,7 +48,6 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 		// only used to enable auto-completion
 		// todo not support application/json
 		if meta.ApiInfo == nil || strings.ToLower(meta.ApiInfo.ContentType) != "application/json" {
-			params := meta.GetRequestParams(apiMeta)
 			paramValues := make([]paramValue, len(params))
 			for i := 0; i < len(params); i++ {
 				paramValues[i].param = params[i].key
@@ -58,15 +59,16 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 			var paramBody string
 			actionCmd.Flags().StringVar(&paramBody, "body", "", "")
 			var bodyStr []byte
-			var params []string
+			var paramHelp []string
 			if apiMeta != nil && apiMeta.Request != nil {
 				bodyMap := apiMeta.Request.GetReqBody()
 				bodyStr, _ = json.MarshalIndent(bodyMap, "", "    ")
-				params = formatParamsHelpUsage(apiMeta.GetRequestParams())
+				paramHelp = formatParamsHelpUsage(params)
 			}
 			bodyParam := fmt.Sprintf(`body '%s'`, string(bodyStr))
-			actionCmd.SetUsageTemplate(jsonActionUsageTemplate(actionCmd.Long, params, bodyParam))
+			actionCmd.SetUsageTemplate(jsonActionUsageTemplate(actionCmd.Long, paramHelp, bodyParam))
 		}
+		registerActionSystemFlags(actionCmd)
 
 		actionCmd.Flags().BoolP("help", "h", false, "")
 
@@ -74,6 +76,45 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 	}
 
 	return
+}
+
+func exposedActionParams(meta *VolcengineMeta, apiMeta *ApiMeta) []param {
+	if meta == nil {
+		return nil
+	}
+	if meta.ApiInfo != nil && strings.EqualFold(meta.ApiInfo.ContentType, "application/json") {
+		return apiMeta.GetRequestParams()
+	}
+	return meta.GetRequestParams(apiMeta)
+}
+
+func exposedActionParameterNames(meta *VolcengineMeta, apiMeta *ApiMeta) map[string]struct{} {
+	names := make(map[string]struct{})
+	for _, p := range exposedActionParams(meta, apiMeta) {
+		names[p.key] = struct{}{}
+	}
+	if meta != nil && meta.ApiInfo != nil && strings.EqualFold(meta.ApiInfo.ContentType, "application/json") {
+		names["body"] = struct{}{}
+	}
+	return names
+}
+
+func publicActionParameterNames(serviceName, action string) map[string]struct{} {
+	serviceName = strings.ReplaceAll(serviceName, "_", "")
+	actions := rootSupport.SupportAction[serviceName]
+	if actions == nil || actions[action] == nil {
+		return nil
+	}
+	return exposedActionParameterNames(actions[action], rootSupport.GetApiMeta(serviceName, action))
+}
+
+func registerActionSystemFlags(actionCmd *cobra.Command) {
+	for _, name := range []string{"profile", "region", "endpoint", "lang"} {
+		if actionCmd.Flags().Lookup(name) != nil {
+			continue
+		}
+		actionCmd.Flags().String(name, "", "")
+	}
 }
 
 func doAction(ctx *Context, serviceName, action string) (err error) {
@@ -355,13 +396,8 @@ func renderActionUsageTemplate(description, parameterHelp string) string {
 %s
 
 %s
-  ---profile string    %s
-  ---region string     %s
-  ---endpoint string   %s
-  ---lang string       %s
+%s
 
 `, description, tr("Usage:"), tr("Examples:"), tr("Available Parameters:"), parameterHelp,
-		tr("Fixed Flags:"), tr("Use a configured profile only for this invocation."),
-		tr("Override the region only for this invocation."), tr("Override the endpoint only for this invocation."),
-		tr("Set the display language for this invocation (EN or ZH)."))
+		tr("System Flags (place before service):"), localizedSystemFlagsHelp())
 }
