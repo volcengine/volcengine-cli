@@ -142,10 +142,10 @@ ve sts GetCallerIdentity
 临时指定 region：
 
 ```shell
-ve sts GetCallerIdentity ---region cn-beijing
+ve sts GetCallerIdentity --region cn-beijing
 ```
 
-`---region` 是 CLI 内部固定参数，和 API 参数的 `--Param value` 不冲突。更多调用示例见 [使用指南](4-Usage-zh.md)。
+`--region` 是对外公开的 CLI 系统参数，统一放在 Action 后。若当前 Action 存在大小写完全相同的业务参数，双横线形式优先作为业务参数。更多调用示例见 [使用指南](4-Usage-zh.md)。
 
 ---
 

@@ -14,51 +14,41 @@ const (
 )
 
 type languageResolution struct {
-	args     []string
-	language Language
-	err      error
+	args       []string
+	language   Language
+	fixedFlags map[string]string
+	err        error
 }
 
 var processLanguageResolution = resolveProcessLanguage()
 var currentLanguage = processLanguageResolution.language
 
 func resolveProcessLanguage() languageResolution {
-	args, language, err := resolveLanguage(os.Args[1:], os.LookupEnv)
+	resolution, err := resolveSystemFlags(os.Args[1:])
+	language := languageFromEnvironment(os.LookupEnv)
 	if err != nil {
-		language = languageFromEnvironment(os.LookupEnv)
+		return languageResolution{language: language, err: err}
 	}
-	return languageResolution{args: args, language: language, err: err}
+	if value, ok := resolution.fixedFlags["lang"]; ok {
+		language, _ = normalizeLanguage(value)
+	}
+	return languageResolution{
+		args:       resolution.args,
+		language:   language,
+		fixedFlags: resolution.fixedFlags,
+	}
 }
 
 func resolveLanguage(args []string, lookupEnv func(string) (string, bool)) ([]string, Language, error) {
 	language := languageFromEnvironment(lookupEnv)
-	filtered := make([]string, 0, len(args))
-	found := false
-
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if strings.HasPrefix(arg, "---lang=") {
-			return nil, language, fmt.Errorf("---lang does not support '=' syntax; use '---lang <value>'")
-		}
-		if arg != "---lang" {
-			filtered = append(filtered, arg)
-			continue
-		}
-		if found {
-			return nil, language, fmt.Errorf("---lang cannot be specified more than once")
-		}
-		found = true
-
-		if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
-			return nil, language, fmt.Errorf("---lang requires a value")
-		}
-		i++
-		value := args[i]
-
+	resolution, err := resolveSystemFlags(args)
+	if err != nil {
+		return nil, language, err
+	}
+	if value, ok := resolution.fixedFlags["lang"]; ok {
 		language, _ = normalizeLanguage(value)
 	}
-
-	return filtered, language, nil
+	return resolution.args, language, nil
 }
 
 func languageFromEnvironment(lookupEnv func(string) (string, bool)) Language {
@@ -140,6 +130,7 @@ var simplifiedChineseMessages = map[string]string{
 	"Available Commands:":                   "可用命令：",
 	"Available Actions:":                    "可用操作：",
 	"Available Parameters:":                 "可用参数：",
+	"API Parameters:":                       "API 参数：",
 	"Parameter Form:":                       "参数方式：",
 	"JSON Form:":                            "JSON 方式：",
 	"Additional Commands:":                  "其他命令：",
@@ -149,6 +140,7 @@ var simplifiedChineseMessages = map[string]string{
 	"Aliases:":                              "别名：",
 	"Fixed Flags:":                          "固定参数：",
 	"CLI Control Flags:":                    "CLI 控制参数：",
+	"System Flags:":                         "系统参数：",
 	"Service":                               "服务",
 	"Action":                                "操作",
 	"Description":                           "说明",

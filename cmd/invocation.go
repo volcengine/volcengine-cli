@@ -19,17 +19,22 @@ func resetInvocationContext() {
 }
 
 // parseInvocationArgs 重置 context 后解析参数，返回位置参数（如 action 名）。
-// 固定三横线 flag 进入 fixedFlags，双横线 API 参数进入 dynamicFlags。
-func parseInvocationArgs(args []string) ([]string, error) {
+// 系统参数（--profile/--region/... 或三横线别名）进入 fixedFlags；
+// 双横线 API 参数进入 dynamicFlags。actionParameters 用于精确冲突消解。
+// 预处理剥离的 system flags（主要是 --lang）在 reset 后重新写回 fixedFlags。
+func parseInvocationArgs(args []string, actionParameters ...map[string]struct{}) ([]string, error) {
 	resetInvocationContext()
-	parser := NewParser(args)
+	if err := applyResolvedSystemFlags(ctx, processLanguageResolution.fixedFlags); err != nil {
+		return nil, err
+	}
+	parser := NewParser(args, actionParameters...)
 	return parser.ReadArgs(ctx)
 }
 
 // parseInvocationFlags 与 parseInvocationArgs 相同，但只关心解析错误、丢弃位置参数。
 // 用于已知 action 子命令（位置参数已由 cobra 消费）的 flag 解析。
-func parseInvocationFlags(args []string) error {
-	_, err := parseInvocationArgs(args)
+func parseInvocationFlags(args []string, actionParameters ...map[string]struct{}) error {
+	_, err := parseInvocationArgs(args, actionParameters...)
 	return err
 }
 

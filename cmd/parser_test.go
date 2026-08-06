@@ -47,6 +47,11 @@ func TestParserReturnsErrorWhenTrailingFlagHasNoValue(t *testing.T) {
 			args:    []string{"---profile"},
 			wantErr: "---profile must set value.",
 		},
+		{
+			name:    "double dash system flag",
+			args:    []string{"--profile"},
+			wantErr: "--profile must set value.",
+		},
 	}
 
 	for _, tt := range tests {
@@ -115,6 +120,10 @@ func TestParserRejectsUnsupportedFixedFlags(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), "supported fixed flags") {
 				t.Fatalf("error = %q, want supported fixed flags", err.Error())
+			}
+			// ---lang is preprocessed, so the parser hint lists other triple-dash control flags.
+			if !strings.Contains(err.Error(), supportedLegacyFixedFlagsMessage) {
+				t.Fatalf("error = %q, want legacy fixed-flag list %q", err.Error(), supportedLegacyFixedFlagsMessage)
 			}
 		})
 	}

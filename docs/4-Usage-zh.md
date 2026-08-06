@@ -8,15 +8,18 @@ CLI 的基本调用格式：
 
 ```shell
 ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
-                      [---profile name] [---region region] [---endpoint endpoint]
-                      [---lang language] [---version api-version] [---method GET|POST] [---force]
+                      [--profile name] [--region region] [--endpoint endpoint] [--lang language]
+                      [---version api-version] [---method GET|POST] [---force]
 ```
 
-参数分三类：
+参数分几类：
 
 - **API 业务参数**：双横线 `--Param value`，进入请求体/查询参数（保留名 `body` / `header` 除外）
-- **三横线固定参数**：`---profile` / `---region` / `---endpoint` / `---lang` / `---version` / `---method` / `---force`
-- **双横线保留控制参数**：`--header`（HTTP 头）、`--body`（JSON 请求体）；**不是**业务参数，不会进 body 字段映射
+- **对外系统参数**（放在 Action 后）：`--profile` / `--region` / `--endpoint` / `--lang`
+- **force 路径控制参数**：`---version` / `---method` / `---force`
+- **双横线保留控制参数**：`--header`（HTTP 头）、`--body`（JSON 请求体）；**不是**业务参数
+
+`--profile` / `--region` / `--endpoint` / `--lang` 是对外公开的 CLI 系统参数。API 调用中的系统参数统一放在 Action 后。历史三横线别名（`---profile` / `---region` / `---endpoint` / `---lang`）仍可用，但不对外宣传。
 
 ## 查看服务和接口
 
@@ -69,24 +72,28 @@ ve rds_mysql ListDBInstanceIPLists --InstanceId mysql-xxxxxx --GroupName default
 
 ```shell
 --Param value
----region cn-beijing
+--region cn-beijing
 ```
 
-不要写成 `--Param=value`、`---region=cn-beijing` 或 `---lang=ZH`。固定参数的名称和值之间必须使用空格。
+不要写成 `--Param=value`、`--region=cn-beijing` 或 `--lang=ZH`。参数名称和值之间必须使用空格。
 
-## CLI 固定参数
+## CLI 系统参数
 
-固定参数使用三横线 `---`，不会和 API 的双横线参数冲突：
+系统参数对外统一使用双横线：
 
 | 参数 | 作用 |
 | --- | --- |
-| `---profile` | 本次调用使用指定 profile，不修改 current |
-| `---region` | 本次调用覆盖 region |
-| `---endpoint` | 本次调用覆盖 endpoint，并清空 endpoint resolver |
-| `---lang` | 设置本次调用中 CLI 自有帮助、提示和错误的显示语言 |
+| `--profile` | 本次调用使用指定 profile，不修改 current |
+| `--region` | 本次调用覆盖 region |
+| `--endpoint` | 本次调用覆盖 endpoint，并清空 endpoint resolver |
+| `--lang` | 设置本次调用中 CLI 自有帮助、提示和错误的显示语言 |
 | `---version` | 指定本次调用的 **API 版本**；未指定时使用内置元数据中的 service 版本（与根命令 `ve -v` / `ve --version` 的 CLI 版本无关） |
-| `---force` | 跳过 service/action 元数据校验，强制调用未收录或新发布的接口；**未收录 service** 须提供 `---version` 与固定 endpoint（`---endpoint` 或非 standard 下的 profile/`VOLCENGINE_ENDPOINT`）；已收录 service 可回落元数据 |
+| `---force` | 跳过 service/action 元数据校验，强制调用未收录或新发布的接口；**未收录 service** 须提供 `---version` 与固定 endpoint（`--endpoint` 或非 standard 下的 profile/`VOLCENGINE_ENDPOINT`）；已收录 service 可回落元数据 |
 | `---method` | 指定 HTTP 方法（`GET`/`POST`）；正常路径与 `---force` 路径规则一致：显式值优先，否则用 action 元数据，均无则默认 `GET` |
+
+Action 后如果当前 Action 暴露了大小写完全相同的参数，双横线形式优先按 API 业务参数解析；没有同名冲突时按系统参数解析。
+
+参数名区分大小写，`--Region`、`--Endpoint` 等不同大小写名称始终是 API 参数。
 
 ### 双横线保留控制参数
 
@@ -97,7 +104,7 @@ ve rds_mysql ListDBInstanceIPLists --InstanceId mysql-xxxxxx --GroupName default
 
 ```shell
 ve sts GetCallerIdentity --header X-Custom-Trace=abc
-ve newsvc Act ---force ---version 2024-01-01 ---endpoint open.volcengineapi.com \
+ve newsvc Act ---force ---version 2024-01-01 --endpoint open.volcengineapi.com \
   --header Content-Type=application/json \
   --header X-Feature=on \
   --body '{"k":1}'
@@ -115,30 +122,32 @@ ve newsvc Act ---force ---version 2024-01-01 ---endpoint open.volcengineapi.com 
 
 ```shell
 # 使用指定 profile
-ve ecs DescribeInstances ---profile prod
+ve ecs DescribeInstances --profile prod
 
 # 使用指定 profile 并覆盖 region
-ve ecs DescribeInstances ---profile prod ---region ap-southeast-1
+ve ecs DescribeInstances --profile prod --region ap-southeast-1
 
 # 只覆盖 region
-ve ecs DescribeInstances ---region cn-shanghai
+ve ecs DescribeInstances --region cn-shanghai
 
 # 调用 STS 时临时指定 endpoint
-ve sts GetCallerIdentity ---region cn-beijing ---endpoint sts.volcengineapi.com
+ve sts GetCallerIdentity --region cn-beijing --endpoint sts.volcengineapi.com
 ```
 
-如果 `---profile` 指向不存在的 profile，会直接报错。
+如果 `--profile` 指向不存在的 profile，会直接报错。
+
+当前唯一的精确同名冲突是 `i18nopenapi VideoProjectSuppressionStart` 的业务参数 `--lang`，因此该 Action 后的双横线 `--lang` 按业务参数解析。
 
 ### 显示语言
 
-使用 `---lang EN` 显示英文，使用 `---lang ZH` 显示简体中文。同时支持 `en-US`、`en_US`、`zh-CN`、`zh_CN`、`zh-Hans` 等语言码。不支持的值统一回退英文。
+使用 `--lang EN` 显示英文，使用 `--lang ZH` 显示简体中文。同时支持 `en-US`、`en_US`、`zh-CN`、`zh_CN`、`zh-Hans` 等语言码。不支持的值统一回退英文。
 
-未传 `---lang` 时，CLI 依次读取 `LC_ALL`、`LC_MESSAGES`、`LANG`，均无法识别时回退英文。显式参数优先级最高，且不会写入配置文件。
+未传 `--lang` 时，CLI 依次读取 `LC_ALL`、`LC_MESSAGES`、`LANG`，均无法识别时回退英文。显式参数优先级最高，且不会写入配置文件。
 
 ```shell
-ve ---lang ZH --help
-ve ecs ---lang EN --help
-ve login ---lang zh-CN
+ve sts GetCallerIdentity --lang ZH --help
+ve ecs DescribeInstances --lang EN --help
+ve login --lang zh-CN
 ```
 
 语言选择只影响 CLI 自己生成的文案，不翻译或修改 API 响应体和服务端返回内容。
@@ -239,7 +248,7 @@ ve ecs DescribeInstances
 使用非默认 profile：
 
 ```shell
-ve ecs DescribeInstances ---profile prod
+ve ecs DescribeInstances --profile prod
 ```
 
 使用环境变量默认凭证链：
@@ -258,14 +267,14 @@ ve configure set --profile ci-oidc --mode oidc --region cn-beijing \
   --oidc-token-file /var/run/secrets/oidc-token \
   --role-trn trn:iam::2100000000:role/CIRole
 
-ve ecs DescribeInstances ---profile ci-oidc
+ve ecs DescribeInstances --profile ci-oidc
 ```
 
 使用 ECS 实例角色 profile：
 
 ```shell
 ve configure set --profile ecs-role --mode ecsrole --region cn-beijing --role-name MyRole
-ve ecs DescribeInstances ---profile ecs-role
+ve ecs DescribeInstances --profile ecs-role
 ```
 
 ## 错误提示
@@ -279,17 +288,19 @@ credentials not configured, please run 've login' or 've configure set', or set 
 缺少 region 时：
 
 ```text
-region not set, please set it via profile, ---region flag, or VOLCENGINE_REGION environment variable
+region not set, please set it via profile, --region flag, or VOLCENGINE_REGION environment variable
 ```
 
-固定参数不支持时：
+系统参数不支持时：
 
 ```text
 ---debug is not supported, supported fixed flags: ---profile, ---region, ---endpoint, ---force, ---version, ---method
 ```
 
-三横线固定参数：`---profile`、`---region`、`---endpoint`、`---lang`、`---version`、`---method`、`---force`。  
-`---lang` 会在参数解析前被预处理剥离，因此上面 parser 报错列表中不包含它。  
+对外系统参数（双横线）：`--profile`、`--region`、`--endpoint`、`--lang`。  
+force 路径控制参数（三横线）：`---force`、`---version`、`---method`。  
+profile/region/endpoint/lang 的历史三横线别名仍可用。  
+`---lang` / 无冲突的 `--lang` 会在参数解析前被预处理剥离，因此上面 parser 报错列表中不包含它。  
 双横线保留控制参数：`--header`、`--body`（见上文「双横线保留控制参数」）。
 
 ---

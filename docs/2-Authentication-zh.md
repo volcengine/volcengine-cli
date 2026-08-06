@@ -10,20 +10,20 @@
 
 业务命令创建 SDK Client 时，按以下顺序解析凭证和运行配置：
 
-1. `---profile`：仅对本次调用生效，必须指向已存在的 profile。
+1. `--profile`：仅对本次调用生效，必须指向已存在的 profile。
 2. 当前配置中的 `current` profile。
 3. `VOLCENGINE_PROFILE` 或 `VOLCSTACK_PROFILE` 指定的 profile。
 4. 默认凭证链：环境变量、OIDC、CLI 配置 Provider、ECS 实例角色等由 SDK 继续解析。
 
 Region 的最终优先级是：
 
-1. `---region`
+1. `--region`
 2. profile 中的 `region`
 3. `VOLCENGINE_REGION`
 
 Endpoint 的最终优先级是：
 
-1. `---endpoint`
+1. `--endpoint`
 2. profile 中的 `endpoint`
 3. `VOLCENGINE_ENDPOINT`
 

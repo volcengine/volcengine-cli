@@ -171,7 +171,7 @@ debug 日志会记录：
 排查示例：
 
 ```shell
-VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity ---region cn-beijing
+VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity --region cn-beijing
 tail -n 100 ~/.volcengine/logs/$(date +%Y%m%d%H).log
 ```
 
@@ -339,18 +339,24 @@ ve newservice DescribeNewResource ---version 2024-01-01 ---endpoint open.volceng
 
 ## 常见问题
 
-### `---debug` 为什么不支持？
+### 如何开启 debug？
 
-debug 不是 CLI fixed flag。当前只通过 `VOLCENGINE_CLI_DEBUG` 环境变量开启：
+debug 不是 CLI 系统参数，当前只通过 `VOLCENGINE_CLI_DEBUG` 环境变量开启：
 
 ```shell
 VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity
 ```
 
-三横线 fixed flags：
+对外系统参数：
 
 ```text
----profile, ---region, ---endpoint, ---lang, ---version, ---method, ---force
+--profile, --region, --endpoint, --lang
+```
+
+force 路径控制参数：
+
+```text
+---force, ---version, ---method
 ```
 
 双横线保留控制参数：
@@ -363,14 +369,14 @@ VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity
 
 API 调用时必须能解析到 region。设置方式按优先级为：
 
-1. `---region`
+1. `--region`
 2. profile 中的 `region`
 3. `VOLCENGINE_REGION`
 
 示例：
 
 ```shell
-ve sts GetCallerIdentity ---region cn-beijing
+ve sts GetCallerIdentity --region cn-beijing
 ```
 
 或：
@@ -386,7 +392,7 @@ ve configure set --profile prod --region cn-beijing
 可以临时指定 profile：
 
 ```shell
-ve sts GetCallerIdentity ---profile prod
+ve sts GetCallerIdentity --profile prod
 ```
 
 也可以切换 current：

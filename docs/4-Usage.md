@@ -8,15 +8,18 @@ Basic command format:
 
 ```shell
 ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
-                      [---profile name] [---region region] [---endpoint endpoint]
-                      [---lang language] [---version api-version] [---method GET|POST] [---force]
+                      [--profile name] [--region region] [--endpoint endpoint] [--lang language]
+                      [---version api-version] [---method GET|POST] [---force]
 ```
 
-Three kinds of arguments:
+Argument kinds:
 
 - **API parameters**: double-dash `--Param value` (enter request body/query; reserved names `body` / `header` excluded)
-- **Triple-dash fixed flags**: `---profile` / `---region` / `---endpoint` / `---lang` / `---version` / `---method` / `---force`
+- **Public system flags** (after the action): `--profile` / `--region` / `--endpoint` / `--lang`
+- **Force-path control flags**: `---version` / `---method` / `---force`
 - **Reserved double-dash controls**: `--header` (HTTP headers), `--body` (JSON body); **not** API parameters
+
+`--profile`, `--region`, `--endpoint`, and `--lang` are the public CLI system flags. System flags in API calls are placed after the action. Historical triple-dash aliases (`---profile` / `---region` / `---endpoint` / `---lang`) still work but are not advertised.
 
 ## Discover Services and Actions
 
@@ -69,24 +72,28 @@ Parameter names and values are separated by spaces. The supported syntax is:
 
 ```shell
 --Param value
----region cn-beijing
+--region cn-beijing
 ```
 
-Do not use `--Param=value`, `---region=cn-beijing`, or `---lang=ZH`. Fixed flags require a space between the name and value.
+Do not use `--Param=value`, `--region=cn-beijing`, or `--lang=ZH`. Flag names and values must be separated by a space.
 
-## CLI Fixed Flags
+## CLI System Flags
 
-Fixed flags use three hyphens `---` and do not conflict with API parameters:
+Public system flags use the standard double-hyphen form:
 
 | Flag | Purpose |
 | --- | --- |
-| `---profile` | Use a specific profile for this invocation without changing current |
-| `---region` | Override region for this invocation |
-| `---endpoint` | Override endpoint for this invocation and clear endpoint resolver |
-| `---lang` | Set the language of CLI-owned help, prompts, and errors for this invocation |
+| `--profile` | Use a specific profile for this invocation without changing current |
+| `--region` | Override region for this invocation |
+| `--endpoint` | Override endpoint for this invocation and clear endpoint resolver |
+| `--lang` | Set the language of CLI-owned help, prompts, and errors for this invocation |
 | `---version` | Set the **API version** for this call; if omitted, uses the bundled service version (not the CLI version from `ve -v` / `ve --version`) |
-| `---force` | Skip service/action metadata validation and force-call unlisted or newly released APIs; **unlisted services** require `---version` and a fixed endpoint (`---endpoint` or profile/`VOLCENGINE_ENDPOINT` when resolver is not `standard`); bundled services can fall back to metadata |
+| `---force` | Skip service/action metadata validation and force-call unlisted or newly released APIs; **unlisted services** require `---version` and a fixed endpoint (`--endpoint` or profile/`VOLCENGINE_ENDPOINT` when resolver is not `standard`); bundled services can fall back to metadata |
 | `---method` | HTTP method (`GET`/`POST`); same rules on normal and `---force` paths: explicit value wins, else action metadata, else `GET` |
+
+After the action, a double-dash flag whose exact case-sensitive name is exposed by that action is parsed as an API parameter. Without such a conflict, it is parsed as a system flag.
+
+Names with different casing, such as `--Region` or `--Endpoint`, are always API parameters.
 
 ### Reserved Double-Dash Controls
 
@@ -97,7 +104,7 @@ Fixed flags use three hyphens `---` and do not conflict with API parameters:
 
 ```shell
 ve sts GetCallerIdentity --header X-Custom-Trace=abc
-ve newsvc Act ---force ---version 2024-01-01 ---endpoint open.volcengineapi.com \
+ve newsvc Act ---force ---version 2024-01-01 --endpoint open.volcengineapi.com \
   --header Content-Type=application/json \
   --header X-Feature=on \
   --body '{"k":1}'
@@ -115,30 +122,32 @@ Examples:
 
 ```shell
 # Use a specific profile
-ve ecs DescribeInstances ---profile prod
+ve ecs DescribeInstances --profile prod
 
 # Use a specific profile and override region
-ve ecs DescribeInstances ---profile prod ---region ap-southeast-1
+ve ecs DescribeInstances --profile prod --region ap-southeast-1
 
 # Override only region
-ve ecs DescribeInstances ---region cn-shanghai
+ve ecs DescribeInstances --region cn-shanghai
 
 # Specify endpoint for an STS call
-ve sts GetCallerIdentity ---region cn-beijing ---endpoint sts.volcengineapi.com
+ve sts GetCallerIdentity --region cn-beijing --endpoint sts.volcengineapi.com
 ```
 
-If `---profile` references a profile that does not exist, the command returns an error.
+If `--profile` references a profile that does not exist, the command returns an error.
+
+The only current exact-name conflict is the `--lang` API parameter on `i18nopenapi VideoProjectSuppressionStart`, so the double-dash `--lang` after that action is parsed as the API parameter.
 
 ### Display Language
 
-Use `---lang EN` for English or `---lang ZH` for Simplified Chinese. Locale forms such as `en-US`, `en_US`, `zh-CN`, `zh_CN`, and `zh-Hans` are also accepted. Unsupported values fall back to English.
+Use `--lang EN` for English or `--lang ZH` for Simplified Chinese. Locale forms such as `en-US`, `en_US`, `zh-CN`, `zh_CN`, and `zh-Hans` are also accepted. Unsupported values fall back to English.
 
-When `---lang` is omitted, the CLI checks `LC_ALL`, `LC_MESSAGES`, and `LANG` in that order, then falls back to English. The explicit flag takes precedence and is not persisted to the configuration file.
+When `--lang` is omitted, the CLI checks `LC_ALL`, `LC_MESSAGES`, and `LANG` in that order, then falls back to English. The explicit flag takes precedence and is not persisted to the configuration file.
 
 ```shell
-ve ---lang ZH --help
-ve ecs ---lang EN --help
-ve login ---lang zh-CN
+ve sts GetCallerIdentity --lang ZH --help
+ve ecs DescribeInstances --lang EN --help
+ve login --lang zh-CN
 ```
 
 Language selection only affects text generated by the CLI. API response bodies and server-provided content are not translated or modified.
@@ -239,7 +248,7 @@ ve ecs DescribeInstances
 Use a non-current profile:
 
 ```shell
-ve ecs DescribeInstances ---profile prod
+ve ecs DescribeInstances --profile prod
 ```
 
 Use environment-based default credential chain:
@@ -258,14 +267,14 @@ ve configure set --profile ci-oidc --mode oidc --region cn-beijing \
   --oidc-token-file /var/run/secrets/oidc-token \
   --role-trn trn:iam::2100000000:role/CIRole
 
-ve ecs DescribeInstances ---profile ci-oidc
+ve ecs DescribeInstances --profile ci-oidc
 ```
 
 Use an ECS instance role profile:
 
 ```shell
 ve configure set --profile ecs-role --mode ecsrole --region cn-beijing --role-name MyRole
-ve ecs DescribeInstances ---profile ecs-role
+ve ecs DescribeInstances --profile ecs-role
 ```
 
 ## Common Errors
@@ -279,17 +288,19 @@ credentials not configured, please run 've login' or 've configure set', or set 
 Missing region:
 
 ```text
-region not set, please set it via profile, ---region flag, or VOLCENGINE_REGION environment variable
+region not set, please set it via profile, --region flag, or VOLCENGINE_REGION environment variable
 ```
 
-Unsupported fixed flag:
+Unsupported system flag:
 
 ```text
 ---debug is not supported, supported fixed flags: ---profile, ---region, ---endpoint, ---force, ---version, ---method
 ```
 
-Triple-dash fixed flags: `---profile`, `---region`, `---endpoint`, `---lang`, `---version`, `---method`, and `---force`.  
-`---lang` is resolved before argument parsing, so the parser error list above does not include it.  
+Public system flags (double-dash): `--profile`, `--region`, `--endpoint`, `--lang`.  
+Force-path control flags (triple-dash): `---force`, `---version`, `---method`.  
+Historical triple-dash aliases for profile/region/endpoint/lang still work.  
+`---lang` / non-conflicting `--lang` is resolved before argument parsing, so the parser error list above does not include it.  
 Reserved double-dash controls: `--header`, `--body` (see “Reserved Double-Dash Controls” above).
 
 ---

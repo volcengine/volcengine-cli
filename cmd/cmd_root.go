@@ -35,6 +35,7 @@ func initRootCmd() {
 	rootCmd.Flags().BoolP("help", "h", false, "")
 
 	rootCmd.Flags().BoolP("version", "v", false, tr("Show CLI version"))
+	registerRootSystemFlags()
 
 	rootCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
 		showVersion, _ := cmd.Flags().GetBool("version")
@@ -117,6 +118,10 @@ func runMain() int {
 		return 1
 	}
 	setCurrentLanguage(processLanguageResolution.language)
+	if err := applyResolvedSystemFlags(ctx, processLanguageResolution.fixedFlags); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
 	rootCmd.SetArgs(processLanguageResolution.args)
 	initRootCmd()
 	localizeHelpFlags(rootCmd)
@@ -141,6 +146,22 @@ func runMain() int {
 		return 1
 	}
 	return 0
+}
+
+func registerRootSystemFlags() {
+	flags := rootCmd.Flags()
+	if flags.Lookup("profile") == nil {
+		flags.String("profile", "", tr("Use a configured profile only for this invocation."))
+	}
+	if flags.Lookup("region") == nil {
+		flags.String("region", "", tr("Override the region only for this invocation."))
+	}
+	if flags.Lookup("endpoint") == nil {
+		flags.String("endpoint", "", tr("Override the endpoint only for this invocation."))
+	}
+	if flags.Lookup("lang") == nil {
+		flags.String("lang", "", tr("Set the display language for this invocation (EN or ZH)."))
+	}
 }
 
 func localizeHelpFlags(command *cobra.Command) {
@@ -176,7 +197,7 @@ func localizeHelpFlag(command *cobra.Command) {
 
 func rootUsageTemplate() string {
 	return tr("Usage:") + `{{if .Runnable}}
-  {{.CommandPath}} [service]{{end}} [action] [params] {{if .HasExample}}
+  {{.CommandPath}} [service]{{end}} [action] [params] [system flags] {{if .HasExample}}
 
 ` + tr("Examples:") + `
 {{.Example}}{{end}}{{if .HasAvailableSubCommands}}{{$cmds := .Commands}}{{if eq (len .Groups) 0}}
@@ -197,12 +218,12 @@ func rootUsageTemplate() string {
 ` + tr("Flags:") + `
 {{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableSubCommands}}
 
-` + tr("CLI Control Flags:") + `
-` + localizedFixedFlagsHelp() + `
+` + tr("System Flags:") + `
+` + localizedSystemFlagsHelp() + `
 
 ` + tr("Examples:") + `
-  ve sts GetCallerIdentity ---profile default ---region cn-beijing
-  ve sts GetCallerIdentity ---region cn-beijing ---endpoint sts.volcengineapi.com
+  ve sts GetCallerIdentity --profile default --region cn-beijing
+  ve sts GetCallerIdentity --region cn-beijing --endpoint sts.volcengineapi.com
   ve upgrade
   ve upgrade --yes
   ve upgrade --version 1.0.49

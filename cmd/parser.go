@@ -7,14 +7,16 @@ import (
 	"strings"
 )
 
-// allowedFixedFlags 三横线（---）CLI 控制参数白名单，与双横线 API 参数区分。
-// profile/region/endpoint 为通用运行时覆盖；force 跳过元数据校验；version/method
-// 在正常与 force 路径均可覆盖元数据。
+// allowedLegacyFixedFlags keeps triple-dash aliases working as an explicit
+// system-flag escape when an action exposes the same double-dash parameter,
+// and keeps force-path control flags (---force / ---version / ---method).
+// Public profile/region/endpoint/lang aliases are intentionally omitted from
+// help and completion output (docs advertise the double-dash form).
 // 双横线保留控制参数（--header / --body）见 reservedDynamicFlags，不在此白名单。
-// ---lang 由 resolveLanguage 预处理剥离，不进入本白名单。
-// 新增 --- 固定参数时需同步更新 supportedFixedFlagsMessage、localizedFixedFlagsHelp、
+// --lang / ---lang 由 resolveSystemFlags 预处理剥离，不进入本白名单。
+// 新增 --- 固定参数时需同步更新 supportedLegacyFixedFlagsMessage、localizedSystemFlagsHelp、
 // upgrade.rootValueFlags（若为带值 flag）与文档。
-var allowedFixedFlags = map[string]struct{}{
+var allowedLegacyFixedFlags = map[string]struct{}{
 	"profile":  {},
 	"region":   {},
 	"endpoint": {},
@@ -23,44 +25,67 @@ var allowedFixedFlags = map[string]struct{}{
 	"method":   {},
 }
 
+// publicSystemFlags are double-dash CLI system flags that route into fixedFlags
+// when the action does not expose an exact-name API parameter conflict.
+var publicSystemFlags = map[string]struct{}{
+	"profile":  {},
+	"region":   {},
+	"endpoint": {},
+	"lang":     {},
+}
+
 // booleanFixedFlags 纯开关型固定参数：出现即生效，不消费后续 token。
 var booleanFixedFlags = map[string]struct{}{
 	"force": {},
 }
 
-// supportedFixedFlagsMessage 是 parser 拒绝未知 ---flag 时展示的白名单列表。
-// 不含 ---lang：语言参数在进入 parser 前已由 resolveLanguage 处理。
-const supportedFixedFlagsMessage = "---profile, ---region, ---endpoint, ---force, ---version, ---method"
+// supportedLegacyFixedFlagsMessage is shown when an unknown ---flag is rejected.
+// 不含 ---lang：语言参数在进入 parser 前已由 resolveSystemFlags 处理。
+const supportedLegacyFixedFlagsMessage = "---profile, ---region, ---endpoint, ---force, ---version, ---method"
 
-// localizedFixedFlagsHelp 返回已本地化的 CLI 控制参数说明。
-// 分两块：三横线 fixed flags，以及双横线保留控制参数（--header / --body）。
+// supportedSystemFlagsMessage lists public double-dash system flags for docs/errors.
+const supportedSystemFlagsMessage = "--profile, --region, --endpoint, --lang"
+
+// localizedSystemFlagsHelp 返回已本地化的 CLI 系统参数说明。
+// 对外文档与 help 只展示双横线 system flags；force 路径仍保留 ---version/---method/---force。
 // root/service/action usage 与未知 service help 共用，避免英文常量与 tr() 模板双源漂移。
-func localizedFixedFlagsHelp() string {
-	return `  ---profile string    ` + tr("Use a configured profile only for this invocation.") + `
-  ---region string     ` + tr("Override the region only for this invocation.") + `
-  ---endpoint string   ` + tr("Override the endpoint only for this invocation.") + `
+func localizedSystemFlagsHelp() string {
+	return `  --profile string     ` + tr("Use a configured profile only for this invocation.") + `
+  --region string      ` + tr("Override the region only for this invocation.") + `
+  --endpoint string    ` + tr("Override the endpoint only for this invocation.") + `
+  --lang string        ` + tr("Set the display language for this invocation (EN or ZH).") + `
   ---version string    ` + tr("API version; uses metadata when omitted (required with ---force for unlisted services).") + `
   ---method string     ` + tr("HTTP method GET or POST; explicit value overrides metadata, else metadata, else GET.") + `
   ---force             ` + tr("Skip service/action metadata validation and force the call (presence-only; write ---force alone, not ---force true).") + `
-  ---lang string       ` + tr("Set the display language for this invocation (EN or ZH).") + `
 
 ` + tr("Reserved double-dash controls (not API parameters):") + `
   --header string      ` + tr("Add a custom HTTP header as Name=Value; repeatable. Content-Type overrides metadata when set. Host/Authorization/Content-Length are blocked.") + `
   --body string        ` + tr("JSON request body for application/json style calls; mutually exclusive with other API parameters.")
 }
 
-type Parser struct {
-	currentIndex int
-	args         []string
-	currentFlag  *Flag
+// localizedFixedFlagsHelp is kept as an alias for call sites that still use the old name.
+func localizedFixedFlagsHelp() string {
+	return localizedSystemFlagsHelp()
 }
 
-func NewParser(args []string) *Parser {
-	return &Parser{
-		args:         args,
-		currentIndex: 0,
-		currentFlag:  nil,
+type Parser struct {
+	currentIndex     int
+	args             []string
+	currentFlag      *Flag
+	actionParameters map[string]struct{}
+}
+
+func NewParser(args []string, actionParameters ...map[string]struct{}) *Parser {
+	p := &Parser{
+		args:             args,
+		currentIndex:     0,
+		currentFlag:      nil,
+		actionParameters: map[string]struct{}{},
 	}
+	if len(actionParameters) > 0 && actionParameters[0] != nil {
+		p.actionParameters = actionParameters[0]
+	}
+	return p
 }
 
 func (p *Parser) ReadArgs(ctx *Context) ([]string, error) {
@@ -191,7 +216,9 @@ func isPresenceOnlyFixedFlag(name string) bool {
 
 func (p *Parser) currentFlagValueError(ctx *Context) error {
 	prefix := "--"
-	if ctx != nil && ctx.fixedFlags != nil && ctx.fixedFlags.GetByName(p.currentFlag.Name) == p.currentFlag {
+	if p.currentFlag != nil && p.currentFlag.prefix != "" {
+		prefix = p.currentFlag.prefix
+	} else if ctx != nil && p.currentFlag != nil && ctx.fixedFlags != nil && ctx.fixedFlags.GetByName(p.currentFlag.Name) == p.currentFlag {
 		prefix = "---"
 	}
 	return fmt.Errorf("%s%s must set value. ", prefix, p.currentFlag.Name)
@@ -199,23 +226,35 @@ func (p *Parser) currentFlagValueError(ctx *Context) error {
 
 func (p *Parser) parseArg(arg string, ctx *Context) (flag *Flag, value string, err error) {
 	if strings.HasPrefix(arg, "---") {
-		// CLI 内部 flag（如 ---profile, ---region），存入 fixedFlags
+		// Triple-dash aliases force system-flag / control-flag routing.
 		name := arg[3:]
 		if name == "" {
 			err = fmt.Errorf("--- is not a valid flag")
 			return
 		}
-		if _, ok := allowedFixedFlags[name]; !ok {
-			err = fmt.Errorf("---%s is not supported, supported fixed flags: %s", name, supportedFixedFlagsMessage)
+		if _, ok := allowedLegacyFixedFlags[name]; !ok {
+			err = fmt.Errorf("---%s is not supported, supported fixed flags: %s", name, supportedLegacyFixedFlagsMessage)
 			return
 		}
 		flag, err = ctx.fixedFlags.AddByName(name)
+		if flag != nil {
+			flag.prefix = "---"
+		}
 	} else if strings.HasPrefix(arg, "--") {
 		if len(arg) == 2 {
 			err = fmt.Errorf("-- is not support command")
 		} else {
-			//可变参数放入动态参数集合中
-			flag, err = ctx.dynamicFlags.AddByName(arg[2:])
+			name := arg[2:]
+			_, isSystemFlag := publicSystemFlags[name]
+			_, isActionParameter := p.actionParameters[name]
+			if isSystemFlag && !isActionParameter {
+				flag, err = ctx.fixedFlags.AddByName(name)
+			} else {
+				flag, err = ctx.dynamicFlags.AddByName(name)
+			}
+			if flag != nil {
+				flag.prefix = "--"
+			}
 		}
 	} else {
 		value = arg

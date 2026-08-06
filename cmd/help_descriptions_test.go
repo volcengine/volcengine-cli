@@ -9,6 +9,7 @@ import (
 )
 
 func TestRootHelpIncludesFixedFlags(t *testing.T) {
+	registerRootSystemFlags()
 	cmd := *rootCmd
 	cmd.SetUsageTemplate(rootUsageTemplate())
 	var b bytes.Buffer
@@ -288,6 +289,31 @@ func TestActionUsageTemplateDetailMultiLineThroughRealFormatter(t *testing.T) {
 	}
 }
 
+func TestActionUsageSeparatesAPIParametersFromSystemFlags(t *testing.T) {
+	restoreLanguage := setLanguageForTest(LanguageEnglish)
+	defer restoreLanguage()
+
+	tests := map[string]string{
+		"non-JSON": actionUsageTemplate("", []string{"lang integer"}, false),
+		"JSON":     jsonActionUsageTemplate("", []string{"lang integer"}, "body '{}'", false),
+	}
+	for name, out := range tests {
+		t.Run(name, func(t *testing.T) {
+			apiIndex := strings.Index(out, "Available Parameters:")
+			if apiIndex < 0 {
+				apiIndex = strings.Index(out, "API Parameters:")
+			}
+			systemIndex := strings.Index(out, "System Flags:")
+			if apiIndex < 0 || systemIndex < 0 || apiIndex >= systemIndex {
+				t.Fatalf("API and system parameters are not in separate ordered sections:\n%s", out)
+			}
+			if strings.Count(out, "--lang") < 2 {
+				t.Fatalf("conflicting --lang should appear in API params and system flags:\n%s", out)
+			}
+		})
+	}
+}
+
 func TestServiceUsageIncludesActionTableHeader(t *testing.T) {
 	out := serviceUsageTemplate()
 	for _, want := range []string{
@@ -353,7 +379,23 @@ func TestActionUsageIncludesFixedFlags(t *testing.T) {
 	}
 }
 
-func expectedFixedFlagsForTest() []string {
-	// 与 localizedFixedFlagsHelp / root·service·action usage 保持一致
-	return []string{"---profile", "---region", "---endpoint", "---version", "---method", "---force", "---lang", "--header", "--body"}
+func TestPublicHelpOmitsLegacySystemFlagAliases(t *testing.T) {
+	for name, output := range map[string]string{
+		"root":    rootUsageTemplate(),
+		"service": serviceUsageTemplate(),
+		"action":  actionUsageTemplate("", nil, false),
+	} {
+		for _, alias := range []string{"---profile", "---region", "---endpoint", "---lang"} {
+			if strings.Contains(output, alias) {
+				t.Fatalf("%s help exposes historical alias %q:\n%s", name, alias, output)
+			}
+		}
+	}
 }
+
+func expectedFixedFlagsForTest() []string {
+	// 与 localizedSystemFlagsHelp / root·service·action usage 保持一致：
+	// 对外 system flags 用双横线；force 路径控制参数仍为三横线；保留 --header/--body。
+	return []string{"--profile", "--region", "--endpoint", "--lang", "---version", "---method", "---force", "--header", "--body"}
+}
+

@@ -172,7 +172,7 @@ func printUnknownServiceHelp(serviceName string) error {
 
 %s
 %s
-`, tr("Usage:"), serviceName, trf(`"%s" is not bundled in local metadata. Use ---force with ---version, and a fixed endpoint via ---endpoint or profile/VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough).`, serviceName), tr("Examples:"), serviceName, serviceName, tr("CLI Control Flags:"), localizedFixedFlagsHelp())
+`, tr("Usage:"), serviceName, trf(`"%s" is not bundled in local metadata. Use ---force with ---version, and a fixed endpoint via ---endpoint or profile/VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough).`, serviceName), tr("Examples:"), serviceName, serviceName, tr("System Flags:"), localizedSystemFlagsHelp())
 	return err
 }
 

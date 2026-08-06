@@ -281,6 +281,6 @@ func renderActionUsageTemplate(description, parameterHelp string, detail bool) s
 
 `, description, tr("Usage:"), tr("Examples:"), tr("Available Parameters:"), parameterHelp,
 		detailTip,
-		tr("CLI Control Flags:"),
-		localizedFixedFlagsHelp())
+		tr("System Flags:"),
+		localizedSystemFlagsHelp())
 }

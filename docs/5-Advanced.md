@@ -171,7 +171,7 @@ Sensitive fields are masked, including common AK/SK, token, password, signature,
 Debug inspection example:
 
 ```shell
-VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity ---region cn-beijing
+VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity --region cn-beijing
 tail -n 100 ~/.volcengine/logs/$(date +%Y%m%d%H).log
 ```
 
@@ -339,18 +339,24 @@ ve newservice DescribeNewResource ---version 2024-01-01 ---endpoint open.volceng
 
 ## FAQ
 
-### Why is `---debug` unsupported?
+### How do I enable debug logging?
 
-Debug is not a CLI fixed flag. Use `VOLCENGINE_CLI_DEBUG`:
+Debug is not a CLI system flag. Use `VOLCENGINE_CLI_DEBUG`:
 
 ```shell
 VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity
 ```
 
-Triple-dash fixed flags:
+Public system flags:
 
 ```text
----profile, ---region, ---endpoint, ---lang, ---version, ---method, ---force
+--profile, --region, --endpoint, --lang
+```
+
+Force-path control flags:
+
+```text
+---force, ---version, ---method
 ```
 
 Reserved double-dash controls:
@@ -363,14 +369,14 @@ Reserved double-dash controls:
 
 API calls must resolve a region. Priority:
 
-1. `---region`
+1. `--region`
 2. `region` in profile
 3. `VOLCENGINE_REGION`
 
 Example:
 
 ```shell
-ve sts GetCallerIdentity ---region cn-beijing
+ve sts GetCallerIdentity --region cn-beijing
 ```
 
 Or:
@@ -386,7 +392,7 @@ If a current profile exists, the CLI uses the profile first. The environment-bas
 Override profile for one call:
 
 ```shell
-ve sts GetCallerIdentity ---profile prod
+ve sts GetCallerIdentity --profile prod
 ```
 
 Switch current:

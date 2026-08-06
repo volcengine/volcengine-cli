@@ -80,7 +80,7 @@ ve sts GetCallerIdentity
 1. [Getting Started](docs/1-GettingStarted.md): install, build from source, configure PATH, and make the first API call.
 2. [Authentication](docs/2-Authentication.md): AK/SK, default credential chain, OIDC, ECS instance role, SSO, and Console Login.
 3. [Configuration](docs/3-Configuration.md): inspect, list, switch, update, and delete profiles.
-4. [Usage](docs/4-Usage.md): service discovery, API calls, fixed flags, JSON body, arrays, and nested parameters.
+4. [Usage](docs/4-Usage.md): service discovery, API calls, system flags, JSON body, arrays, and nested parameters.
 5. [Advanced Usage](docs/5-Advanced.md): shell completion, colored output, debug logs, `---force` invocation, and FAQ.
 
 ### Security and privacy

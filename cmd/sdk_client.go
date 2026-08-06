@@ -252,12 +252,12 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		}
 	}
 
-	// ---region 运行时覆盖 region
+	// --region 运行时覆盖 region
 	if f := ctx.fixedFlags.GetByName("region"); f != nil && f.GetValue() != "" {
 		region = f.GetValue()
 	}
 
-	// endpoint 优先级：---endpoint（清空 resolver）> profile/env resolver/host > SDK 默认
+	// endpoint 优先级：--endpoint / ---endpoint（清空 resolver）> profile/env resolver/host > SDK 默认
 	endpoint, endpointResolver = resolveClientEndpoint(ctx, currentProfile)
 	mode := classifyEndpoint(endpoint, endpointResolver)
 
@@ -265,7 +265,7 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		if currentProfile == nil && !hasLocalCredentialSignal() {
 			return nil, fmt.Errorf("credentials not configured, please run 've login' or 've configure set', or set VOLCENGINE_ACCESS_KEY and VOLCENGINE_SECRET_KEY environment variables")
 		}
-		return nil, fmt.Errorf("region not set, please set it via profile, ---region flag, or VOLCENGINE_REGION environment variable")
+		return nil, fmt.Errorf("region not set, please set it via profile, --region flag, or VOLCENGINE_REGION environment variable")
 	}
 
 	config := volcengine.NewConfig().

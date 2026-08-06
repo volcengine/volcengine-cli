@@ -855,8 +855,8 @@ func TestPrintUnknownServiceHelp(t *testing.T) {
 	if !strings.Contains(help, "endpoint") {
 		t.Fatalf("expected unknown service help text, got: %q", help)
 	}
-	// 与 root/service/action usage 共用 localizedFixedFlagsHelp，应包含 ---lang。
-	for _, flag := range []string{"---force", "---version", "---method", "--header", "--body", "---lang"} {
+	// 与 root/service/action usage 共用 localizedSystemFlagsHelp：对外 --lang，force 路径仍为三横线。
+	for _, flag := range []string{"---force", "---version", "---method", "--header", "--body", "--lang"} {
 		if !strings.Contains(help, flag) {
 			t.Fatalf("unknown service help missing %q:\n%s", flag, help)
 		}

@@ -9,6 +9,8 @@ import (
 type Flag struct {
 	Name  string
 	value string
+	// prefix records how the flag was written on the CLI (-- vs ---) for error messages.
+	prefix string
 	// multi enables value accumulation across repeated flags (e.g. --header).
 	// Single-value flags overwrite on SetValue.
 	multi  bool

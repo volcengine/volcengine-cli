@@ -24,6 +24,8 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 		if len(apiMetas) > 0 {
 			apiMeta = apiMetas[action]
 		}
+		params := exposedActionParams(meta, apiMeta)
+		publicParameters := exposedActionParameterNames(meta, apiMeta)
 		actionCmd := &cobra.Command{
 			Use:                action,
 			Short:              formatActionShort(serviceName, action),
@@ -42,7 +44,7 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 					return errBareDetailWithoutHelp()
 				}
 
-				if err := parseInvocationFlags(args); err != nil {
+				if err := parseInvocationFlags(args, publicParameters); err != nil {
 					return err
 				}
 				return dispatchServiceAction(ctx, cmd.Parent().Name(), cmd.Name(), true)
@@ -52,7 +54,6 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 		// only used to enable auto-completion
 		// todo not support application/json
 		if meta.ApiInfo == nil || !isJSONContentType(meta.ApiInfo.ContentType) {
-			params := meta.GetRequestParams(apiMeta)
 			paramValues := make([]paramValue, len(params))
 			for i := 0; i < len(params); i++ {
 				paramValues[i].param = params[i].key
@@ -78,6 +79,7 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 				return buildActionHelpParamLines(serviceName, action, reqParams, nil, detail)
 			})
 		}
+		registerActionSystemFlags(actionCmd)
 
 		actionCmd.Flags().BoolP("help", "h", false, "")
 
@@ -85,6 +87,48 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 	}
 
 	return
+}
+
+func exposedActionParams(meta *VolcengineMeta, apiMeta *ApiMeta) []param {
+	if meta == nil {
+		return nil
+	}
+	if meta.ApiInfo != nil && isJSONContentType(meta.ApiInfo.ContentType) {
+		if apiMeta == nil {
+			return nil
+		}
+		return apiMeta.GetRequestParams()
+	}
+	return meta.GetRequestParams(apiMeta)
+}
+
+func exposedActionParameterNames(meta *VolcengineMeta, apiMeta *ApiMeta) map[string]struct{} {
+	names := make(map[string]struct{})
+	for _, p := range exposedActionParams(meta, apiMeta) {
+		names[p.key] = struct{}{}
+	}
+	if meta != nil && meta.ApiInfo != nil && isJSONContentType(meta.ApiInfo.ContentType) {
+		names["body"] = struct{}{}
+	}
+	return names
+}
+
+func publicActionParameterNames(serviceName, action string) map[string]struct{} {
+	serviceName = strings.ReplaceAll(serviceName, "_", "")
+	actions := rootSupport.SupportAction[serviceName]
+	if actions == nil || actions[action] == nil {
+		return nil
+	}
+	return exposedActionParameterNames(actions[action], rootSupport.GetApiMeta(serviceName, action))
+}
+
+func registerActionSystemFlags(actionCmd *cobra.Command) {
+	for _, name := range []string{"profile", "region", "endpoint", "lang"} {
+		if actionCmd.Flags().Lookup(name) != nil {
+			continue
+		}
+		actionCmd.Flags().String(name, "", "")
+	}
 }
 
 func doAction(ctx *Context, serviceName, action string) error {
