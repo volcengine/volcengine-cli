@@ -132,10 +132,9 @@ func copyParams(params []param) []param {
 	return out
 }
 
-// buildActionHelpParamLines builds the Available Parameters lines for Action help.
-// prefixLines (e.g. body skeleton for JSON APIs) are always kept first and unsorted.
-// API params are sorted by key before formatting so multi-line detail blocks and
-// blank separators stay adjacent (do not sort already-rendered multi-line strings).
+// buildActionHelpParamLines builds Available Parameters lines (without leading "--").
+// prefixLines stay first and unsorted (legacy single-list callers). Prefer
+// jsonActionUsageTemplate + separate bodyParam for JSON dual-form help.
 // detail=false skips description corpus; detail=true attaches and formats full text.
 func buildActionHelpParamLines(service, action string, params []param, prefixLines []string, detail bool) []string {
 	ordered := copyParams(params)
@@ -149,30 +148,115 @@ func buildActionHelpParamLines(service, action string, params []param, prefixLin
 	return append(append([]string{}, prefixLines...), formatParamsHelpUsage(ordered, true)...)
 }
 
-// setLazyActionUsage installs a UsageFunc that renders action help on demand.
+// setLazyActionUsage installs a UsageFunc that renders non-JSON action help on demand.
 // Template is rebuilt per Usage() call: concise path is cheap; detail path reuses
-// the process-wide Once-loaded param description corpus. Dual-mode caching is
-// unnecessary for a single-process CLI and was removed to avoid stale i18n.
+// the process-wide Once-loaded param description corpus.
 func setLazyActionUsage(actionCmd *cobra.Command, buildParams func(detail bool) []string) {
 	defaultUsage := rootCmd.UsageFunc()
 	actionCmd.SetUsageFunc(func(cmd *cobra.Command) error {
 		detail := getActionHelpDetail(cmd)
-		// Escape Long the same way as param prose so OpenAPI text with {{ }} cannot break Usage templates.
 		long := escapeCobraTemplateLiteral(normalizeHelpDescription(cmd.Long))
 		cmd.SetUsageTemplate(actionUsageTemplate(long, buildParams(detail), detail))
 		return defaultUsage(cmd)
 	})
 }
 
-func actionUsageTemplate(description string, params []string, detail bool) string {
-	// Copy before mutating so callers can reuse the source slice.
-	// Do NOT sort here: params may already be multi-line (detail) or intentionally
-	// prefixed (JSON body skeleton). Callers sort by key before formatting.
-	params = append([]string(nil), params...)
-	for i := 0; i < len(params); i++ {
-		params[i] = "  --" + params[i]
-	}
+// setLazyJSONActionUsage is the JSON-action counterpart: Parameter Form + JSON Form
+// (master layout) with the same lazy/detail behavior as setLazyActionUsage.
+// bodyParam is the raw body skeleton line without a leading "--" (e.g. body '{...}').
+func setLazyJSONActionUsage(actionCmd *cobra.Command, bodyParam string, buildParams func(detail bool) []string) {
+	defaultUsage := rootCmd.UsageFunc()
+	actionCmd.SetUsageFunc(func(cmd *cobra.Command) error {
+		detail := getActionHelpDetail(cmd)
+		long := escapeCobraTemplateLiteral(normalizeHelpDescription(cmd.Long))
+		cmd.SetUsageTemplate(jsonActionUsageTemplate(long, buildParams(detail), bodyParam, detail))
+		return defaultUsage(cmd)
+	})
+}
 
+// nonJSONUsageParamIndent is the first-line indent for non-JSON actionUsageTemplate
+// ("  --key"). formatParamsHelpUsage detail continuations assume this yields a 4-column prefix.
+const nonJSONUsageParamIndent = "  "
+
+// jsonSectionUsageParamIndent is the first-line indent under Parameter/JSON Form
+// ("    --key"). 2 spaces deeper than nonJSONUsageParamIndent.
+const jsonSectionUsageParamIndent = "    "
+
+// actionUsageTemplate is the single-list help template (non-JSON actions).
+// params entries are meta lines without a leading "--" (may be multi-line in detail mode).
+func actionUsageTemplate(description string, params []string, detail bool) string {
+	// Keep caller order (already key-sorted); do not re-sort multi-line detail blocks.
+	parameterHelp := formatParamUsageEntries(params, nonJSONUsageParamIndent)
+	return renderActionUsageTemplate(description, parameterHelp, detail)
+}
+
+// jsonActionUsageTemplate is master's dual-section layout for application/json actions:
+// Parameter Form (flattened flags) + JSON Form (--body skeleton).
+// detail controls the concise tip; param descriptions are already in params when detail.
+func jsonActionUsageTemplate(description string, params []string, bodyParam string, detail bool) string {
+	sections := make([]string, 0, 2)
+	if len(params) > 0 {
+		// Sort concise/meta keys like master (Filter before PageSize).
+		sections = append(sections, fmt.Sprintf("  %s\n%s", tr("Parameter Form:"), formatActionUsageParams(params, jsonSectionUsageParamIndent)))
+	}
+	if bodyParam != "" {
+		// Body skeleton is pretty-printed with relative indents; re-indent every line.
+		sections = append(sections, fmt.Sprintf("  %s\n%s", tr("JSON Form:"), formatBodyUsageEntry(bodyParam, jsonSectionUsageParamIndent)))
+	}
+	parameterHelp := strings.Join(sections, "\n\n")
+	if parameterHelp != "" {
+		parameterHelp = "\n" + parameterHelp
+	}
+	return renderActionUsageTemplate(description, parameterHelp, detail)
+}
+
+// formatActionUsageParams sorts params then prefixes each entry (master alphabetical Parameter Form).
+func formatActionUsageParams(params []string, indent string) string {
+	formatted := append([]string(nil), params...)
+	sort.Strings(formatted)
+	return formatParamUsageEntries(formatted, indent)
+}
+
+// formatParamUsageEntries prefixes each formatParamsHelpUsage entry with indent+"--".
+//
+// formatParamsHelpUsage (detail mode) embeds absolute continuation indents assuming a
+// first-line prefix of "  --" (4 columns). We only prefix the first line of each entry
+// and, when indent is deeper than nonJSONUsageParamIndent, pad continuations by the
+// extra depth so description columns stay aligned under Parameter Form.
+func formatParamUsageEntries(params []string, indent string) string {
+	if len(params) == 0 {
+		return ""
+	}
+	// Extra spaces when section content is deeper than the "  --" base assumed by formatParamsHelpUsage.
+	extraContPad := ""
+	if len(indent) > len(nonJSONUsageParamIndent) {
+		extraContPad = strings.Repeat(" ", len(indent)-len(nonJSONUsageParamIndent))
+	}
+	formatted := make([]string, len(params))
+	for i, p := range params {
+		lines := strings.Split(p, "\n")
+		lines[0] = indent + "--" + lines[0]
+		if extraContPad != "" {
+			for j := 1; j < len(lines); j++ {
+				lines[j] = extraContPad + lines[j]
+			}
+		}
+		formatted[i] = strings.Join(lines, "\n")
+	}
+	return strings.Join(formatted, "\n")
+}
+
+// formatBodyUsageEntry prefixes a JSON body skeleton with indent+"--" and re-indents
+// every continuation line (pretty-printed JSON uses relative whitespace, not descColIndent).
+func formatBodyUsageEntry(bodyParam, indent string) string {
+	if bodyParam == "" {
+		return ""
+	}
+	param := "--" + bodyParam
+	return indent + strings.ReplaceAll(param, "\n", "\n"+indent)
+}
+
+func renderActionUsageTemplate(description, parameterHelp string, detail bool) string {
 	description = strings.TrimSpace(description)
 	if description != "" {
 		description += "\n\n"
@@ -180,7 +264,6 @@ func actionUsageTemplate(description string, params []string, detail bool) strin
 
 	detailTip := ""
 	if !detail {
-		// Default -h is intentionally concise; show the working combination for full text.
 		detailTip = "\n" + tr("Default help is concise. For full parameter descriptions and examples: -h --detail (or --help --detail).") + "\n"
 	}
 
@@ -196,7 +279,7 @@ func actionUsageTemplate(description string, params []string, detail bool) strin
 %s
 %s
 
-`, description, tr("Usage:"), tr("Examples:"), tr("Available Parameters:"), strings.Join(params, "\n"),
+`, description, tr("Usage:"), tr("Examples:"), tr("Available Parameters:"), parameterHelp,
 		detailTip,
 		tr("CLI Control Flags:"),
 		localizedFixedFlagsHelp())

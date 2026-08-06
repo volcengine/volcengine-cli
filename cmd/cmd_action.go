@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -73,9 +72,10 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 				bodyStr, _ = json.MarshalIndent(bodyMap, "", "    ")
 				reqParams = apiMeta.GetRequestParams()
 			}
-			bodyLine := fmt.Sprintf(`body '%s'`, string(bodyStr))
-			setLazyActionUsage(actionCmd, func(detail bool) []string {
-				return buildActionHelpParamLines(serviceName, action, reqParams, []string{bodyLine}, detail)
+			// Master dual-form layout (Parameter Form + JSON Form) with branch lazy/--detail.
+			bodyParam := fmt.Sprintf(`body '%s'`, string(bodyStr))
+			setLazyJSONActionUsage(actionCmd, bodyParam, func(detail bool) []string {
+				return buildActionHelpParamLines(serviceName, action, reqParams, nil, detail)
 			})
 		}
 

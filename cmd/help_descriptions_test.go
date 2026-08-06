@@ -158,7 +158,7 @@ func TestJSONActionUsageSeparatesParameterForms(t *testing.T) {
 			restoreLanguage := setLanguageForTest(tt.language)
 			defer restoreLanguage()
 
-			out := jsonActionUsageTemplate("", []string{"PageSize integer", "Filter.Name string"}, "body '{\n    \"Filter\": {}\n}'")
+			out := jsonActionUsageTemplate("", []string{"PageSize integer", "Filter.Name string"}, "body '{\n    \"Filter\": {}\n}'", false)
 			if !strings.Contains(out, tt.want) {
 				t.Fatalf("JSON action usage missing grouped parameters:\n%s", out)
 			}
@@ -170,7 +170,7 @@ func TestNonJSONActionUsageKeepsSingleParameterList(t *testing.T) {
 	restoreLanguage := setLanguageForTest(LanguageEnglish)
 	defer restoreLanguage()
 
-	out := actionUsageTemplate("", []string{"InstanceId string"})
+	out := actionUsageTemplate("", []string{"InstanceId string"}, false)
 	if !strings.Contains(out, "Available Parameters:\n  --InstanceId string") {
 		t.Fatalf("non-JSON action usage changed unexpectedly:\n%s", out)
 	}
@@ -185,12 +185,106 @@ func TestJSONActionUsageOmitsEmptyParameterForm(t *testing.T) {
 	restoreLanguage := setLanguageForTest(LanguageEnglish)
 	defer restoreLanguage()
 
-	out := jsonActionUsageTemplate("", nil, "body '{}'")
+	out := jsonActionUsageTemplate("", nil, "body '{}'", false)
 	if strings.Contains(out, "Parameter Form:") {
 		t.Fatalf("JSON action usage contains an empty parameter form:\n%s", out)
 	}
 	if !strings.Contains(out, "JSON Form:\n    --body '{}'") {
 		t.Fatalf("JSON action usage missing body form:\n%s", out)
+	}
+}
+
+func TestJSONActionUsageDetailTip(t *testing.T) {
+	restoreLanguage := setLanguageForTest(LanguageEnglish)
+	defer restoreLanguage()
+
+	concise := jsonActionUsageTemplate("", []string{"Name string"}, "body '{}'", false)
+	if !strings.Contains(concise, "Default help is concise") || !strings.Contains(concise, "-h --detail") {
+		t.Fatalf("JSON concise usage missing detail tip:\n%s", concise)
+	}
+	if !strings.Contains(concise, "Parameter Form:") || !strings.Contains(concise, "JSON Form:") {
+		t.Fatalf("JSON usage missing dual forms:\n%s", concise)
+	}
+	detail := jsonActionUsageTemplate("", []string{"Name string"}, "body '{}'", true)
+	if strings.Contains(detail, "Default help is concise") {
+		t.Fatalf("JSON detail usage should omit concise tip:\n%s", detail)
+	}
+}
+
+func TestFormatParamUsageEntriesPreservesDetailContinuationColumns(t *testing.T) {
+	// formatParamsHelpUsage embeds absolute continuation indents for a "  --" first-line prefix.
+	// formatParamUsageEntries must not re-indent those continuations when indent is "  ".
+	params := []param{{
+		key: "Name", typeName: "string", required: false,
+		description: "first line of description\nsecond line of description",
+	}}
+	raw := formatParamsHelpUsage(params, true)
+	if len(raw) != 1 || !strings.Contains(raw[0], "\n") {
+		t.Fatalf("expected multi-line detail entry, got %#v", raw)
+	}
+	origLines := strings.Split(raw[0], "\n")
+
+	out := formatParamUsageEntries(raw, nonJSONUsageParamIndent)
+	outLines := strings.Split(out, "\n")
+	if len(outLines) != len(origLines) {
+		t.Fatalf("line count changed: got %d want %d\n%s", len(outLines), len(origLines), out)
+	}
+	if !strings.HasPrefix(outLines[0], nonJSONUsageParamIndent+"--") {
+		t.Fatalf("first line should start with %q--, got %q", nonJSONUsageParamIndent, outLines[0])
+	}
+	for i := 1; i < len(outLines); i++ {
+		if outLines[i] != origLines[i] {
+			t.Fatalf("continuation %d re-indented:\n got %q\nwant %q", i, outLines[i], origLines[i])
+		}
+	}
+
+	// Under Parameter Form, section indent is deeper; continuations get a matching pad.
+	jsonOut := formatParamUsageEntries(raw, jsonSectionUsageParamIndent)
+	jsonLines := strings.Split(jsonOut, "\n")
+	if !strings.HasPrefix(jsonLines[0], jsonSectionUsageParamIndent+"--") {
+		t.Fatalf("JSON section first line prefix: %q", jsonLines[0])
+	}
+	extra := len(jsonSectionUsageParamIndent) - len(nonJSONUsageParamIndent)
+	pad := strings.Repeat(" ", extra)
+	for i := 1; i < len(jsonLines); i++ {
+		want := pad + origLines[i]
+		if jsonLines[i] != want {
+			t.Fatalf("JSON section continuation %d:\n got %q\nwant %q", i, jsonLines[i], want)
+		}
+	}
+}
+
+func TestFormatBodyUsageEntryReindentsPrettyJSON(t *testing.T) {
+	body := "body '{\n    \"Filter\": {}\n}'"
+	out := formatBodyUsageEntry(body, jsonSectionUsageParamIndent)
+	// After re-indent, each line after the first is prefixed with section indent.
+	want := "    --body '{\n" + "    " + "    \"Filter\": {}\n" + "    " + "}'"
+	if out != want {
+		t.Fatalf("body format:\n got %q\nwant %q", out, want)
+	}
+	// Master dual-form test string still matches via Contains.
+	full := jsonActionUsageTemplate("", nil, body, false)
+	if !strings.Contains(full, "JSON Form:\n    --body '{") || !strings.Contains(full, "\"Filter\"") {
+		t.Fatalf("JSON Form body missing in template:\n%s", full)
+	}
+}
+
+func TestActionUsageTemplateDetailMultiLineThroughRealFormatter(t *testing.T) {
+	params := []param{{
+		key: "ZoneId", typeName: "string", required: true,
+		description: "availability zone id\nsecond help line",
+	}}
+	lines := formatParamsHelpUsage(params, true)
+	out := actionUsageTemplate("", lines, true)
+	if !strings.Contains(out, "  --ZoneId") {
+		t.Fatalf("missing param first line:\n%s", out)
+	}
+	if !strings.Contains(out, "second help line") {
+		t.Fatalf("missing continuation text:\n%s", out)
+	}
+	// Continuations must not gain an extra "  --" prefix.
+	if strings.Contains(out, "  --second help line") || strings.Contains(out, "\n  --second") {
+		t.Fatalf("continuation incorrectly treated as a new flag:\n%s", out)
 	}
 }
 

@@ -76,8 +76,20 @@ func (p *Parser) ReadArgs(ctx *Context) ([]string, error) {
 
 func (p *Parser) hasFlagSyntaxAtPairStarts() bool {
 	for i := 0; i < len(p.args); i += 2 {
-		if !strings.HasPrefix(p.args[i], "--") {
+		a := p.args[i]
+		if !strings.HasPrefix(a, "--") {
 			return false
+		}
+		// Presence-only ---flags (e.g. ---force) must not pair-consume the next token
+		// as a value: ---force true / ---force DescribeAction would lose the trailing token.
+		if strings.HasPrefix(a, "---") {
+			name := a[3:]
+			if j := strings.IndexByte(name, '='); j >= 0 {
+				name = name[:j]
+			}
+			if isPresenceOnlyFixedFlag(name) {
+				return false
+			}
 		}
 	}
 	return true
@@ -97,12 +109,8 @@ func (p *Parser) readPairedArgs(ctx *Context) ([]string, error) {
 			return nil, fmt.Errorf("%q is not a valid flag", positional)
 		}
 
-		p.currentFlag = flag
-		if value == "" {
-			err = p.currentFlagValueError(ctx)
-			p.currentFlag = nil
-			return nil, err
-		}
+		// Explicit empty string is a valid API value (shell: --Name "").
+		// Missing values are not represented as "" here; they fail earlier as unpaired flags.
 		flag.SetValue(value)
 		p.currentFlag = nil
 	}
