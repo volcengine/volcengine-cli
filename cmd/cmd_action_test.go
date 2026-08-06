@@ -398,6 +398,63 @@ func TestBuildActionInputParsesJsonBody(t *testing.T) {
 	}
 }
 
+func TestBuildActionInputRejectsBodyForNonJSONContentType(t *testing.T) {
+	body := &Flag{Name: "body"}
+	body.SetValue(`{"InstanceId":"mysql-1"}`)
+
+	// jsonBody=false: query/form APIs must not accept --body (would previously
+	// type-assert away the payload and call the SDK with an empty map).
+	_, _, err := buildActionInput([]*Flag{body}, nil, false)
+	if err == nil {
+		t.Fatal("expected --body rejected for non-JSON content type")
+	}
+	if err.Error() != errBodyRequiresJSON {
+		t.Fatalf("error = %q, want %q", err.Error(), errBodyRequiresJSON)
+	}
+}
+
+func TestBuildActionInputRejectsArrayBodyForNonJSONContentType(t *testing.T) {
+	body := &Flag{Name: "body"}
+	body.SetValue(`[{"k":"v"}]`)
+	_, _, err := buildActionInput([]*Flag{body}, nil, false)
+	if err == nil {
+		t.Fatal("expected array --body rejected for non-JSON content type")
+	}
+	if err.Error() != errBodyRequiresJSON {
+		t.Fatalf("error = %q, want %q", err.Error(), errBodyRequiresJSON)
+	}
+}
+
+func TestSdkCallInputFromBodyPassThrough(t *testing.T) {
+	m := map[string]interface{}{"K": "v"}
+	got, err := sdkCallInput(invocationInput{value: &m, fromBody: true, jsonBody: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != &m {
+		t.Fatalf("fromBody should pass pointer through, got %T %#v", got, got)
+	}
+}
+
+func TestSdkCallInputMapValueTakesAddress(t *testing.T) {
+	m := map[string]interface{}{"K": "v"}
+	got, err := sdkCallInput(invocationInput{value: m, fromBody: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pm, ok := got.(*map[string]interface{})
+	if !ok || (*pm)["K"] != "v" {
+		t.Fatalf("expected *map with K=v, got %#v", got)
+	}
+}
+
+func TestSdkCallInputRejectsNonMap(t *testing.T) {
+	_, err := sdkCallInput(invocationInput{value: "not-a-map", fromBody: false})
+	if err == nil || !strings.Contains(err.Error(), "must be a map") {
+		t.Fatalf("expected map type error, got %v", err)
+	}
+}
+
 func TestBuildActionInputSupportsFlattenedJsonBodyParams(t *testing.T) {
 	apiMeta := &ApiMeta{Request: &Meta{MetaTypes: map[string]*MetaType{
 		"InstanceId": {TypeName: "string"},

@@ -131,6 +131,20 @@ type invocationInput struct {
 	fromBody bool
 }
 
+// sdkCallInput normalizes invocationInput to the shape CallSdk expects:
+//   - fromBody: already pointer-shaped (*map or *[] from parseJSONBody)
+//   - otherwise: map value from expandFlatToJSON / flat non-JSON path → *map
+func sdkCallInput(built invocationInput) (interface{}, error) {
+	if built.fromBody {
+		return built.value, nil
+	}
+	m, ok := built.value.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("internal error: action input must be a map, got %T", built.value)
+	}
+	return &m, nil
+}
+
 // executeInvocationHook 仅供测试注入，避免单测触发真实 SDK 调用。
 var executeInvocationHook func(ctx *Context, p invocationParams, buildInput func() (invocationInput, error)) error
 
@@ -177,19 +191,14 @@ func executeInvocation(ctx *Context, p invocationParams, buildInput func() (invo
 		Headers:     p.headers,
 	}
 
-	start := time.Now()
-	var out *map[string]interface{}
-	if built.jsonBody {
-		input := built.value
-		if !built.fromBody {
-			inputMap, _ := built.value.(map[string]interface{})
-			input = &inputMap
-		}
-		out, err = sdk.CallSdk(info, input)
-	} else {
-		inputMap, _ := built.value.(map[string]interface{})
-		out, err = sdk.CallSdk(info, &inputMap)
+	input, err := sdkCallInput(built)
+	if err != nil {
+		debugLogError(debugLog, "input_type_error", err)
+		return err
 	}
+
+	start := time.Now()
+	out, err := sdk.CallSdk(info, input)
 	if err != nil {
 		debugLogSdkEnd(debugLog, start, err)
 		return formatActionError(err)

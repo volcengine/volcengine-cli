@@ -8,6 +8,10 @@ import (
 	"github.com/volcengine/volcengine-cli/util"
 )
 
+// errBodyRequiresJSON is returned when --body is used with a non-JSON Content-Type.
+// Users can re-enable --body via --header Content-Type=application/json.
+const errBodyRequiresJSON = "--body requires Content-Type application/json (use --header Content-Type=application/json or flattened --Param values)"
+
 func buildActionInput(flags []*Flag, apiMeta *ApiMeta, jsonBody bool) (interface{}, bool, error) {
 	hasBody := false
 	hasFlat := false
@@ -36,6 +40,12 @@ func buildActionInput(flags []*Flag, apiMeta *ApiMeta, jsonBody bool) (interface
 	}
 
 	if hasBody {
+		// --body is the JSON request-body path. Non-JSON (query/form) actions must use
+		// flattened --Param values; accepting --body there used to type-assert away the
+		// payload and silently call the SDK with an empty map.
+		if !jsonBody {
+			return nil, false, fmt.Errorf("%s", errBodyRequiresJSON)
+		}
 		parsed, err := parseJSONBody(bodyVal)
 		if err != nil {
 			return nil, false, err
