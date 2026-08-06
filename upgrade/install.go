@@ -17,7 +17,7 @@ const (
 	// HomebrewFormula Homebrew 公式名，委托 brew 升级时使用。
 	HomebrewFormula = "volcengine-cli"
 
-	// NPMPackage npm 包名，生成升级提示命令时使用。
+	// NPMPackage npm 包名；用于升级委托（npm install -g）与后台升级提示命令。
 	NPMPackage = "@volcengine/cli"
 )
 
@@ -161,38 +161,23 @@ func homebrewInfo(execPath string) InstallInfo {
 	}
 }
 
+// npmPackageSpec 返回 npm install 的包规格（@latest 或钉版本）。
+// 展示命令与 exec argv 共用此函数，避免分叉。
+func npmPackageSpec(pinVersion string) string {
+	if pin := NormalizeVersion(pinVersion); pin != "" {
+		return NPMPackage + "@" + pin
+	}
+	return NPMPackage + "@latest"
+}
+
 // NPMUpgradeCommand 生成推荐的 npm 升级命令；pinVersion 非空则固定该版本。
 func NPMUpgradeCommand(pinVersion string) string {
-	pinVersion = NormalizeVersion(pinVersion)
-	if pinVersion == "" {
-		return "npm install -g " + NPMPackage + "@latest"
-	}
-	return "npm install -g " + NPMPackage + "@" + pinVersion
+	return "npm install -g " + npmPackageSpec(pinVersion)
 }
 
 // HomebrewUpgradeCommand 生成推荐的 brew 升级命令。
 func HomebrewUpgradeCommand() string {
 	return "brew upgrade " + HomebrewFormula
-}
-
-// FormatManagedInstallMessage 生成托管安装（如 npm）禁止默认原地升级时的说明文案。
-// pinVersion 仅对 npm 生效，用于在提示中固定包版本。
-func FormatManagedInstallMessage(info InstallInfo, pinVersion string) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "This ve binary appears to be installed via %s\n", info.DisplayName)
-	if strings.TrimSpace(info.ExecPath) != "" {
-		fmt.Fprintf(&b, "  (path: %s).\n\n", info.ExecPath)
-	} else {
-		b.WriteString(".\n\n")
-	}
-	b.WriteString("In-place upgrade is disabled so the package manager stays the source of truth.\n\n")
-	b.WriteString("To upgrade, run:\n")
-	cmd := info.UpgradeCmd
-	if info.Method == MethodNPM {
-		cmd = NPMUpgradeCommand(pinVersion)
-	}
-	fmt.Fprintf(&b, "  %s\n", cmd)
-	return b.String()
 }
 
 // upgradeViaBrew 将升级委托给 Homebrew：先 brew update，再 brew upgrade <公式名>。
@@ -223,6 +208,33 @@ func upgradeViaBrew(stdout, stderr io.Writer) error {
 	}
 
 	fmt.Fprintln(stdout, "\nHomebrew upgrade complete!")
+	return nil
+}
+
+// upgradeViaNPM 将升级委托给 npm：执行 npm install -g @volcengine/cli@<latest|pin>。
+// 失败时返回错误，并附带用户可复制的手动安装命令；成功/失败均不下载、不原地替换二进制。
+func upgradeViaNPM(stdout, stderr io.Writer, pinVersion string) error {
+	if stdout == nil {
+		stdout = os.Stdout
+	}
+	if stderr == nil {
+		stderr = os.Stderr
+	}
+
+	pkgSpec := npmPackageSpec(pinVersion)
+	cmdLine := NPMUpgradeCommand(pinVersion)
+
+	fmt.Fprint(stdout, "Detected npm installation, delegating to npm...\n\n")
+	fmt.Fprintf(stdout, "==> %s\n", cmdLine)
+
+	cmd := execCommand("npm", "install", "-g", pkgSpec)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("npm upgrade failed: %v\n\nTo upgrade manually, run:\n  %s", err, cmdLine)
+	}
+
+	fmt.Fprintln(stdout, "\nnpm upgrade complete!")
 	return nil
 }
 
@@ -258,11 +270,3 @@ func resolvePathsForUpgrade(execPathOverride string) (detectPath, replacePath st
 	return detectPath, replacePath, nil
 }
 
-// withPinnedNPMUpgradeCmd 返回副本，并将 npm 的 UpgradeCmd 按 pinVersion 固定版本。
-func withPinnedNPMUpgradeCmd(info InstallInfo, pinVersion string) InstallInfo {
-	if info.Method != MethodNPM {
-		return info
-	}
-	info.UpgradeCmd = NPMUpgradeCommand(pinVersion)
-	return info
-}

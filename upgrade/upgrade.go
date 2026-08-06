@@ -34,7 +34,7 @@ type Options struct {
 
 // DoUpgrade 按安装来源升级 CLI：
 //   - Homebrew：委托 brew update / brew upgrade
-//   - npm：打印 npm 升级命令并成功返回
+//   - npm：委托 npm install -g；失败则返回错误并附带手动安装命令
 //   - standalone：从 CDN/GitHub 下载并原地替换当前二进制
 func DoUpgrade(opts Options) error {
 	stdout := opts.Stdout
@@ -69,15 +69,13 @@ func DoUpgrade(opts Options) error {
 		}
 		return upgradeViaBrew(stdout, stderr)
 	}
-	// npm：只打印升级指引并 return nil（退出码 0），不原地替换、不下载。
-	// 不返回 error，避免 root 再向 stderr 重复打印一行。
+	// npm：委托 npm install -g（不下载、不原地替换）。
+	// 失败返回 error（exit 1），并附带手动安装命令。
 	if info.Method == MethodNPM {
 		if err := rejectOlderTarget(current, opts.TargetVersion); err != nil {
 			return err
 		}
-		info = withPinnedNPMUpgradeCmd(info, opts.TargetVersion)
-		fmt.Fprint(stdout, FormatManagedInstallMessage(info, opts.TargetVersion))
-		return nil
+		return upgradeViaNPM(stdout, stderr, opts.TargetVersion)
 	}
 
 	explicitTarget := strings.TrimSpace(opts.TargetVersion) != ""
@@ -210,9 +208,10 @@ func DoUpgrade(opts Options) error {
 	return nil
 }
 
-// rejectOlderTarget validates an optional pin and rejects targets that are not
-// strictly newer than current. Empty pin means "latest" and is allowed (resolved
-// later on the standalone path; npm unpinned guidance is also allowed).
+// rejectOlderTarget validates an optional pin for managed upgrade paths.
+// Empty pin means "latest" and is allowed. Non-empty pins must pass ValidateVersion
+// and be the same as or newer than current; older and incomparable pins are rejected.
+// (Same-version pins are allowed so package managers can reinstall/refresh.)
 func rejectOlderTarget(current, pin string) error {
 	pin = strings.TrimSpace(pin)
 	if pin == "" {

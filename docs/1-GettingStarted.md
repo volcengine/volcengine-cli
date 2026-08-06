@@ -28,13 +28,13 @@ ve version
 ve --help
 ```
 
-To upgrade an **npm** install, use npm so the package metadata stays consistent:
+To upgrade an **npm** install, keep package metadata consistent by upgrading through npm:
 
 ```shell
 npm install -g @volcengine/cli@latest
 ```
 
-`ve upgrade` detects npm installs and prints this guidance instead of replacing the binary in place.
+`ve upgrade` detects npm installs and runs the same `npm install -g` command for you (it never replaces the binary in place). If the delegated npm command fails, it prints the manual command above so you can fix permissions or network issues and retry.
 
 For **Release binaries** or **source builds** (standalone):
 

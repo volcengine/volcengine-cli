@@ -49,17 +49,15 @@ sudo cp ve /usr/local/bin
 ve version
 ```
 
-Upgrade to the latest version (standalone / Release installs):
+Upgrade to the latest version:
 
 ```shell
 ve upgrade
 ```
 
-For npm installs, prefer:
-
-```shell
-npm install -g @volcengine/cli@latest
-```
+- **standalone / Release**: download and replace the current binary in place  
+- **npm**: runs `npm install -g @volcengine/cli@latest` (on failure, prints the same manual command)  
+- **Homebrew**: runs `brew upgrade volcengine-cli`
 
 ### Quick Start
 

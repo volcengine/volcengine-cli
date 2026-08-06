@@ -94,7 +94,8 @@ func newUpgradeCmd() *cobra.Command {
 Install-source behavior:
   - Homebrew (macOS/Linux): delegates to "brew update" and "brew upgrade volcengine-cli"
     (requires network; --version is not supported for Homebrew installs)
-  - npm (@volcengine/cli): prints "npm install -g @volcengine/cli@..." guidance (no in-place replace)
+  - npm (@volcengine/cli): runs "npm install -g @volcengine/cli@..."
+    (requires network/npm; on failure prints the same command for manual install; no in-place replace)
   - standalone (Release/source): downloads from CDN/GitHub and replaces the current binary
 
 For standalone installs, checks the latest release (CDN version manifest, then GitHub)

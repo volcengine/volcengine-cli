@@ -182,15 +182,15 @@ Behavior depends on how `ve` was installed:
 | Install source | Default action |
 |----------------|----------------|
 | **Homebrew** (macOS/Linux; Homebrew/Linuxbrew/Cellar paths) | `brew update` then `brew upgrade volcengine-cli` (network required; `--version` not supported) |
-| **npm** (`node_modules/@volcengine/cli`) | Prints `npm install -g @volcengine/cli@...`; no in-place replace (exit 0) |
+| **npm** (`node_modules/@volcengine/cli`) | Runs `npm install -g @volcengine/cli@...` (network required); no in-place binary replace; on failure prints the manual command and exits non-zero |
 | **standalone** (Release zip, source build, etc.) | Download and replace the current binary in place |
 
 ```shell
-ve upgrade              # source-aware: brew / npm guidance / standalone self-upgrade
+ve upgrade              # source-aware: brew / npm delegate / standalone self-upgrade
 ve upgrade --yes        # skip confirmation for standalone in-place (never implies package-manager upgrade)
 ve upgrade --version 1.0.49
 #   standalone: install that version in place (must be newer than current; no downgrade)
-#   npm: prints "npm install -g @volcengine/cli@1.0.49" (exit 0; rejected if older than current)
+#   npm: runs "npm install -g @volcengine/cli@1.0.49" (rejected if older than current; on failure prints manual command)
 #   Homebrew: errors (use brew to manage versions)
 ```
 

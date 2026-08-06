@@ -142,44 +142,14 @@ func TestNPMUpgradeCommand(t *testing.T) {
 	if got := NPMUpgradeCommand("1.0.49"); got != "npm install -g @volcengine/cli@1.0.49" {
 		t.Fatalf("pin: %q", got)
 	}
-}
-
-func TestFormatManagedInstallMessage_NPM(t *testing.T) {
-	info := npmInfo("/path/to/node_modules/@volcengine/cli/bin/ve")
-	msg := FormatManagedInstallMessage(info, "")
-	for _, want := range []string{"npm", "npm install -g @volcengine/cli@latest", "/path/to/"} {
-		if !strings.Contains(msg, want) {
-			t.Fatalf("missing %q in:\n%s", want, msg)
-		}
+	// Display command and exec package-spec share npmPackageSpec.
+	if got := npmPackageSpec(""); got != "@volcengine/cli@latest" {
+		t.Fatalf("spec latest: %q", got)
 	}
-	assertNoUpgradeForceGuidance(t, msg)
-	msgPin := FormatManagedInstallMessage(info, "1.0.50")
-	if !strings.Contains(msgPin, "npm install -g @volcengine/cli@1.0.50") {
-		t.Fatalf("pin msg: %s", msgPin)
+	if got := npmPackageSpec("v1.0.49"); got != "@volcengine/cli@1.0.49" {
+		t.Fatalf("spec pin: %q", got)
 	}
-	assertNoUpgradeForceGuidance(t, msgPin)
-}
-
-func TestFormatManagedInstallMessage_Homebrew(t *testing.T) {
-	info := homebrewInfo("/opt/homebrew/bin/ve")
-	msg := FormatManagedInstallMessage(info, "1.0.50")
-	for _, want := range []string{"Homebrew", "brew upgrade", HomebrewFormula, "/opt/homebrew/bin/ve"} {
-		if !strings.Contains(msg, want) {
-			t.Fatalf("missing %q in:\n%s", want, msg)
-		}
-	}
-	// pinVersion only rewrites npm commands; brew guidance stays unpinned.
-	if strings.Contains(msg, "1.0.50") {
-		t.Fatalf("homebrew message should ignore pinVersion:\n%s", msg)
-	}
-	assertNoUpgradeForceGuidance(t, msg)
-}
-
-// assertNoUpgradeForceGuidance ensures managed-install UX never points users at
-// the removed "ve upgrade --force" escape hatch.
-func assertNoUpgradeForceGuidance(t *testing.T, msg string) {
-	t.Helper()
-	if strings.Contains(msg, "--force") || strings.Contains(msg, "ve upgrade --force") {
-		t.Fatalf("message should not mention --force / ve upgrade --force:\n%s", msg)
+	if NPMUpgradeCommand("1.0.49") != "npm install -g "+npmPackageSpec("1.0.49") {
+		t.Fatal("NPMUpgradeCommand must be npm install -g + npmPackageSpec")
 	}
 }

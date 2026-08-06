@@ -49,17 +49,15 @@ sudo cp ve /usr/local/bin
 ve version
 ```
 
-升级到最新版本（standalone / Release 安装）：
+升级到最新版本：
 
 ```shell
 ve upgrade
 ```
 
-npm 安装请优先：
-
-```shell
-npm install -g @volcengine/cli@latest
-```
+- **standalone / Release**：下载并原地替换当前二进制  
+- **npm**：委托执行 `npm install -g @volcengine/cli@latest`（失败时会提示同一条手动命令）  
+- **Homebrew**：委托 `brew upgrade volcengine-cli`
 
 ### 快速开始
 

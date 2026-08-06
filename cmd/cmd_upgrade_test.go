@@ -54,9 +54,13 @@ func TestUpgradeCmdHelpOmitsForce(t *testing.T) {
 	if strings.Contains(out, "--force") {
 		t.Fatalf("upgrade help must not mention --force:\n%s", out)
 	}
-	for _, want := range []string{"--yes", "--version", "Homebrew", "npm", "standalone"} {
+	for _, want := range []string{"--yes", "--version", "Homebrew", "npm", "standalone", "install -g", "runs"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("upgrade help missing %q:\n%s", want, out)
 		}
+	}
+	// npm path is delegated execution, not print-only guidance.
+	if strings.Contains(out, "prints \"npm install") || strings.Contains(out, "prints npm install") {
+		t.Fatalf("upgrade help still describes print-only npm guidance:\n%s", out)
 	}
 }

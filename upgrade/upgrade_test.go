@@ -28,6 +28,66 @@ func forceStandaloneDetect(t *testing.T) {
 	t.Cleanup(func() { detectInstallFunc = orig })
 }
 
+// forceNPMDetect 固定识别为 npm，不依赖真实目录布局。
+func forceNPMDetect(t *testing.T) {
+	t.Helper()
+	orig := detectInstallFunc
+	detectInstallFunc = func(p string) InstallInfo {
+		return npmInfo(p)
+	}
+	t.Cleanup(func() { detectInstallFunc = orig })
+}
+
+func platformOKCmd() *exec.Cmd {
+	if runtime.GOOS == "windows" {
+		return exec.Command("cmd", "/C", "echo OUT& echo ERR 1>&2")
+	}
+	return exec.Command("sh", "-c", "echo OUT; echo ERR >&2")
+}
+
+func platformFailCmd() *exec.Cmd {
+	if runtime.GOOS == "windows" {
+		return exec.Command("cmd", "/C", "echo OUT& echo ERR 1>&2& exit /b 1")
+	}
+	return exec.Command("sh", "-c", "echo OUT; echo ERR >&2; exit 1")
+}
+
+// stubExecRecording records argv and returns platform OK/fail commands that
+// write distinct markers to stdout/stderr so writer wiring can be asserted.
+func stubExecRecording(t *testing.T, calls *[][]string, ok bool) {
+	t.Helper()
+	orig := execCommand
+	t.Cleanup(func() { execCommand = orig })
+	execCommand = func(name string, arg ...string) *exec.Cmd {
+		*calls = append(*calls, append([]string{name}, arg...))
+		if ok {
+			return platformOKCmd()
+		}
+		return platformFailCmd()
+	}
+}
+
+// blockUpgradeDownloads fails any HTTP download if the npm path incorrectly
+// falls through to standalone asset resolution.
+func blockUpgradeDownloads(t *testing.T) (downloadHit *bool) {
+	t.Helper()
+	hit := false
+	downloadHit = &hit
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		hit = true
+		http.Error(w, "no", 500)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	oldEnv := os.Getenv(EnvDownloadBaseURL)
+	os.Setenv(EnvDownloadBaseURL, srv.URL)
+	t.Cleanup(func() { os.Setenv(EnvDownloadBaseURL, oldEnv) })
+	SetHTTPClient(srv.Client())
+	t.Cleanup(func() { SetHTTPClient(&http.Client{Timeout: DefaultHTTPTimeout}) })
+	return downloadHit
+}
+
 func TestDoUpgrade_InstallsTargetVersion(t *testing.T) {
 	forceStandaloneDetect(t)
 	configDir := t.TempDir()
@@ -203,50 +263,181 @@ func TestDoUpgrade_AlreadyLatest(t *testing.T) {
 	}
 }
 
-func TestDoUpgrade_NPMPrintsGuidance(t *testing.T) {
-	// 强制识别为 npm，不依赖真实目录布局
-	orig := detectInstallFunc
-	defer func() { detectInstallFunc = orig }()
-	detectInstallFunc = func(path string) InstallInfo {
-		return npmInfo(path)
-	}
+func TestDoUpgrade_NPMDelegatesToNpm(t *testing.T) {
+	forceNPMDetect(t)
+	downloadHit := blockUpgradeDownloads(t)
 
-	// 若错误地进入下载流程，此处请求会被标记
-	downloadHit := false
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		downloadHit = true
-		http.Error(w, "no", 500)
-	})
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-	oldEnv := os.Getenv(EnvDownloadBaseURL)
-	os.Setenv(EnvDownloadBaseURL, srv.URL)
-	defer os.Setenv(EnvDownloadBaseURL, oldEnv)
-	SetHTTPClient(srv.Client())
-	defer SetHTTPClient(&http.Client{Timeout: DefaultHTTPTimeout})
+	var calls [][]string
+	stubExecRecording(t, &calls, true)
 
-	var stdout bytes.Buffer
+	var stdout, stderr bytes.Buffer
 	err := DoUpgrade(Options{
 		CurrentVersion: "1.0.0",
 		TargetVersion:  "9.9.9",
 		Yes:            true,
 		Stdout:         &stdout,
+		Stderr:         &stderr,
 		ExecPath:       filepath.Join(t.TempDir(), "ve"),
 	})
-	// 仅打印指引并成功返回，避免 root 再向 stderr 重复输出
 	if err != nil {
-		t.Fatalf("expected nil error for npm guidance, got %v", err)
+		t.Fatalf("expected nil error for npm delegate, got %v", err)
 	}
-	if downloadHit {
+	if *downloadHit {
 		t.Fatal("npm path must not download")
+	}
+	if len(calls) != 1 {
+		t.Fatalf("calls: %#v", calls)
+	}
+	if calls[0][0] != "npm" || calls[0][1] != "install" || calls[0][2] != "-g" ||
+		calls[0][3] != "@volcengine/cli@9.9.9" {
+		t.Fatalf("unexpected npm call: %#v", calls[0])
 	}
 	out := stdout.String()
 	if !strings.Contains(out, "npm install -g @volcengine/cli@9.9.9") {
-		t.Fatalf("stdout should pin version: %s", out)
+		t.Fatalf("stdout should show pinned npm command: %s", out)
+	}
+	if !strings.Contains(out, "delegating to npm") {
+		t.Fatalf("stdout should mention delegating: %s", out)
+	}
+	if !strings.Contains(out, "npm upgrade complete") {
+		t.Fatalf("stdout should report success: %s", out)
+	}
+	if !strings.Contains(out, "OUT") {
+		t.Fatalf("npm child stdout should be wired: %s", out)
+	}
+	if !strings.Contains(stderr.String(), "ERR") {
+		t.Fatalf("npm child stderr should be wired: %s", stderr.String())
 	}
 	if strings.Contains(out, "--force") {
-		t.Fatalf("npm guidance must not mention --force:\n%s", out)
+		t.Fatalf("npm path must not mention --force:\n%s", out)
+	}
+}
+
+func TestDoUpgrade_NPMExecFailurePrintsManualCmd(t *testing.T) {
+	forceNPMDetect(t)
+	downloadHit := blockUpgradeDownloads(t)
+
+	var calls [][]string
+	stubExecRecording(t, &calls, false)
+
+	var stdout, stderr bytes.Buffer
+	err := DoUpgrade(Options{
+		CurrentVersion: "1.0.0",
+		TargetVersion:  "9.9.9",
+		Yes:            true,
+		Stdout:         &stdout,
+		Stderr:         &stderr,
+		ExecPath:       filepath.Join(t.TempDir(), "ve"),
+	})
+	if err == nil {
+		t.Fatal("expected error when npm exec fails")
+	}
+	if *downloadHit {
+		t.Fatal("npm path must not download on failure")
+	}
+	if len(calls) != 1 {
+		t.Fatalf("expected one npm attempt, got %#v", calls)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "delegating to npm") {
+		t.Fatalf("stdout should show progress before failure:\n%s", out)
+	}
+	if !strings.Contains(out, "npm install -g @volcengine/cli@9.9.9") {
+		t.Fatalf("stdout should show the delegated command:\n%s", out)
+	}
+	if !strings.Contains(stderr.String(), "ERR") {
+		t.Fatalf("npm child stderr should be wired on failure: %s", stderr.String())
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "npm upgrade failed") {
+		t.Fatalf("error should mention npm upgrade failed: %v", err)
+	}
+	if !strings.Contains(msg, "npm install -g @volcengine/cli@9.9.9") {
+		t.Fatalf("error should include manual install command: %v", err)
+	}
+	if !strings.Contains(msg, "To upgrade manually") {
+		t.Fatalf("error should guide manual upgrade: %v", err)
+	}
+}
+
+func TestDoUpgrade_NPMUnpinnedUsesLatestSpec(t *testing.T) {
+	forceNPMDetect(t)
+	downloadHit := blockUpgradeDownloads(t)
+
+	var calls [][]string
+	stubExecRecording(t, &calls, true)
+
+	var stdout bytes.Buffer
+	err := DoUpgrade(Options{
+		CurrentVersion: "1.0.0",
+		Yes:            true,
+		Stdout:         &stdout,
+		ExecPath:       filepath.Join(t.TempDir(), "ve"),
+	})
+	if err != nil {
+		t.Fatalf("DoUpgrade: %v\n%s", err, stdout.String())
+	}
+	if *downloadHit {
+		t.Fatal("unpinned npm path must not download")
+	}
+	if len(calls) != 1 {
+		t.Fatalf("calls: %#v", calls)
+	}
+	if calls[0][0] != "npm" || calls[0][3] != "@volcengine/cli@latest" {
+		t.Fatalf("expected @latest package spec, got %#v", calls[0])
+	}
+	if !strings.Contains(stdout.String(), "npm install -g @volcengine/cli@latest") {
+		t.Fatalf("stdout: %s", stdout.String())
+	}
+}
+
+func TestDoUpgrade_NPMSameVersionPinStillDelegates(t *testing.T) {
+	// Same pin is allowed by rejectOlderTarget; npm reinstall is intentional
+	// (unlike standalone "already using" short-circuit).
+	forceNPMDetect(t)
+	var calls [][]string
+	stubExecRecording(t, &calls, true)
+
+	var stdout bytes.Buffer
+	err := DoUpgrade(Options{
+		CurrentVersion: "1.0.0",
+		TargetVersion:  "1.0.0",
+		Yes:            true,
+		Stdout:         &stdout,
+		ExecPath:       filepath.Join(t.TempDir(), "ve"),
+	})
+	if err != nil {
+		t.Fatalf("DoUpgrade: %v\n%s", err, stdout.String())
+	}
+	if len(calls) != 1 || calls[0][3] != "@volcengine/cli@1.0.0" {
+		t.Fatalf("same-version pin should still delegate to npm: %#v", calls)
+	}
+}
+
+func TestDoUpgrade_NPMRejectsIncomparablePin(t *testing.T) {
+	forceNPMDetect(t)
+	var calls [][]string
+	stubExecRecording(t, &calls, true)
+
+	err := DoUpgrade(Options{
+		CurrentVersion: "1.0.0",
+		TargetVersion:  "dev-build",
+		Yes:            true,
+		Stdout:         ioutil.Discard,
+		ExecPath:       filepath.Join(t.TempDir(), "ve"),
+	})
+	if err == nil {
+		t.Fatal("expected error for incomparable npm pin")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "must be newer") {
+		t.Fatalf("expected not-newer wording, got: %v", err)
+	}
+	if strings.Contains(msg, "older version") {
+		t.Fatalf("incomparable target must not claim older: %v", err)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("npm must not run for incomparable pin: %#v", calls)
 	}
 }
 

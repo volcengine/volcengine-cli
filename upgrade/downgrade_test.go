@@ -107,11 +107,9 @@ func TestDoUpgrade_RejectsExplicitDowngrade(t *testing.T) {
 }
 
 func TestDoUpgrade_NPMRejectsExplicitDowngrade(t *testing.T) {
-	orig := detectInstallFunc
-	defer func() { detectInstallFunc = orig }()
-	detectInstallFunc = func(path string) InstallInfo {
-		return npmInfo(path)
-	}
+	forceNPMDetect(t)
+	var calls [][]string
+	stubExecRecording(t, &calls, true)
 
 	var stdout bytes.Buffer
 	err := DoUpgrade(Options{
@@ -127,17 +125,18 @@ func TestDoUpgrade_NPMRejectsExplicitDowngrade(t *testing.T) {
 	if !strings.Contains(err.Error(), "refusing to install older version") {
 		t.Fatalf("err: %v", err)
 	}
+	if len(calls) != 0 {
+		t.Fatalf("npm must not run when explicit downgrade is rejected: %#v", calls)
+	}
 	if strings.Contains(stdout.String(), "npm install") {
-		t.Fatalf("npm guidance must not print on rejected downgrade:\n%s", stdout.String())
+		t.Fatalf("npm command must not print on rejected downgrade:\n%s", stdout.String())
 	}
 }
 
 func TestDoUpgrade_NPMRejectsInvalidVersionPin(t *testing.T) {
-	orig := detectInstallFunc
-	defer func() { detectInstallFunc = orig }()
-	detectInstallFunc = func(path string) InstallInfo {
-		return npmInfo(path)
-	}
+	forceNPMDetect(t)
+	var calls [][]string
+	stubExecRecording(t, &calls, true)
 
 	var stdout bytes.Buffer
 	err := DoUpgrade(Options{
@@ -153,8 +152,11 @@ func TestDoUpgrade_NPMRejectsInvalidVersionPin(t *testing.T) {
 	if !strings.Contains(err.Error(), "invalid target version") {
 		t.Fatalf("err: %v", err)
 	}
+	if len(calls) != 0 {
+		t.Fatalf("npm must not run when version pin is invalid: %#v", calls)
+	}
 	if strings.Contains(stdout.String(), "npm install") {
-		t.Fatalf("npm guidance must not print on invalid pin:\n%s", stdout.String())
+		t.Fatalf("npm command must not print on invalid pin:\n%s", stdout.String())
 	}
 }
 

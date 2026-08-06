@@ -182,15 +182,15 @@ tail -n 100 ~/.volcengine/logs/$(date +%Y%m%d%H).log
 | 安装来源 | 默认行为 |
 |----------|----------|
 | **Homebrew**（macOS/Linux；Homebrew/Linuxbrew/Cellar 路径） | 执行 `brew update` 再 `brew upgrade volcengine-cli`（需网络；不支持 `--version`） |
-| **npm**（`node_modules/@volcengine/cli`） | 提示 `npm install -g @volcengine/cli@...`，不原地替换（退出码 0） |
+| **npm**（`node_modules/@volcengine/cli`） | 执行 `npm install -g @volcengine/cli@...`（需网络）；不原地替换二进制；失败时打印手动命令并以非 0 退出 |
 | **standalone**（Release 解压、源码编译等） | 下载并原地替换当前二进制 |
 
 ```shell
-ve upgrade              # 按安装来源：brew 委托 / npm 提示 / standalone 自升级
+ve upgrade              # 按安装来源：brew 委托 / npm 委托 / standalone 自升级
 ve upgrade --yes        # standalone 原地升级跳过确认（不会代替包管理器升级）
 ve upgrade --version 1.0.49
 #   standalone：原地安装指定版本（必须高于当前版本；禁止降级）
-#   npm：仍只打印 npm install -g @volcengine/cli@1.0.49（退出码 0；目标低于当前时拒绝）
+#   npm：执行 npm install -g @volcengine/cli@1.0.49（目标低于当前时拒绝；失败时打印手动命令）
 #   Homebrew：报错（请用 brew 管理版本）
 ```
 

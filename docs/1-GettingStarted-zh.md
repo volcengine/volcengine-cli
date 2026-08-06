@@ -28,13 +28,13 @@ ve version
 ve --help
 ```
 
-**npm 安装**请用 npm 升级，以保持包元数据一致：
+**npm 安装**请通过 npm 升级，以保持包元数据一致：
 
 ```shell
 npm install -g @volcengine/cli@latest
 ```
 
-`ve upgrade` 会识别 npm 安装，并提示上述命令，而不会原地替换二进制。
+`ve upgrade` 会识别 npm 安装并委托执行上述 `npm install -g` 命令（不会原地替换二进制）。若委托失败，会打印上述手动命令，便于你处理权限或网络问题后自行重试。
 
 **Release 解压**或**源码编译**（standalone）可使用：
 
