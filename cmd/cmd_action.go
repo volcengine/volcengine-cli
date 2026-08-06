@@ -398,6 +398,6 @@ func renderActionUsageTemplate(description, parameterHelp string) string {
 %s
 %s
 
-`, description, tr("Usage:"), tr("Examples:"), tr("Available Parameters:"), parameterHelp,
+`, description, tr("Usage:"), tr("Examples:"), tr("API Parameters:"), parameterHelp,
 		tr("System Flags (place before service):"), localizedSystemFlagsHelp())
 }

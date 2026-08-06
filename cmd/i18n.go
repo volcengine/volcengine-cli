@@ -129,7 +129,7 @@ var simplifiedChineseMessages = map[string]string{
 	"Examples:":                             "示例：",
 	"Available Commands:":                   "可用命令：",
 	"Available Actions:":                    "可用操作：",
-	"Available Parameters:":                 "可用参数：",
+	"API Parameters:":                       "API 参数：",
 	"Parameter Form:":                       "参数方式：",
 	"JSON Form:":                            "JSON 方式：",
 	"Additional Commands:":                  "其他命令：",

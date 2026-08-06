@@ -131,7 +131,7 @@ func TestJSONActionUsageSeparatesParameterForms(t *testing.T) {
 		{
 			name:     "English",
 			language: LanguageEnglish,
-			want: "Available Parameters:\n\n" +
+			want: "API Parameters:\n\n" +
 				"  Parameter Form:\n" +
 				"    --Filter.Name string\n" +
 				"    --PageSize integer\n\n" +
@@ -143,7 +143,7 @@ func TestJSONActionUsageSeparatesParameterForms(t *testing.T) {
 		{
 			name:     "Simplified Chinese",
 			language: LanguageSimplifiedChinese,
-			want: "可用参数：\n\n" +
+			want: "API 参数：\n\n" +
 				"  参数方式：\n" +
 				"    --Filter.Name string\n" +
 				"    --PageSize integer\n\n" +
@@ -172,7 +172,7 @@ func TestNonJSONActionUsageKeepsSingleParameterList(t *testing.T) {
 	defer restoreLanguage()
 
 	out := actionUsageTemplate("", []string{"InstanceId string"})
-	if !strings.Contains(out, "Available Parameters:\n  --InstanceId string") {
+	if !strings.Contains(out, "API Parameters:\n  --InstanceId string") {
 		t.Fatalf("non-JSON action usage changed unexpectedly:\n%s", out)
 	}
 	for _, unwanted := range []string{"Parameter Form:", "JSON Form:"} {
@@ -192,6 +192,28 @@ func TestJSONActionUsageOmitsEmptyParameterForm(t *testing.T) {
 	}
 	if !strings.Contains(out, "JSON Form:\n    --body '{}'") {
 		t.Fatalf("JSON action usage missing body form:\n%s", out)
+	}
+}
+
+func TestActionUsageSeparatesAPIParametersFromSystemFlags(t *testing.T) {
+	restoreLanguage := setLanguageForTest(LanguageEnglish)
+	defer restoreLanguage()
+
+	tests := map[string]string{
+		"non-JSON": actionUsageTemplate("", []string{"lang integer"}),
+		"JSON":     jsonActionUsageTemplate("", []string{"lang integer"}, "body '{}'"),
+	}
+	for name, out := range tests {
+		t.Run(name, func(t *testing.T) {
+			apiIndex := strings.Index(out, "API Parameters:")
+			systemIndex := strings.Index(out, "System Flags (place before service):")
+			if apiIndex < 0 || systemIndex < 0 || apiIndex >= systemIndex {
+				t.Fatalf("API and system parameters are not in separate ordered sections:\n%s", out)
+			}
+			if strings.Count(out, "--lang") != 2 {
+				t.Fatalf("conflicting --lang should appear once in each section:\n%s", out)
+			}
+		})
 	}
 }
 
