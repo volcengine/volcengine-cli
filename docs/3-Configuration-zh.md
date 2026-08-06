@@ -83,7 +83,7 @@ ve configure profile --profile prod
 切换 current 只影响后续未指定 `--profile` 的业务命令。单次调用时也可以使用运行时覆盖：
 
 ```shell
-ve --profile prod ecs DescribeInstances
+ve ecs DescribeInstances --profile prod
 ```
 
 ## 新建或修改 Profile
@@ -166,7 +166,7 @@ ve ecs DescribeInstances
 
 ```shell
 ve configure profile --profile dev
-ve --profile prod ecs DescribeInstances
+ve ecs DescribeInstances --profile prod
 ```
 
 这条命令只在本次调用中使用 `prod`，不会修改 `current`。
@@ -174,8 +174,8 @@ ve --profile prod ecs DescribeInstances
 ### 单次调用覆盖 Region 和 Endpoint
 
 ```shell
-ve --region cn-shanghai ecs DescribeInstances
-ve --region cn-beijing --endpoint sts.volcengineapi.com sts GetCallerIdentity
+ve ecs DescribeInstances --region cn-shanghai
+ve sts GetCallerIdentity --region cn-beijing --endpoint sts.volcengineapi.com
 ```
 
 ---

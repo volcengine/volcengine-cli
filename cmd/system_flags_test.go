@@ -8,34 +8,33 @@ import (
 	"testing"
 )
 
-func TestResolveSystemFlagsBeforeService(t *testing.T) {
-	resolution, err := resolveSystemFlags([]string{
-		"--region", "cn-beijing",
-		"--profile", "prod",
-		"--endpoint", "sts.volcengineapi.com",
-		"--lang", "ZH",
-		"sts", "GetCallerIdentity",
-	})
-	if err != nil {
-		t.Fatalf("resolveSystemFlags returned error: %v", err)
+func TestResolveSystemFlagsRejectsFlagsBeforeAction(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		flag string
+	}{
+		{name: "double dash before service", args: []string{"--region", "cn-beijing", "sts", "GetCallerIdentity"}, flag: "--region"},
+		{name: "double dash between service and action", args: []string{"sts", "--region", "cn-beijing", "GetCallerIdentity"}, flag: "--region"},
+		{name: "triple dash before service", args: []string{"---region", "cn-beijing", "sts", "GetCallerIdentity"}, flag: "---region"},
+		{name: "triple dash between service and action", args: []string{"sts", "---region", "cn-beijing", "GetCallerIdentity"}, flag: "---region"},
 	}
-	if !reflect.DeepEqual(resolution.args, []string{"sts", "GetCallerIdentity"}) {
-		t.Fatalf("args = %#v", resolution.args)
-	}
-	want := map[string]string{
-		"region": "cn-beijing", "profile": "prod",
-		"endpoint": "sts.volcengineapi.com", "lang": "ZH",
-	}
-	if !reflect.DeepEqual(resolution.fixedFlags, want) {
-		t.Fatalf("fixed flags = %#v, want %#v", resolution.fixedFlags, want)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := resolveSystemFlags(tt.args)
+			if err == nil || !strings.Contains(err.Error(), tt.flag+" must be specified after action") {
+				t.Fatalf("position error = %v", err)
+			}
+		})
 	}
 }
 
 func TestResolveSystemFlagsRejectsAnotherFlagAsValue(t *testing.T) {
 	_, err := resolveSystemFlags([]string{
-		"--region", "--profile", "prod", "sts", "GetCallerIdentity",
+		"sts", "GetCallerIdentity", "--lang", "--profile", "prod",
 	})
-	if err == nil || !strings.Contains(err.Error(), "--region requires a value") {
+	if err == nil || !strings.Contains(err.Error(), "--lang requires a value") {
 		t.Fatalf("missing value error = %v", err)
 	}
 }
@@ -67,27 +66,58 @@ func TestParserRoutesSystemFlagsAfterAction(t *testing.T) {
 
 func TestParserUsesExactActionParameterConflict(t *testing.T) {
 	c := NewContext()
-	params := map[string]struct{}{"lang": {}}
-	parser := NewParser([]string{"--lang", "1", "--Lang", "ZH", "--Region", "business"}, params)
+	params := map[string]struct{}{
+		"profile": {}, "region": {}, "endpoint": {}, "lang": {},
+	}
+	parser := NewParser([]string{
+		"--profile", "business-profile",
+		"--region", "business-region",
+		"--endpoint", "business-endpoint",
+		"--lang", "1",
+		"--Lang", "ZH",
+		"--Region", "business-cased-region",
+	}, params)
 	if _, err := parser.ReadArgs(c); err != nil {
 		t.Fatalf("ReadArgs returned error: %v", err)
 	}
-	for name, want := range map[string]string{"lang": "1", "Lang": "ZH", "Region": "business"} {
+	for name, want := range map[string]string{
+		"profile": "business-profile", "region": "business-region",
+		"endpoint": "business-endpoint", "lang": "1",
+		"Lang": "ZH", "Region": "business-cased-region",
+	} {
 		flag := c.dynamicFlags.GetByName(name)
 		if flag == nil || flag.GetValue() != want {
 			t.Fatalf("dynamic flag %q = %#v, want %q", name, flag, want)
 		}
 	}
-	if c.fixedFlags.GetByName("lang") != nil {
-		t.Fatal("conflicting --lang must not also enter fixedFlags")
+	for name := range publicSystemFlags {
+		if c.fixedFlags.GetByName(name) != nil {
+			t.Fatalf("conflicting --%s must not also enter fixedFlags", name)
+		}
 	}
 }
 
-func TestSystemAndActionLangCanHaveDifferentValues(t *testing.T) {
+func TestResolveSystemLanguageAfterAction(t *testing.T) {
 	raw := []string{
-		"--lang", "ZH",
+		"sts", "GetCallerIdentity", "--lang", "ZH",
+	}
+	resolution, err := resolveSystemFlags(raw)
+	if err != nil {
+		t.Fatalf("resolveSystemFlags returned error: %v", err)
+	}
+	if !reflect.DeepEqual(resolution.args, []string{"sts", "GetCallerIdentity"}) {
+		t.Fatalf("args = %#v", resolution.args)
+	}
+	if got := resolution.fixedFlags["lang"]; got != "ZH" {
+		t.Fatalf("resolved system lang = %q, want %q", got, "ZH")
+	}
+}
+
+func TestTripleDashForcesSystemFlagWhenActionParameterConflicts(t *testing.T) {
+	raw := []string{
 		"i18nopenapi", "VideoProjectSuppressionStart",
 		"--lang", "1",
+		"---lang", "ZH",
 	}
 	resolution, err := resolveSystemFlags(raw)
 	if err != nil {
@@ -97,6 +127,9 @@ func TestSystemAndActionLangCanHaveDifferentValues(t *testing.T) {
 		"i18nopenapi", "VideoProjectSuppressionStart", "--lang", "1",
 	}) {
 		t.Fatalf("args = %#v", resolution.args)
+	}
+	if got := resolution.fixedFlags["lang"]; got != "ZH" {
+		t.Fatalf("resolved system lang = %q, want %q", got, "ZH")
 	}
 
 	c := NewContext()
@@ -117,8 +150,8 @@ func TestSystemAndActionLangCanHaveDifferentValues(t *testing.T) {
 
 func TestLegacyAndNewSystemFlagDuplicatesAreRejected(t *testing.T) {
 	resolution, err := resolveSystemFlags([]string{
-		"--region", "cn-beijing", "sts", "GetCallerIdentity",
-		"---region", "cn-shanghai",
+		"sts", "GetCallerIdentity",
+		"--region", "cn-beijing", "---region", "cn-shanghai",
 	})
 	if err != nil {
 		t.Fatalf("resolveSystemFlags returned error: %v", err)
@@ -133,7 +166,7 @@ func TestLegacyAndNewSystemFlagDuplicatesAreRejected(t *testing.T) {
 	}
 
 	_, err = resolveSystemFlags([]string{
-		"--lang", "EN", "sts", "GetCallerIdentity", "---lang", "ZH",
+		"sts", "GetCallerIdentity", "--lang", "EN", "---lang", "ZH",
 	})
 	if err == nil || !strings.Contains(err.Error(), "specified more than once") {
 		t.Fatalf("language duplicate error = %v", err)

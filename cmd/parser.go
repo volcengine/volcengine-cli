@@ -7,7 +7,8 @@ import (
 	"strings"
 )
 
-// allowedLegacyFixedFlags keeps the historical triple-dash aliases working.
+// allowedLegacyFixedFlags keeps triple-dash aliases working as an explicit
+// system-flag escape when an action exposes the same double-dash parameter.
 // The aliases are intentionally omitted from help and completion output.
 var allowedLegacyFixedFlags = map[string]struct{}{
 	"profile":  {},
@@ -168,7 +169,7 @@ func (p *Parser) currentFlagValueError(ctx *Context) error {
 
 func (p *Parser) parseArg(arg string, ctx *Context) (flag *Flag, value string, err error) {
 	if strings.HasPrefix(arg, "---") {
-		// Historical aliases remain accepted but are no longer advertised.
+		// Triple-dash aliases force system-flag routing but are not advertised.
 		name := arg[3:]
 		if name == "" {
 			err = fmt.Errorf("--- is not a valid flag")

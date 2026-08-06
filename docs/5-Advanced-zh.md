@@ -171,7 +171,7 @@ debug 日志会记录：
 排查示例：
 
 ```shell
-VOLCENGINE_CLI_DEBUG=true ve --region cn-beijing sts GetCallerIdentity
+VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity --region cn-beijing
 tail -n 100 ~/.volcengine/logs/$(date +%Y%m%d%H).log
 ```
 
@@ -202,7 +202,7 @@ API 调用时必须能解析到 region。设置方式按优先级为：
 示例：
 
 ```shell
-ve --region cn-beijing sts GetCallerIdentity
+ve sts GetCallerIdentity --region cn-beijing
 ```
 
 或：
@@ -218,7 +218,7 @@ ve configure set --profile prod --region cn-beijing
 可以临时指定 profile：
 
 ```shell
-ve --profile prod sts GetCallerIdentity
+ve sts GetCallerIdentity --profile prod
 ```
 
 也可以切换 current：

@@ -206,7 +206,7 @@ func TestActionUsageSeparatesAPIParametersFromSystemFlags(t *testing.T) {
 	for name, out := range tests {
 		t.Run(name, func(t *testing.T) {
 			apiIndex := strings.Index(out, "API Parameters:")
-			systemIndex := strings.Index(out, "System Flags (place before service):")
+			systemIndex := strings.Index(out, "System Flags:")
 			if apiIndex < 0 || systemIndex < 0 || apiIndex >= systemIndex {
 				t.Fatalf("API and system parameters are not in separate ordered sections:\n%s", out)
 			}

@@ -139,7 +139,6 @@ var simplifiedChineseMessages = map[string]string{
 	"Aliases:":                              "别名：",
 	"Fixed Flags:":                          "固定参数：",
 	"System Flags:":                         "系统参数：",
-	"System Flags (place before service):":  "系统参数（请放在 Service 前）：",
 	"Service":                               "服务",
 	"Action":                                "操作",
 	"Description":                           "说明",

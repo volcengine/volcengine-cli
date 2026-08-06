@@ -19,9 +19,9 @@ type systemFlagsResolution struct {
 	fixedFlags map[string]string
 }
 
-// resolveSystemFlags extracts flags that must be known before Cobra resolves
-// the service and action. Other action flags stay in place for Parser, which
-// uses the action's public metadata to resolve name conflicts.
+// resolveSystemFlags extracts flags that must be applied before Cobra renders
+// help or runs an action. API system flags must follow the action; other action
+// flags stay in place for Parser to resolve against the action's metadata.
 func resolveSystemFlags(args []string) (systemFlagsResolution, error) {
 	result := systemFlagsResolution{
 		args:       make([]string, 0, len(args)),
@@ -30,10 +30,17 @@ func resolveSystemFlags(args []string) (systemFlagsResolution, error) {
 	state := beforeCommand
 	serviceName := ""
 	var actionParameters map[string]struct{}
+	leadingSystemFlag := ""
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		name, legacy, equals, candidate := parseSystemFlagToken(arg)
+		if candidate && state == beforeAPIAction {
+			return result, systemFlagPositionError(name, legacy)
+		}
+		if candidate && state == beforeCommand && leadingSystemFlag == "" {
+			leadingSystemFlag = systemFlagDisplayName(name, legacy)
+		}
 		if candidate && shouldExtractSystemFlag(name, legacy, state, actionParameters) {
 			if equals {
 				return result, fmt.Errorf("%s does not support '=' syntax; use '--%s <value>'", arg, name)
@@ -71,6 +78,9 @@ func resolveSystemFlags(args []string) (systemFlagsResolution, error) {
 		case beforeCommand:
 			serviceName = strings.ReplaceAll(arg, "_", "")
 			if rootSupport.IsValidSvc(serviceName) {
+				if leadingSystemFlag != "" {
+					return result, fmt.Errorf("%s must be specified after action", leadingSystemFlag)
+				}
 				state = beforeAPIAction
 			} else {
 				state = nonAPICommand
@@ -106,7 +116,9 @@ func parseSystemFlagToken(arg string) (name string, legacy, equals, ok bool) {
 
 func shouldExtractSystemFlag(name string, legacy bool, state commandScanState, actionParameters map[string]struct{}) bool {
 	switch state {
-	case beforeCommand, beforeAPIAction:
+	case beforeCommand:
+		// Root help and non-API commands have no action. If a service is found
+		// later, resolveSystemFlags rejects the leading system flag.
 		return true
 	case nonAPICommand:
 		return name == "lang"
@@ -122,6 +134,17 @@ func shouldExtractSystemFlag(name string, legacy bool, state commandScanState, a
 	default:
 		return false
 	}
+}
+
+func systemFlagPositionError(name string, legacy bool) error {
+	return fmt.Errorf("%s must be specified after action", systemFlagDisplayName(name, legacy))
+}
+
+func systemFlagDisplayName(name string, legacy bool) string {
+	if legacy {
+		return "---" + name
+	}
+	return "--" + name
 }
 
 func isValueTakingFlag(arg string) bool {

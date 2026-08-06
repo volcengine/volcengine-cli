@@ -171,7 +171,7 @@ Sensitive fields are masked, including common AK/SK, token, password, signature,
 Debug inspection example:
 
 ```shell
-VOLCENGINE_CLI_DEBUG=true ve --region cn-beijing sts GetCallerIdentity
+VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity --region cn-beijing
 tail -n 100 ~/.volcengine/logs/$(date +%Y%m%d%H).log
 ```
 
@@ -202,7 +202,7 @@ API calls must resolve a region. Priority:
 Example:
 
 ```shell
-ve --region cn-beijing sts GetCallerIdentity
+ve sts GetCallerIdentity --region cn-beijing
 ```
 
 Or:
@@ -218,7 +218,7 @@ If a current profile exists, the CLI uses the profile first. The environment-bas
 Override profile for one call:
 
 ```shell
-ve --profile prod sts GetCallerIdentity
+ve sts GetCallerIdentity --profile prod
 ```
 
 Switch current:

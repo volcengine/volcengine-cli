@@ -16,8 +16,8 @@ func TestResolveLanguageExplicitFlag(t *testing.T) {
 		wantLang Language
 	}{
 		{name: "english", args: []string{"---lang", "EN", "--help"}, wantArgs: []string{"--help"}, wantLang: LanguageEnglish},
-		{name: "english locale", args: []string{"sts", "--help", "---lang", "en_US"}, wantArgs: []string{"sts", "--help"}, wantLang: LanguageEnglish},
-		{name: "simplified chinese", args: []string{"sts", "---lang", "ZH", "--help"}, wantArgs: []string{"sts", "--help"}, wantLang: LanguageSimplifiedChinese},
+		{name: "english locale", args: []string{"sts", "GetCallerIdentity", "--help", "---lang", "en_US"}, wantArgs: []string{"sts", "GetCallerIdentity", "--help"}, wantLang: LanguageEnglish},
+		{name: "simplified chinese", args: []string{"sts", "GetCallerIdentity", "---lang", "ZH", "--help"}, wantArgs: []string{"sts", "GetCallerIdentity", "--help"}, wantLang: LanguageSimplifiedChinese},
 		{name: "simplified chinese locale", args: []string{"sts", "GetCallerIdentity", "---lang", "zh-CN", "--help"}, wantArgs: []string{"sts", "GetCallerIdentity", "--help"}, wantLang: LanguageSimplifiedChinese},
 	}
 
@@ -119,11 +119,11 @@ func TestResolveLanguageFromEnvironment(t *testing.T) {
 }
 
 func TestResolveLanguageFallsBackForUnsupportedExplicitLanguage(t *testing.T) {
-	gotArgs, gotLang, err := resolveLanguage([]string{"sts", "---lang", "FR", "--help"}, mapEnvironment(map[string]string{"LANG": "zh_CN.UTF-8"}))
+	gotArgs, gotLang, err := resolveLanguage([]string{"sts", "GetCallerIdentity", "---lang", "FR", "--help"}, mapEnvironment(map[string]string{"LANG": "zh_CN.UTF-8"}))
 	if err != nil {
 		t.Fatalf("resolveLanguage returned error: %v", err)
 	}
-	if !reflect.DeepEqual(gotArgs, []string{"sts", "--help"}) {
+	if !reflect.DeepEqual(gotArgs, []string{"sts", "GetCallerIdentity", "--help"}) {
 		t.Fatalf("args = %#v, want language flag removed", gotArgs)
 	}
 	if gotLang != LanguageEnglish {
@@ -172,7 +172,7 @@ func TestResolveLanguageRejectsMalformedFlag(t *testing.T) {
 	}{
 		{name: "missing value", args: []string{"---lang"}, want: "requires a value"},
 		{name: "duplicate flag", args: []string{"---lang", "EN", "---lang", "ZH"}, want: "specified more than once"},
-		{name: "equals syntax", args: []string{"sts", "---lang=zh", "--help"}, want: "does not support '='"},
+		{name: "equals syntax", args: []string{"sts", "GetCallerIdentity", "---lang=zh", "--help"}, want: "does not support '='"},
 	}
 
 	for _, tt := range tests {

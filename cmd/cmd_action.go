@@ -399,5 +399,5 @@ func renderActionUsageTemplate(description, parameterHelp string) string {
 %s
 
 `, description, tr("Usage:"), tr("Examples:"), tr("API Parameters:"), parameterHelp,
-		tr("System Flags (place before service):"), localizedSystemFlagsHelp())
+		tr("System Flags:"), localizedSystemFlagsHelp())
 }

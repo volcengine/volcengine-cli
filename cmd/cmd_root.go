@@ -133,7 +133,7 @@ func localizeHelpFlag(command *cobra.Command) {
 
 func rootUsageTemplate() string {
 	return tr("Usage:") + `{{if .Runnable}}
-  {{.CommandPath}} [system flags] [service]{{end}} [action] [params] {{if .HasExample}}
+  {{.CommandPath}} [service]{{end}} [action] [params] [system flags] {{if .HasExample}}
 
 ` + tr("Examples:") + `
 {{.Example}}{{end}}{{if .HasAvailableSubCommands}}{{$cmds := .Commands}}{{if eq (len .Groups) 0}}
@@ -155,8 +155,8 @@ func rootUsageTemplate() string {
 {{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableSubCommands}}
 
 ` + tr("Examples:") + `
-  ve --profile default --region cn-beijing sts GetCallerIdentity
-  ve --region cn-beijing --endpoint sts.volcengineapi.com sts GetCallerIdentity
+  ve sts GetCallerIdentity --profile default --region cn-beijing
+  ve sts GetCallerIdentity --region cn-beijing --endpoint sts.volcengineapi.com
 
 ` + tr(`Use "{{.CommandPath}} [service] --help" for more information about a service.`) + `{{end}}
 `
