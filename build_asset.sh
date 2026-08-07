@@ -38,6 +38,23 @@ set -e
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
+cleanup_metadata_submodule() {
+  rm -rf volcengine-sdk-metadata || true
+  rm -rf .git/modules/volcengine-sdk-metadata || true
+  git config --local --unset submodule.volcengine-sdk-metadata.url 2>/dev/null || true
+  git config --local --unset submodule.volcengine-sdk-metadata.active 2>/dev/null || true
+  git rm --cached -f volcengine-sdk-metadata >/dev/null 2>&1 || true
+  git rm --cached -f .gitmodules >/dev/null 2>&1 || true
+  rm -f .gitmodules || true
+}
+
+cleanup_metadata_submodule_on_exit() {
+  local status=$?
+  trap - EXIT
+  cleanup_metadata_submodule
+  exit "$status"
+}
+
 usage() {
   cat <<'USAGE'
 Usage: bash build_asset.sh <metadata-git-url> [branch] [--target all|explorer|param|metadata]
@@ -177,14 +194,10 @@ if [ "${SKIP_PARAM_DESCRIPTIONS}" = "1" ]; then
 fi
 
 #clean git cache before build
-rm -rf volcengine-sdk-metadata
-rm -rf .git/modules/volcengine-sdk-metadata
-git config --local --unset submodule.volcengine-sdk-metadata.url 2>/dev/null || true
-git config --local --unset submodule.volcengine-sdk-metadata.active 2>/dev/null || true
-git rm --cached volcengine-sdk-metadata 2>/dev/null || true
-
-rm -rf .gitmodules
+cleanup_metadata_submodule
 touch .gitmodules
+
+trap cleanup_metadata_submodule_on_exit EXIT
 
 git submodule add "$url" volcengine-sdk-metadata
 if [ -n "$urlBranch" ]; then
@@ -215,7 +228,8 @@ bindata_param_descriptions() {
   echo "==> go-bindata paramdescriptions (${PARAM_DESC_JSON} → ${PARAM_DESC_BINDATA})"
   (
     cd "${PARAM_DESC_DIR}"
-    go-bindata -pkg paramdescriptions -prefix . -o bindata.go params.json
+    go-bindata -pkg paramdescriptions -prefix . -o bindata.go params.json || exit $?
+    gofmt -w bindata.go
   )
 }
 
@@ -291,14 +305,5 @@ go-bindata -pkg asset -o asset/asset.go \
   volcengine-sdk-metadata/explorer_descriptions/...
 go-bindata -pkg typeset -o typeset/typeset.go volcengine-sdk-metadata/metatype/...
 go-bindata -pkg structset -o structset/structset.go volcengine-sdk-metadata/structure/...
-
-#clean git cache after build
-rm -rf volcengine-sdk-metadata
-rm -rf .git/modules/volcengine-sdk-metadata
-git config --local --unset submodule.volcengine-sdk-metadata.url 2>/dev/null || true
-git config --local --unset submodule.volcengine-sdk-metadata.active 2>/dev/null || true
-git rm --cached volcengine-sdk-metadata 2>/dev/null || true
-
-rm -rf .gitmodules
 
 echo "==> build_asset done (target=$target)"

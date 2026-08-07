@@ -40,6 +40,15 @@ Show action parameters:
 ve ecs DescribeInstances --help
 ```
 
+By default, `-h` / `--help` uses concise mode and shows parameter names, types, and required status without loading the full parameter corpus. Use detail mode to include descriptions and examples:
+
+```shell
+ve ecs DescribeInstances -h --detail
+ve ecs DescribeInstances --help --detail
+```
+
+Using `--detail` by itself does not trigger help.
+
 Show version:
 
 ```shell
@@ -297,9 +306,9 @@ Unsupported system flag:
 ---debug is not supported, supported system flags: --profile, --region, --endpoint, --lang, --force, --version, --method
 ```
 
-Public system flags (double-dash): `--profile`, `--region`, `--endpoint`, `--lang`, `--force`, `--version`, `--method`.  
-Historical triple-dash aliases still work as a system-flag escape when an API parameter uses the same name.  
-Non-conflicting `--lang` / `---lang` is resolved before argument parsing, so the parser error list above does not include it.  
+Public system flags (double-dash): `--profile`, `--region`, `--endpoint`, `--lang`, `--force`, `--version`, `--method`.
+Historical triple-dash aliases still work as a system-flag escape when an API parameter uses the same name.
+Non-conflicting `--lang` / `---lang` is resolved before argument parsing, so the parser error list above does not include it.
 Reserved double-dash controls: `--header`, `--body` (see “Reserved Double-Dash Controls” above).
 
 ---

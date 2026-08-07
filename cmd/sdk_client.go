@@ -31,8 +31,8 @@ type SdkClientInfo struct {
 	Version     string
 	Method      string
 	ContentType string
-	// Headers are custom HTTP headers from --header Name=Value (excluding Content-Type,
-	// which is applied via ContentType with JSON charset normalization).
+	// Headers are custom HTTP headers from --header Name=Value. Content-Type is
+	// also carried in ContentType so protocol selection can happen before build.
 	Headers []requestHeader
 }
 
@@ -42,6 +42,7 @@ type SdkClientInfo struct {
 //   - Current 为空且无 env 时不会回落到某个“默认 profile”，profile 为 nil，走默认凭证链；
 //   - ---profile 指定了不存在的名字时返回 error；
 //   - c.config 为 nil 时忽略 profile 相关 flag（与历史 NewSimpleClient 行为一致）。
+//
 // 返回值 name/source 供 debug 日志使用；profile 为 nil 表示未选中有效 profile。
 func selectInvocationProfile(c *Context) (name, source string, profile *Profile, err error) {
 	source = "default-chain"
@@ -144,6 +145,7 @@ const (
 //   - host 为空 → SDK 默认；
 //   - host 为 auto-addressing → standard；
 //   - 其它非空 host → 固定 host。
+//
 // 必须同时被 NewSimpleClient 与 hasEffectiveFixedEndpoint 使用，避免双源漂移。
 func classifyEndpoint(endpoint, resolver string) endpointMode {
 	if strings.ToLower(strings.TrimSpace(resolver)) == "standard" {
@@ -446,20 +448,28 @@ func (s *SdkClient) CallSdk(info SdkClientInfo, input interface{}) (output *map[
 	}
 	output = &map[string]interface{}{}
 	req := c.NewRequest(op, input, output)
-	if isJSONContentType(info.ContentType) {
-		// Normalize JSON Content-Type; parameters from the user (charset, etc.) are dropped
-		// in favor of a single canonical value the SDK path expects.
-		req.HTTPRequest.Header.Set("Content-Type", "application/json; charset=utf-8")
-	} else if strings.TrimSpace(info.ContentType) != "" {
+	applySdkRequestHeaders(req, info)
+	// The SDK query build handler canonicalizes JSON Content-Type while encoding
+	// the body. Restore the user's exact value after body construction and before
+	// SigV4 signing so the signed and transmitted headers are identical.
+	req.Handlers.Build.PushBackNamed(request.NamedHandler{
+		Name: "volcengine-cli.apply-request-headers",
+		Fn: func(built *request.Request) {
+			applySdkRequestHeaders(built, info)
+		},
+	})
+	err = req.Send()
+	return output, err
+}
+
+func applySdkRequestHeaders(req *request.Request, info SdkClientInfo) {
+	if req == nil || req.HTTPRequest == nil {
+		return
+	}
+	if strings.TrimSpace(info.ContentType) != "" {
 		req.HTTPRequest.Header.Set("Content-Type", info.ContentType)
 	}
 	for _, h := range info.Headers {
-		if strings.EqualFold(h.Name, "Content-Type") {
-			// Already applied via ContentType (with JSON charset normalization when needed).
-			continue
-		}
 		req.HTTPRequest.Header.Set(h.Name, h.Value)
 	}
-	err = req.Send()
-	return output, err
 }

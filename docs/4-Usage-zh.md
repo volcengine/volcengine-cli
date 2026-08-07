@@ -40,6 +40,15 @@ ve ecs --help
 ve ecs DescribeInstances --help
 ```
 
+默认 `-h` / `--help` 使用简洁模式，只展示参数名称、类型和是否必填，不加载完整参数语料。需要查看参数描述和示例时，使用详细模式：
+
+```shell
+ve ecs DescribeInstances -h --detail
+ve ecs DescribeInstances --help --detail
+```
+
+单独使用 `--detail` 不会触发帮助。
+
 查看版本：
 
 ```shell
@@ -296,9 +305,9 @@ region not set, please set it via profile, --region flag, or VOLCENGINE_REGION e
 ---debug is not supported, supported system flags: --profile, --region, --endpoint, --lang, --force, --version, --method
 ```
 
-对外系统参数（双横线）：`--profile`、`--region`、`--endpoint`、`--lang`、`--force`、`--version`、`--method`。  
-历史三横线别名在与 API 参数同名冲突时仍可作为系统参数逃逸。  
-无冲突的 `--lang` / `---lang` 会在参数解析前被预处理剥离，因此上面 parser 报错列表中不包含它。  
+对外系统参数（双横线）：`--profile`、`--region`、`--endpoint`、`--lang`、`--force`、`--version`、`--method`。
+历史三横线别名在与 API 参数同名冲突时仍可作为系统参数逃逸。
+无冲突的 `--lang` / `---lang` 会在参数解析前被预处理剥离，因此上面 parser 报错列表中不包含它。
 双横线保留控制参数：`--header`、`--body`（见上文「双横线保留控制参数」）。
 
 ---

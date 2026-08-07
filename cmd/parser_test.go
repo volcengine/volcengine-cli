@@ -122,8 +122,8 @@ func TestParserRejectsUnsupportedFixedFlags(t *testing.T) {
 				t.Fatalf("error = %q, want supported system flags", err.Error())
 			}
 			// Public help/error lists only double-dash system flags.
-			if !strings.Contains(err.Error(), supportedSystemFlagsMessage) {
-				t.Fatalf("error = %q, want system-flag list %q", err.Error(), supportedSystemFlagsMessage)
+			if !strings.Contains(err.Error(), systemFlags.supportedMessage) {
+				t.Fatalf("error = %q, want system-flag list %q", err.Error(), systemFlags.supportedMessage)
 			}
 			parts := strings.SplitN(err.Error(), "supported system flags:", 2)
 			if len(parts) != 2 {

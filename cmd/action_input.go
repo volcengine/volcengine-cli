@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/volcengine/volcengine-cli/util"
@@ -77,15 +79,23 @@ func buildActionInput(flags []*Flag, apiMeta *ApiMeta, jsonBody bool) (interface
 }
 
 func parseJSONBody(body string) (interface{}, error) {
-	m := make(map[string]interface{})
-	if err := json.Unmarshal([]byte(body), &m); err == nil {
-		return &m, nil
+	decoder := json.NewDecoder(bytes.NewBufferString(body))
+	decoder.UseNumber()
+
+	var parsed interface{}
+	if err := decoder.Decode(&parsed); err != nil {
+		return nil, fmt.Errorf("json format error")
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return nil, fmt.Errorf("json format error")
 	}
 
-	var a []interface{}
-	if err := json.Unmarshal([]byte(body), &a); err == nil {
-		return &a, nil
+	switch value := parsed.(type) {
+	case map[string]interface{}:
+		return &value, nil
+	case []interface{}:
+		return &value, nil
+	default:
+		return nil, fmt.Errorf("json format error")
 	}
-
-	return nil, fmt.Errorf("json format error")
 }

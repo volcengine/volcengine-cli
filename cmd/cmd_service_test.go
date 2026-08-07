@@ -99,6 +99,24 @@ func TestRunServiceCmdHelpFlagShowsHelp(t *testing.T) {
 	}
 }
 
+func TestRunServiceCmdDoesNotTreatDashHValueAsHelp(t *testing.T) {
+	c := &cobra.Command{Use: "sts"}
+	var b bytes.Buffer
+	c.SetOut(&b)
+
+	err := runServiceCmd(c, "sts", []string{"GetCallerIdentity"},
+		[]string{"ReadmeUnknownAction", "--Description", "-h"})
+	if err == nil {
+		t.Fatal("expected unsupported action error, got nil help result")
+	}
+	if !strings.Contains(err.Error(), "is not a supported action") {
+		t.Fatalf("expected unsupported action error, got: %v", err)
+	}
+	if b.Len() != 0 {
+		t.Fatalf("business value -h must not render service help:\n%s", b.String())
+	}
+}
+
 func TestServiceValidActionRoutesToSubcommand(t *testing.T) {
 	c, _, err := rootCmd.Find([]string{"sts", "GetCallerIdentity"})
 	if err != nil {

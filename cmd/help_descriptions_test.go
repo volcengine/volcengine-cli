@@ -398,4 +398,3 @@ func expectedFixedFlagsForTest() []string {
 	// 对外 system flags 全部双横线；三横线别名不展示；保留 --header/--body。
 	return []string{"--profile", "--region", "--endpoint", "--lang", "--version", "--method", "--force", "--header", "--body"}
 }
-

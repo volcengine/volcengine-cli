@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"sync"
 	"testing"
@@ -120,9 +121,9 @@ func TestGenerateActionCmdDoesNotLoadParamDescriptionsEagerly(t *testing.T) {
 
 func TestParseActionHelpArgs(t *testing.T) {
 	cases := []struct {
-		args           []string
-		wantHelp       bool
-		wantDetail     bool
+		args       []string
+		wantHelp   bool
+		wantDetail bool
 	}{
 		{nil, false, false},
 		{[]string{"-h"}, true, false},
@@ -395,6 +396,47 @@ func TestBuildActionInputParsesJsonBody(t *testing.T) {
 	}
 	if (*m)["InstanceId"] != "mysql-1" {
 		t.Fatalf("expected InstanceId to be parsed, got %#v", (*m)["InstanceId"])
+	}
+}
+
+func TestParseJSONBodyPreservesLargeIntegers(t *testing.T) {
+	input, err := parseJSONBody(`{"Id":9223372036854775807,"Nested":[-9223372036854775808]}`)
+	if err != nil {
+		t.Fatalf("parseJSONBody returned error: %v", err)
+	}
+	body, ok := input.(*map[string]interface{})
+	if !ok {
+		t.Fatalf("expected object body, got %T", input)
+	}
+	if got, ok := (*body)["Id"].(json.Number); !ok || got.String() != "9223372036854775807" {
+		t.Fatalf("Id = %#v, want exact json.Number", (*body)["Id"])
+	}
+	nested, ok := (*body)["Nested"].([]interface{})
+	if !ok || len(nested) != 1 {
+		t.Fatalf("Nested = %#v", (*body)["Nested"])
+	}
+	if got, ok := nested[0].(json.Number); !ok || got.String() != "-9223372036854775808" {
+		t.Fatalf("Nested[0] = %#v, want exact json.Number", nested[0])
+	}
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal parsed body: %v", err)
+	}
+	if string(encoded) != `{"Id":9223372036854775807,"Nested":[-9223372036854775808]}` {
+		t.Fatalf("encoded body = %s", encoded)
+	}
+}
+
+func TestParseJSONBodyRejectsTrailingContentAndScalars(t *testing.T) {
+	for _, body := range []string{
+		`{"Id":1} {"Id":2}`,
+		`{"Id":1} trailing`,
+		`9223372036854775807`,
+		`"value"`,
+	} {
+		if _, err := parseJSONBody(body); err == nil {
+			t.Fatalf("parseJSONBody(%q) expected error", body)
+		}
 	}
 }
 

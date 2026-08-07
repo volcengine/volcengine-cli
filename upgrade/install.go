@@ -269,4 +269,3 @@ func resolvePathsForUpgrade(execPathOverride string) (detectPath, replacePath st
 	}
 	return detectPath, replacePath, nil
 }
-

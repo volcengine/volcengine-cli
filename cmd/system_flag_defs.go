@@ -35,42 +35,48 @@ var systemFlagDefs = []systemFlagDef{
 	{name: "force", public: true, legacyEscape: true, preprocess: false, presenceOnly: true},
 }
 
-// Derived lookups — filled in init from systemFlagDefs.
-var (
-	publicSystemFlags           map[string]struct{}
-	allowedLegacyFixedFlags     map[string]struct{}
-	preprocessableSystemFlags   map[string]struct{}
-	booleanFixedFlags           map[string]struct{}
-	supportedSystemFlagsMessage string
-)
+type systemFlagRegistry struct {
+	public           map[string]struct{}
+	legacyEscapes    map[string]struct{}
+	preprocessable   map[string]struct{}
+	presenceOnly     map[string]struct{}
+	supportedMessage string
+}
 
-func init() {
-	publicSystemFlags = make(map[string]struct{}, len(systemFlagDefs))
-	allowedLegacyFixedFlags = make(map[string]struct{}, len(systemFlagDefs))
-	preprocessableSystemFlags = make(map[string]struct{}, len(systemFlagDefs))
-	booleanFixedFlags = make(map[string]struct{})
+// systemFlags is initialized as one value so process argument preprocessing
+// never observes partially initialized lookup maps during package startup.
+var systemFlags = newSystemFlagRegistry(systemFlagDefs)
 
-	publicNames := make([]string, 0, len(systemFlagDefs))
-	for _, d := range systemFlagDefs {
+func newSystemFlagRegistry(defs []systemFlagDef) *systemFlagRegistry {
+	registry := &systemFlagRegistry{
+		public:         make(map[string]struct{}, len(defs)),
+		legacyEscapes:  make(map[string]struct{}, len(defs)),
+		preprocessable: make(map[string]struct{}, len(defs)),
+		presenceOnly:   make(map[string]struct{}),
+	}
+
+	publicNames := make([]string, 0, len(defs))
+	for _, d := range defs {
 		if d.public {
-			publicSystemFlags[d.name] = struct{}{}
+			registry.public[d.name] = struct{}{}
 			publicNames = append(publicNames, "--"+d.name)
 		}
 		if d.legacyEscape {
-			allowedLegacyFixedFlags[d.name] = struct{}{}
+			registry.legacyEscapes[d.name] = struct{}{}
 		}
 		if d.preprocess {
-			preprocessableSystemFlags[d.name] = struct{}{}
+			registry.preprocessable[d.name] = struct{}{}
 		}
 		if d.presenceOnly {
-			booleanFixedFlags[d.name] = struct{}{}
+			registry.presenceOnly[d.name] = struct{}{}
 		}
 	}
-	supportedSystemFlagsMessage = strings.Join(publicNames, ", ")
+	registry.supportedMessage = strings.Join(publicNames, ", ")
+	return registry
 }
 
 func isPresenceOnlyFixedFlag(name string) bool {
-	_, ok := booleanFixedFlags[name]
+	_, ok := systemFlags.presenceOnly[name]
 	return ok
 }
 

@@ -55,8 +55,8 @@ ve version
 ve upgrade
 ```
 
-- **standalone / Release**：下载并原地替换当前二进制  
-- **npm**：委托执行 `npm install -g @volcengine/cli@latest`（失败时会提示同一条手动命令）  
+- **standalone / Release**：下载并原地替换当前二进制
+- **npm**：委托执行 `npm install -g @volcengine/cli@latest`（失败时会提示同一条手动命令）
 - **Homebrew**：依次执行 `brew update` 与 `brew upgrade volcengine-cli`
 
 ### 快速开始

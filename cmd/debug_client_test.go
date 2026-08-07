@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -90,6 +91,7 @@ func TestNewSimpleClientUsesProfileEndpointWhenNoFlag(t *testing.T) {
 
 func TestCallSdkAppliesCustomHeadersAndJSONContentType(t *testing.T) {
 	var gotCT, gotFoo string
+	const contentType = "application/json; profile=readme; charset=utf-8"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotCT = r.Header.Get("Content-Type")
 		gotFoo = r.Header.Get("X-Foo")
@@ -118,10 +120,10 @@ func TestCallSdkAppliesCustomHeadersAndJSONContentType(t *testing.T) {
 		Action:      "DescribeInstances",
 		Version:     "2020-01-01",
 		Method:      "POST",
-		ContentType: "application/json; charset=utf-8",
+		ContentType: contentType,
 		Headers: []requestHeader{
 			{Name: "X-Foo", Value: "bar"},
-			{Name: "Content-Type", Value: "application/json; charset=utf-8"},
+			{Name: "Content-Type", Value: contentType},
 		},
 	}, &map[string]interface{}{"k": "v"}); err != nil {
 		t.Fatalf("CallSdk: %v", err)
@@ -129,8 +131,55 @@ func TestCallSdkAppliesCustomHeadersAndJSONContentType(t *testing.T) {
 	if gotFoo != "bar" {
 		t.Fatalf("X-Foo = %q, want bar", gotFoo)
 	}
-	if !strings.HasPrefix(strings.ToLower(gotCT), "application/json") {
-		t.Fatalf("Content-Type = %q, want application/json…", gotCT)
+	if gotCT != contentType {
+		t.Fatalf("Content-Type = %q, want exact user value %q", gotCT, contentType)
+	}
+}
+
+func TestCallSdkPreservesLargeJSONInteger(t *testing.T) {
+	const wantBody = `{"Id":9223372036854775807}`
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+		}
+		gotBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ResponseMetadata":{"RequestId":"req-json-number","Action":"GetAccountSummary","Version":"2018-01-01","Service":"iam","Region":"cn-beijing"},"Result":{"Ok":true}}`))
+	}))
+	defer server.Close()
+
+	defer setenvForTest(t, "VOLCENGINE_ACCESS_KEY", "ak-test")()
+	defer setenvForTest(t, "VOLCENGINE_SECRET_KEY", "sk-test")()
+	defer setenvForTest(t, "VOLCENGINE_REGION", "cn-beijing")()
+
+	ctx := NewContext()
+	endpointFlag, err := ctx.fixedFlags.AddByName("endpoint")
+	if err != nil {
+		t.Fatalf("add endpoint flag: %v", err)
+	}
+	endpointFlag.SetValue(server.URL)
+
+	sdk, err := NewSimpleClient(ctx)
+	if err != nil {
+		t.Fatalf("NewSimpleClient: %v", err)
+	}
+	input, err := parseJSONBody(wantBody)
+	if err != nil {
+		t.Fatalf("parseJSONBody: %v", err)
+	}
+	if _, err := sdk.CallSdk(SdkClientInfo{
+		ServiceName: "iam",
+		Action:      "GetAccountSummary",
+		Version:     "2018-01-01",
+		Method:      "POST",
+		ContentType: "application/json",
+	}, input); err != nil {
+		t.Fatalf("CallSdk: %v", err)
+	}
+	if gotBody != wantBody {
+		t.Fatalf("request body = %q, want %q", gotBody, wantBody)
 	}
 }
 

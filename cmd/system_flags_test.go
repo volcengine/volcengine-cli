@@ -101,7 +101,7 @@ func TestParserUsesExactActionParameterConflict(t *testing.T) {
 			t.Fatalf("dynamic flag %q = %#v, want %q", name, flag, want)
 		}
 	}
-	for name := range publicSystemFlags {
+	for name := range systemFlags.public {
 		if c.fixedFlags.GetByName(name) != nil {
 			t.Fatalf("conflicting --%s must not also enter fixedFlags", name)
 		}
@@ -231,7 +231,7 @@ func TestSystemFlagConflictScanMatchesPublishedMetadata(t *testing.T) {
 	for service, actions := range rootSupport.SupportAction {
 		for action := range actions {
 			params := publicActionParameterNames(service, action)
-			for name := range publicSystemFlags {
+			for name := range systemFlags.public {
 				if _, ok := params[name]; ok {
 					collisions = append(collisions, service+"."+action+"."+name)
 				}
@@ -356,7 +356,7 @@ func TestSystemFlagHelpMatchesDefs(t *testing.T) {
 			t.Fatalf("localizedSystemFlagsHelp exposes historical alias %q", alias)
 		}
 	}
-	if !strings.Contains(help, supportedSystemFlagsMessage) {
+	if !strings.Contains(help, systemFlags.supportedMessage) {
 		// supported list is for errors; help uses multi-line form. Ensure force is presence-only wording.
 	}
 	if !strings.Contains(help, "write --force alone") {

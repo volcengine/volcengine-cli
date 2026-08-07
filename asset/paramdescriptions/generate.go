@@ -6,3 +6,4 @@ package paramdescriptions
 //	go generate ./asset/paramdescriptions
 //
 //go:generate go-bindata -pkg paramdescriptions -prefix . -o bindata.go params.json
+//go:generate gofmt -w bindata.go

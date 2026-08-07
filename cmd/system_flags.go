@@ -23,13 +23,20 @@ type systemFlagsResolution struct {
 // help or runs an action. API system flags must follow the action; other action
 // flags stay in place for Parser to resolve against the action's metadata.
 //
-// Only preprocessableSystemFlags (profile/region/endpoint/lang) are stripped
+// Only registry preprocessable flags (profile/region/endpoint/lang) are stripped
 // here. force/version/method remain in-place for Parser so root `ve --version`
 // (CLI version) and presence-only --force keep working.
 func resolveSystemFlags(args []string) (systemFlagsResolution, error) {
+	return resolveSystemFlagsWithRegistry(args, systemFlags)
+}
+
+func resolveSystemFlagsWithRegistry(args []string, registry *systemFlagRegistry) (systemFlagsResolution, error) {
 	result := systemFlagsResolution{
 		args:       make([]string, 0, len(args)),
 		fixedFlags: make(map[string]string),
+	}
+	if registry == nil {
+		return result, fmt.Errorf("system flag registry is not initialized")
 	}
 	state := beforeCommand
 	serviceName := ""
@@ -38,14 +45,14 @@ func resolveSystemFlags(args []string) (systemFlagsResolution, error) {
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		name, legacy, equals, candidate := parseSystemFlagToken(arg)
+		name, legacy, equals, candidate := parseSystemFlagTokenWithRegistry(arg, registry)
 		if candidate && state == beforeAPIAction {
 			return result, systemFlagPositionError(name, legacy)
 		}
 		if candidate && state == beforeCommand && leadingSystemFlag == "" {
 			leadingSystemFlag = systemFlagDisplayName(name, legacy)
 		}
-		if candidate && shouldExtractSystemFlag(name, legacy, state, actionParameters) {
+		if candidate && shouldExtractSystemFlagWithRegistry(name, legacy, state, actionParameters, registry) {
 			if equals {
 				return result, fmt.Errorf("%s does not support '=' syntax; use '--%s <value>'", arg, name)
 			}
@@ -99,6 +106,10 @@ func resolveSystemFlags(args []string) (systemFlagsResolution, error) {
 }
 
 func parseSystemFlagToken(arg string) (name string, legacy, equals, ok bool) {
+	return parseSystemFlagTokenWithRegistry(arg, systemFlags)
+}
+
+func parseSystemFlagTokenWithRegistry(arg string, registry *systemFlagRegistry) (name string, legacy, equals, ok bool) {
 	trimmed := ""
 	if strings.HasPrefix(arg, "---") {
 		trimmed = arg[3:]
@@ -112,14 +123,24 @@ func parseSystemFlagToken(arg string) (name string, legacy, equals, ok bool) {
 		trimmed = trimmed[:index]
 		equals = true
 	}
-	if _, ok = publicSystemFlags[trimmed]; !ok {
+	if registry == nil {
+		return "", false, false, false
+	}
+	if _, ok = registry.public[trimmed]; !ok {
 		return "", false, false, false
 	}
 	return trimmed, legacy, equals, true
 }
 
 func shouldExtractSystemFlag(name string, legacy bool, state commandScanState, actionParameters map[string]struct{}) bool {
-	if _, ok := preprocessableSystemFlags[name]; !ok {
+	return shouldExtractSystemFlagWithRegistry(name, legacy, state, actionParameters, systemFlags)
+}
+
+func shouldExtractSystemFlagWithRegistry(name string, legacy bool, state commandScanState, actionParameters map[string]struct{}, registry *systemFlagRegistry) bool {
+	if registry == nil {
+		return false
+	}
+	if _, ok := registry.preprocessable[name]; !ok {
 		// force/version/method: position-checked as system flags but parsed later.
 		return false
 	}

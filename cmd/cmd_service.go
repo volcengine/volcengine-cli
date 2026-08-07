@@ -55,10 +55,8 @@ func generateServiceCommands() {
 // surface a clear "unsupported action" error instead of cobra's flag-parsing
 // error, even when system flags such as --region are present.
 func runServiceCmd(cmd *cobra.Command, svc string, validActions []string, args []string) error {
-	for _, a := range args {
-		if a == "-h" || a == "--help" {
-			return cmd.Help()
-		}
+	if argsContainHelp(args) {
+		return cmd.Help()
 	}
 	positional, err := parseInvocationArgs(args)
 	if err != nil {

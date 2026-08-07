@@ -7,9 +7,7 @@ import (
 	"strings"
 )
 
-// System-flag name sets (publicSystemFlags, allowedLegacyFixedFlags,
-// preprocessableSystemFlags, booleanFixedFlags, supportedSystemFlagsMessage)
-// are derived from systemFlagDefs in system_flag_defs.go.
+// System-flag lookup sets are derived from systemFlagDefs in system_flag_defs.go.
 
 type Parser struct {
 	currentIndex     int
@@ -182,8 +180,8 @@ func (p *Parser) parseArg(arg string, ctx *Context) (flag *Flag, value string, e
 			err = fmt.Errorf("--- is not a valid flag")
 			return
 		}
-		if _, ok := allowedLegacyFixedFlags[name]; !ok {
-			err = fmt.Errorf("---%s is not supported, supported system flags: %s", name, supportedSystemFlagsMessage)
+		if _, ok := systemFlags.legacyEscapes[name]; !ok {
+			err = fmt.Errorf("---%s is not supported, supported system flags: %s", name, systemFlags.supportedMessage)
 			return
 		}
 		flag, err = ctx.fixedFlags.AddByName(name)
@@ -195,7 +193,7 @@ func (p *Parser) parseArg(arg string, ctx *Context) (flag *Flag, value string, e
 			err = fmt.Errorf("-- is not support command")
 		} else {
 			name := arg[2:]
-			_, isSystemFlag := publicSystemFlags[name]
+			_, isSystemFlag := systemFlags.public[name]
 			_, isActionParameter := p.actionParameters[name]
 			if isSystemFlag && !isActionParameter {
 				flag, err = ctx.fixedFlags.AddByName(name)
