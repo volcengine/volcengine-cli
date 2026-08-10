@@ -27,7 +27,9 @@ func TestReleasePublishesStablePointersAfterNPM(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
 	}
-	workflow := string(data)
+	// Normalize newlines so Windows CRLF checkouts match LF-oriented assertions.
+	workflow := strings.ReplaceAll(string(data), "\r\n", "\n")
+	workflow = strings.ReplaceAll(workflow, "\r", "\n")
 
 	if strings.Contains(workflow, "\nconcurrency:\n") {
 		t.Fatal("the whole release workflow must not be serialized because GitHub cancels older pending runs")
