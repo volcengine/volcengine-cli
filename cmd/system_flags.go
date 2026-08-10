@@ -70,7 +70,9 @@ func resolveSystemFlagsWithRegistry(args []string, registry *systemFlagRegistry)
 
 		result.args = append(result.args, arg)
 		if state == afterAPIAction && isValueTakingFlag(arg, actionParameters) {
-			if i+1 < len(args) {
+			// Pair flag+value only when the next token is not another flag.
+			// Otherwise `--detail --lang ZH` would swallow `--lang` and drop language.
+			if i+1 < len(args) && !isCLIFlagToken(args[i+1]) {
 				result.args = append(result.args, args[i+1])
 				i++
 			}
@@ -78,7 +80,7 @@ func resolveSystemFlagsWithRegistry(args []string, registry *systemFlagRegistry)
 		}
 
 		if strings.HasPrefix(arg, "-") {
-			if state == beforeAPIAction && isValueTakingFlag(arg, actionParameters) && i+1 < len(args) {
+			if state == beforeAPIAction && isValueTakingFlag(arg, actionParameters) && i+1 < len(args) && !isCLIFlagToken(args[i+1]) {
 				result.args = append(result.args, args[i+1])
 				i++
 			}
@@ -185,6 +187,12 @@ func isValueTakingFlag(arg string, actionParameters map[string]struct{}) bool {
 	// Parser (preprocess=false); not consuming its value here only splits tokens
 	// and does not change parse results.
 	if arg == "--version" {
+		return false
+	}
+	// Help-mode presence-only control paired with -h/--help. Lowercase --detail is
+	// reserved as a CLI help switch (API parameter Detail uses matching case).
+	// Must not consume the following token, or `--detail --lang ZH` loses language.
+	if arg == "--detail" {
 		return false
 	}
 	if isSystemPresenceOnlyToken(arg, actionParameters) {

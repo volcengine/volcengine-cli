@@ -229,7 +229,7 @@ bindata_param_descriptions() {
   (
     cd "${PARAM_DESC_DIR}"
     go-bindata -pkg paramdescriptions -prefix . -o bindata.go params.json || exit $?
-    gofmt -w bindata.go
+    gofmt -w bindata.go || exit $?
   )
 }
 
@@ -273,17 +273,22 @@ if [ "$do_param" = "1" ]; then
     echo "    PARAM_DESC_PRUNE_MISSING=1 → --prune-missing (ensure inventory is complete)"
     PARAM_GEN_ARGS+=(--prune-missing)
   fi
-  if ! go run ./scripts/generate_param_descriptions "${PARAM_GEN_ARGS[@]}"
-  then
+  # Preserve child exit codes for CI/fault-injection (do not collapse to exit 1).
+  # With set -e, use `cmd || status=$?` so failure is captured without aborting.
+  param_gen_status=0
+  go run ./scripts/generate_param_descriptions "${PARAM_GEN_ARGS[@]}" || param_gen_status=$?
+  if [ "$param_gen_status" -ne 0 ]; then
     echo "error: param descriptions generation failed" >&2
     if [ -f "${PARAM_DESC_JSON}" ] || [ -f "${PARAM_DESC_BINDATA}" ]; then
       echo "error: keeping existing asset/paramdescriptions (params.json / bindata.go) unchanged" >&2
     fi
-    exit 1
+    exit "$param_gen_status"
   fi
-  if ! bindata_param_descriptions; then
+  bindata_status=0
+  bindata_param_descriptions || bindata_status=$?
+  if [ "$bindata_status" -ne 0 ]; then
     echo "error: paramdescriptions bindata failed; existing bindata.go left as-is if present" >&2
-    exit 1
+    exit "$bindata_status"
   fi
 else
   echo "==> skip param descriptions generation (target=$target)"

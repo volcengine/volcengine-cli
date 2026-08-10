@@ -76,6 +76,9 @@ func TestBuildAssetPropagatesBindataFailureBeforeGofmt(t *testing.T) {
 	if err == nil {
 		t.Fatalf("build_asset.sh succeeded after go-bindata failure:\n%s", output)
 	}
+	if exitErr, ok := err.(*exec.ExitError); !ok || exitErr.ExitCode() != 23 {
+		t.Fatalf("exit code = %v (%v), want 23 (go-bindata status, not collapsed to 1);\n%s", exitCodeOf(err), err, output)
+	}
 	if !strings.Contains(string(output), "paramdescriptions bindata failed") {
 		t.Fatalf("missing bindata failure diagnostic:\n%s", output)
 	}
@@ -90,6 +93,94 @@ func TestBuildAssetPropagatesBindataFailureBeforeGofmt(t *testing.T) {
 	if strings.TrimSpace(status) != "" {
 		t.Fatalf("build_asset.sh left repository changes after failure:\n%s", status)
 	}
+}
+
+func TestBuildAssetPropagatesParamGeneratorExitCode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("build_asset.sh requires bash")
+	}
+	for _, command := range []string{"bash", "git"} {
+		if _, err := exec.LookPath(command); err != nil {
+			t.Skipf("%s is not available: %v", command, err)
+		}
+	}
+
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve current test file")
+	}
+	repoRoot := filepath.Dir(filepath.Dir(currentFile))
+	script, err := ioutil.ReadFile(filepath.Join(repoRoot, "build_asset.sh"))
+	if err != nil {
+		t.Fatalf("read build_asset.sh: %v", err)
+	}
+
+	testRoot := tempDirForTest(t)
+	defer cleanupDirForTest(testRoot)()
+	workRepo := filepath.Join(testRoot, "work")
+	metadataRepo := filepath.Join(testRoot, "metadata")
+	fakeBin := filepath.Join(testRoot, "bin")
+	for _, dir := range []string{
+		workRepo,
+		metadataRepo,
+		fakeBin,
+		filepath.Join(workRepo, "asset", "paramdescriptions"),
+		filepath.Join(workRepo, "scripts", "generate_param_descriptions"),
+		filepath.Join(workRepo, "scripts", "generate_explorer_descriptions"),
+		filepath.Join(metadataRepo, "metadata"),
+		filepath.Join(metadataRepo, "metatype"),
+		filepath.Join(metadataRepo, "structure"),
+	} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("create %s: %v", dir, err)
+		}
+	}
+
+	writeTestFile(t, filepath.Join(workRepo, "build_asset.sh"), script, 0755)
+	writeTestFile(t, filepath.Join(workRepo, "asset", "paramdescriptions", "params.json"), []byte("{}\n"), 0644)
+	// Dummy packages so `go run ./scripts/...` resolves; the fake `go` never executes them.
+	writeTestFile(t, filepath.Join(workRepo, "scripts", "generate_param_descriptions", "main.go"), []byte("package main\nfunc main() {}\n"), 0644)
+	writeTestFile(t, filepath.Join(workRepo, "scripts", "generate_explorer_descriptions", "main.go"), []byte("package main\nfunc main() {}\n"), 0644)
+	writeTestFile(t, filepath.Join(metadataRepo, "metadata", ".keep"), nil, 0644)
+	writeTestFile(t, filepath.Join(metadataRepo, "metatype", ".keep"), nil, 0644)
+	writeTestFile(t, filepath.Join(metadataRepo, "structure", ".keep"), nil, 0644)
+
+	initTestGitRepo(t, workRepo)
+	initTestGitRepo(t, metadataRepo)
+
+	// First `go run` is explorer (soft-fail). Second is param generator (must propagate 42).
+	writeTestFile(t, filepath.Join(fakeBin, "go"), []byte("#!/bin/sh\nif [ -f \"$GO_CALLS\" ]; then\n  n=$(cat \"$GO_CALLS\")\nelse\n  n=0\nfi\nn=$((n+1))\necho \"$n\" > \"$GO_CALLS\"\nif [ \"$n\" -eq 1 ]; then exit 0; fi\nexit 42\n"), 0755)
+	writeTestFile(t, filepath.Join(fakeBin, "go-bindata"), []byte("#!/bin/sh\nexit 0\n"), 0755)
+	writeTestFile(t, filepath.Join(fakeBin, "gofmt"), []byte("#!/bin/sh\nexit 0\n"), 0755)
+
+	goCalls := filepath.Join(testRoot, "go-calls")
+	command := exec.Command("bash", filepath.Join(workRepo, "build_asset.sh"), metadataRepo, "--target", "param")
+	command.Dir = workRepo
+	command.Env = append(os.Environ(),
+		"PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"GIT_ALLOW_PROTOCOL=file",
+		"GO_CALLS="+goCalls,
+	)
+	output, err := command.CombinedOutput()
+	if err == nil {
+		t.Fatalf("build_asset.sh succeeded after param generator failure:\n%s", output)
+	}
+	if exitErr, ok := err.(*exec.ExitError); !ok || exitErr.ExitCode() != 42 {
+		t.Fatalf("exit code = %v (%v), want 42 (generator status);\n%s", exitCodeOf(err), err, output)
+	}
+	if !strings.Contains(string(output), "param descriptions generation failed") {
+		t.Fatalf("missing generator failure diagnostic:\n%s", output)
+	}
+}
+
+func exitCodeOf(err error) int {
+	if err == nil {
+		return 0
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		return exitErr.ExitCode()
+	}
+	return -1
 }
 
 func initTestGitRepo(t *testing.T, dir string) {

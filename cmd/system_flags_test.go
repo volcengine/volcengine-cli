@@ -152,6 +152,68 @@ func TestResolveSystemLanguageAfterAction(t *testing.T) {
 	}
 }
 
+// TestResolveSystemFlagsDetailDoesNotConsumeLang ensures help meta --detail is
+// presence-only during preprocess so explicit --lang after -h --detail still wins.
+func TestResolveSystemFlagsDetailDoesNotConsumeLang(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{
+			name: "detail before lang",
+			args: []string{"ecs", "RunInstances", "-h", "--detail", "--lang", "ZH"},
+			want: []string{"ecs", "RunInstances", "-h", "--detail"},
+		},
+		{
+			name: "lang before detail",
+			args: []string{"ecs", "RunInstances", "-h", "--lang", "ZH", "--detail"},
+			want: []string{"ecs", "RunInstances", "-h", "--detail"},
+		},
+		{
+			name: "detail before help",
+			args: []string{"ecs", "RunInstances", "--detail", "--help", "--lang", "ZH"},
+			want: []string{"ecs", "RunInstances", "--detail", "--help"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolution, err := resolveSystemFlags(tt.args)
+			if err != nil {
+				t.Fatalf("resolveSystemFlags: %v", err)
+			}
+			if got := resolution.fixedFlags["lang"]; got != "ZH" {
+				t.Fatalf("fixedFlags[lang]=%q, want ZH; fixedFlags=%v args=%v", got, resolution.fixedFlags, resolution.args)
+			}
+			if !reflect.DeepEqual(resolution.args, tt.want) {
+				t.Fatalf("args=%#v, want %#v", resolution.args, tt.want)
+			}
+		})
+	}
+
+	if isValueTakingFlag("--detail", nil) {
+		t.Fatal("isValueTakingFlag(--detail) must be false (help presence-only)")
+	}
+}
+
+// TestResolveSystemFlagsDoesNotTreatNextFlagAsValue covers the general case:
+// a missing value must not swallow a following --flag (e.g. --lang).
+func TestResolveSystemFlagsDoesNotTreatNextFlagAsValue(t *testing.T) {
+	resolution, err := resolveSystemFlags([]string{
+		"sts", "GetCallerIdentity", "--profile", "--lang", "ZH",
+	})
+	if err != nil {
+		t.Fatalf("resolveSystemFlags: %v", err)
+	}
+	if got := resolution.fixedFlags["lang"]; got != "ZH" {
+		t.Fatalf("fixedFlags[lang]=%q, want ZH; fixedFlags=%v args=%v", got, resolution.fixedFlags, resolution.args)
+	}
+	// --profile remains for later parser validation (missing value).
+	if !reflect.DeepEqual(resolution.args, []string{"sts", "GetCallerIdentity", "--profile"}) {
+		t.Fatalf("args=%#v", resolution.args)
+	}
+}
+
 func TestTripleDashForcesSystemFlagWhenActionParameterConflicts(t *testing.T) {
 	raw := []string{
 		"i18nopenapi", "VideoProjectSuppressionStart",
