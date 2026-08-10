@@ -1,4 +1,4 @@
-package cmd
+package release
 
 import (
 	"io/ioutil"
@@ -9,12 +9,19 @@ import (
 	"testing"
 )
 
-func TestReleasePublishesStablePointersAfterNPM(t *testing.T) {
+// repoRootForTest returns the repository root relative to this test file
+// (scripts/release/ is two directories below the repo root).
+func repoRootForTest(t *testing.T) string {
+	t.Helper()
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("resolve current test file")
 	}
-	repoRoot := filepath.Dir(filepath.Dir(currentFile))
+	return filepath.Dir(filepath.Dir(filepath.Dir(currentFile)))
+}
+
+func TestReleasePublishesStablePointersAfterNPM(t *testing.T) {
+	repoRoot := repoRootForTest(t)
 	workflowPath := filepath.Join(repoRoot, ".github", "workflows", "release.yml")
 	data, err := ioutil.ReadFile(workflowPath)
 	if err != nil {
@@ -126,11 +133,7 @@ func TestReleaseVersionGuard(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skipf("python3 is not available: %v", err)
 	}
-	_, currentFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("resolve current test file")
-	}
-	script := filepath.Join(filepath.Dir(filepath.Dir(currentFile)), "scripts", "release_version_guard.py")
+	script := filepath.Join(repoRootForTest(t), "scripts", "release_version_guard.py")
 
 	tests := []struct {
 		name      string
@@ -178,11 +181,7 @@ func TestReleaseVersionGuardSelectsHighestChannelVersion(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skipf("python3 is not available: %v", err)
 	}
-	_, currentFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("resolve current test file")
-	}
-	script := filepath.Join(filepath.Dir(filepath.Dir(currentFile)), "scripts", "release_version_guard.py")
+	script := filepath.Join(repoRootForTest(t), "scripts", "release_version_guard.py")
 
 	tests := []struct {
 		name     string
