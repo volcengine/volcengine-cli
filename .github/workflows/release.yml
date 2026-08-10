@@ -22,6 +22,8 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     defaults:
       run:
         shell: bash
@@ -120,53 +122,6 @@ jobs:
 
           aws --endpoint-url "$endpoint" s3 ls "$destination" --recursive
 
-      - name: Publish version manifest to TOS root
-        if: ${{ !contains(steps.version.outputs.version, '-') }}
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.TOS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.TOS_SECRET_ACCESS_KEY }}
-          AWS_MAX_ATTEMPTS: "2"
-          AWS_CLI_CONNECT_TIMEOUT: "10"
-          AWS_CLI_READ_TIMEOUT: "60"
-          TOS_BUCKET: ${{ vars.TOS_BUCKET }}
-          TOS_PREFIX: ${{ vars.TOS_PREFIX }}
-          TOS_REGION: ${{ vars.TOS_REGION }}
-          TOS_S3_ENDPOINT: ${{ vars.TOS_S3_ENDPOINT }}
-          TOS_PUBLIC_BASE_URL: ${{ vars.TOS_PUBLIC_BASE_URL }}
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          : "${AWS_ACCESS_KEY_ID:?missing secret TOS_ACCESS_KEY_ID}"
-          : "${AWS_SECRET_ACCESS_KEY:?missing secret TOS_SECRET_ACCESS_KEY}"
-
-          export AWS_DEFAULT_REGION="${TOS_REGION:-cn-beijing}"
-          bucket="${TOS_BUCKET:-eps-common-public}"
-          prefix="${TOS_PREFIX:-ve}"
-          endpoint="${TOS_S3_ENDPOINT:-https://tos-s3-cn-beijing.volces.com}"
-          public_base="${TOS_PUBLIC_BASE_URL:-https://cloudcache.volccdn.com}"
-          cdn_base="${public_base%/}/${prefix}"
-          root_dest="s3://${bucket}/${prefix}/"
-
-          aws configure set default.s3.addressing_style virtual
-
-          VERSION="$VERSION" CDN_BASE="$cdn_base" python3 - <<'PY'
-          import json, os
-          from pathlib import Path
-          version = os.environ["VERSION"]
-          cdn_base = os.environ["CDN_BASE"]
-          Path("latest").write_text(version + "\n")
-          manifest = {
-              "latest": version,
-              "min_supported": "1.0.20",
-              "security_update": False,
-              "channels": {"cdn_base": cdn_base},
-          }
-          Path("version_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-          PY
-
-          aws --endpoint-url "$endpoint" s3 cp latest "${root_dest}latest"
-          aws --endpoint-url "$endpoint" s3 cp version_manifest.json "${root_dest}version_manifest.json"
-          aws --endpoint-url "$endpoint" s3 ls "$root_dest"
-
       - name: Configure npm package for TOS
         env:
           TOS_PREFIX: ${{ vars.TOS_PREFIX }}
@@ -203,8 +158,197 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           : "${NODE_AUTH_TOKEN:?missing secret NPM_TOKEN}"
+
+          npm_version_or_empty() {
+            local package_spec="$1"
+            local error_file
+            local version
+            error_file="$(mktemp)"
+            if version="$(npm view "$package_spec" version 2>"$error_file")"; then
+              rm -f "$error_file"
+              printf '%s' "$version"
+              return
+            fi
+            if grep -Eq 'E404|No match found|is not in this registry' "$error_file"; then
+              rm -f "$error_file"
+              return
+            fi
+            cat "$error_file" >&2
+            rm -f "$error_file"
+            return 1
+          }
+
+          package_spec="@volcengine/cli@${VERSION}"
+          published_version="$(npm_version_or_empty "$package_spec")"
+
+          staging_tag=""
+          cleanup_staging_tag() {
+            if [[ -n "$staging_tag" ]]; then
+              npm dist-tag rm "@volcengine/cli" "$staging_tag"
+            fi
+          }
+          trap 'status=$?; cleanup_staging_tag || true; exit "$status"' EXIT
+
+          if [[ "$published_version" != "$VERSION" ]]; then
+            staging_tag="release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            npm publish --access public --tag "$staging_tag"
+          fi
+          cleanup_staging_tag
+          staging_tag=""
+          trap - EXIT
+
+  promote:
+    needs: release
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-channel-${{ contains(needs.release.outputs.version, '-') && 'next' || 'latest' }}
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Install AWS CLI
+        run: |
+          python3 -m pip install --user --upgrade awscli
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Promote npm channel
+        id: promote
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.TOS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.TOS_SECRET_ACCESS_KEY }}
+          VERSION: ${{ needs.release.outputs.version }}
+          TOS_BUCKET: ${{ vars.TOS_BUCKET }}
+          TOS_PREFIX: ${{ vars.TOS_PREFIX }}
+          TOS_REGION: ${{ vars.TOS_REGION }}
+          TOS_S3_ENDPOINT: ${{ vars.TOS_S3_ENDPOINT }}
+        run: |
+          : "${NODE_AUTH_TOKEN:?missing secret NPM_TOKEN}"
+
+          npm_version_or_empty() {
+            local package_spec="$1"
+            local error_file
+            local version
+            error_file="$(mktemp)"
+            if version="$(npm view "$package_spec" version 2>"$error_file")"; then
+              rm -f "$error_file"
+              printf '%s' "$version"
+              return
+            fi
+            if grep -Eq 'E404|No match found|is not in this registry' "$error_file"; then
+              rm -f "$error_file"
+              return
+            fi
+            cat "$error_file" >&2
+            rm -f "$error_file"
+            return 1
+          }
+
           npm_tag="latest"
           if [[ "$VERSION" == *-* ]]; then
             npm_tag="next"
           fi
-          npm publish --access public --tag "$npm_tag"
+
+          published_versions_json="$(npm view "@volcengine/cli" versions --json)"
+          promote_version="$(python3 scripts/release_version_guard.py \
+            --select-channel "$npm_tag" \
+            --versions-json "$published_versions_json")"
+          package_spec="@volcengine/cli@${promote_version}"
+          published_version="$(npm_version_or_empty "$package_spec")"
+          if [[ "$published_version" != "$promote_version" ]]; then
+            echo "${package_spec} must exist before channel promotion" >&2
+            exit 1
+          fi
+
+          current_npm_version="$(npm_version_or_empty "@volcengine/cli@${npm_tag}")"
+          current_tos_version=""
+          if [[ "$npm_tag" == "latest" ]]; then
+            : "${AWS_ACCESS_KEY_ID:?missing secret TOS_ACCESS_KEY_ID}"
+            : "${AWS_SECRET_ACCESS_KEY:?missing secret TOS_SECRET_ACCESS_KEY}"
+            export AWS_DEFAULT_REGION="${TOS_REGION:-cn-beijing}"
+            bucket="${TOS_BUCKET:-eps-common-public}"
+            prefix="${TOS_PREFIX:-ve}"
+            endpoint="${TOS_S3_ENDPOINT:-https://tos-s3-cn-beijing.volces.com}"
+            manifest_error="$(mktemp)"
+            if current_manifest="$(aws --endpoint-url "$endpoint" s3 cp \
+              "s3://${bucket}/${prefix}/version_manifest.json" - 2>"$manifest_error")"; then
+              rm -f "$manifest_error"
+              current_tos_version="$(python3 -c \
+                'import json,sys; print(json.load(sys.stdin).get("latest", ""))' \
+                <<<"$current_manifest")"
+            elif grep -Eq '404|NoSuchKey|Not Found' "$manifest_error"; then
+              rm -f "$manifest_error"
+            else
+              cat "$manifest_error" >&2
+              rm -f "$manifest_error"
+              exit 1
+            fi
+          fi
+
+          advance_channel="$(python3 scripts/release_version_guard.py \
+            --candidate "$promote_version" \
+            --current "npm:${npm_tag}=${current_npm_version}" \
+            --current "tos:stable=${current_tos_version}")"
+          echo "advance_channel=${advance_channel}" >> "$GITHUB_OUTPUT"
+          echo "promote_version=${promote_version}" >> "$GITHUB_OUTPUT"
+          if [[ "$advance_channel" == "true" ]]; then
+            npm dist-tag add "$package_spec" "$npm_tag"
+          fi
+
+      - name: Publish version manifest to TOS root
+        if: ${{ !contains(steps.promote.outputs.promote_version, '-') && steps.promote.outputs.advance_channel == 'true' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.TOS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.TOS_SECRET_ACCESS_KEY }}
+          AWS_MAX_ATTEMPTS: "2"
+          AWS_CLI_CONNECT_TIMEOUT: "10"
+          AWS_CLI_READ_TIMEOUT: "60"
+          TOS_BUCKET: ${{ vars.TOS_BUCKET }}
+          TOS_PREFIX: ${{ vars.TOS_PREFIX }}
+          TOS_REGION: ${{ vars.TOS_REGION }}
+          TOS_S3_ENDPOINT: ${{ vars.TOS_S3_ENDPOINT }}
+          TOS_PUBLIC_BASE_URL: ${{ vars.TOS_PUBLIC_BASE_URL }}
+          VERSION: ${{ steps.promote.outputs.promote_version }}
+        run: |
+          : "${AWS_ACCESS_KEY_ID:?missing secret TOS_ACCESS_KEY_ID}"
+          : "${AWS_SECRET_ACCESS_KEY:?missing secret TOS_SECRET_ACCESS_KEY}"
+
+          export AWS_DEFAULT_REGION="${TOS_REGION:-cn-beijing}"
+          bucket="${TOS_BUCKET:-eps-common-public}"
+          prefix="${TOS_PREFIX:-ve}"
+          endpoint="${TOS_S3_ENDPOINT:-https://tos-s3-cn-beijing.volces.com}"
+          public_base="${TOS_PUBLIC_BASE_URL:-https://cloudcache.volccdn.com}"
+          cdn_base="${public_base%/}/${prefix}"
+          root_dest="s3://${bucket}/${prefix}/"
+
+          aws configure set default.s3.addressing_style virtual
+
+          VERSION="$VERSION" CDN_BASE="$cdn_base" python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          version = os.environ["VERSION"]
+          cdn_base = os.environ["CDN_BASE"]
+          Path("latest").write_text(version + "\n")
+          manifest = {
+              "latest": version,
+              "min_supported": "1.0.20",
+              "security_update": False,
+              "channels": {"cdn_base": cdn_base},
+          }
+          Path("version_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          PY
+
+          aws --endpoint-url "$endpoint" s3 cp version_manifest.json "${root_dest}version_manifest.json"
+          aws --endpoint-url "$endpoint" s3 cp latest "${root_dest}latest"
+          aws --endpoint-url "$endpoint" s3 ls "$root_dest"
