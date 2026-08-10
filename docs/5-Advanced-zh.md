@@ -247,7 +247,7 @@ CLI 内置了部分云产品的元数据，正常调用时会校验 service 和 
 - 未收录 service 没有元数据可推 host：需要固定 host（`--endpoint`，或 profile/`VOLCENGINE_ENDPOINT` 在**未**设置 `endpoint-resolver=standard` 时）。仅配置 `endpoint-resolver=standard` / `auto-addressing` 不够。
 - 已收录 service 在 force 模式下可不传 `--version`，行为与正常路径一致（如 `ve sts GetCallerIdentity --force`）。
 - `--method` 在正常路径与 force 路径使用相同解析顺序：显式 `--method` 覆盖元数据；未指定时优先用已收录 action 的 Method；均无则默认 `GET`（不因 `--force` 而改变）。
-- 对外系统参数统一用 **双横线** `--`（含 `--force` / `--version` / `--method`）。历史三横线别名在与 API 参数冲突时仍可作为逃逸，但不对外宣传。HTTP 头/JSON body 用双横线保留控制参数 **`--header` / `--body`**（见 [使用指南](4-Usage-zh.md#双横线保留控制参数)）。
+- 对外系统参数统一用 **双横线** `--`（含 `--force` / `--version` / `--method`）。HTTP 头/JSON body 用双横线保留控制参数 **`--header` / `--body`**（见 [使用指南](4-Usage-zh.md#双横线保留控制参数)）。
 - `--force` 是**纯开关**：只写 `--force` 本身。不要写 `--force true` 或 `--force false`；其后的 token 会被当成位置参数（常被误当成 action 名）。
 
 ### 示例

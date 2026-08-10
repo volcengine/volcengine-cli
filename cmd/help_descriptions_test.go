@@ -3,6 +3,9 @@ package cmd
 import (
 	"bytes"
 	"fmt"
+	"io/ioutil"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -388,6 +391,51 @@ func TestPublicHelpOmitsLegacySystemFlagAliases(t *testing.T) {
 		for _, alias := range []string{"---profile", "---region", "---endpoint", "---lang", "---force", "---version", "---method"} {
 			if strings.Contains(output, alias) {
 				t.Fatalf("%s help exposes historical alias %q:\n%s", name, alias, output)
+			}
+		}
+	}
+}
+
+func TestPublicDocsOnlyAdvertiseDoubleDashSystemFlags(t *testing.T) {
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve current test file")
+	}
+	repoRoot := filepath.Dir(filepath.Dir(currentFile))
+	publicDocs := []string{
+		"README.MD",
+		"README.EN.MD",
+		"docs/1-GettingStarted-zh.md",
+		"docs/1-GettingStarted.md",
+		"docs/2-Authentication-zh.md",
+		"docs/2-Authentication.md",
+		"docs/3-Configuration-zh.md",
+		"docs/3-Configuration.md",
+		"docs/4-Usage-zh.md",
+		"docs/4-Usage.md",
+		"docs/5-Advanced-zh.md",
+		"docs/5-Advanced.md",
+	}
+	forbidden := []string{
+		"---profile",
+		"---region",
+		"---endpoint",
+		"---lang",
+		"---version",
+		"---method",
+		"---force",
+		"三横线",
+		"triple-dash",
+	}
+
+	for _, name := range publicDocs {
+		content, err := ioutil.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(name)))
+		if err != nil {
+			t.Fatalf("read public doc %s: %v", name, err)
+		}
+		for _, value := range forbidden {
+			if strings.Contains(string(content), value) {
+				t.Errorf("public doc %s exposes internal compatibility syntax %q", name, value)
 			}
 		}
 	}

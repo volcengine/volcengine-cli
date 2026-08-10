@@ -18,7 +18,7 @@ Argument kinds:
 - **Public system flags** (after the action): `--profile` / `--region` / `--endpoint` / `--lang` / `--version` / `--method` / `--force`
 - **Reserved double-dash controls**: `--header` (HTTP headers), `--body` (JSON body); **not** API parameters
 
-System flags in API calls are placed after the action. If an action exposes an exact-name API parameter (case-sensitive), the double-dash form is parsed as the API parameter; use the historical triple-dash alias (`---profile`, `---force`, …) as a system-flag escape. Triple-dash aliases work but are not advertised.
+System flags in API calls use double hyphens and are placed after the action. If an action exposes an exact-name API parameter (case-sensitive), the double-dash form is parsed as the API parameter.
 
 ## Discover Services and Actions
 
@@ -300,15 +300,7 @@ Missing region:
 region not set, please set it via profile, --region flag, or VOLCENGINE_REGION environment variable
 ```
 
-Unsupported system flag:
-
-```text
----debug is not supported, supported system flags: --profile, --region, --endpoint, --lang, --force, --version, --method
-```
-
 Public system flags (double-dash): `--profile`, `--region`, `--endpoint`, `--lang`, `--force`, `--version`, `--method`.
-Historical triple-dash aliases still work as a system-flag escape when an API parameter uses the same name.
-Non-conflicting `--lang` / `---lang` is resolved before argument parsing, so the parser error list above does not include it.
 Reserved double-dash controls: `--header`, `--body` (see “Reserved Double-Dash Controls” above).
 
 ---

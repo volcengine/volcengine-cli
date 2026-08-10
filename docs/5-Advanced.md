@@ -247,7 +247,7 @@ Notes:
 - Unlisted services have no metadata host: you need a fixed host (`--endpoint`, or profile/`VOLCENGINE_ENDPOINT` when `endpoint-resolver` is **not** `standard`). `endpoint-resolver=standard` or `auto-addressing` alone is not enough.
 - Bundled services can omit `--version` in force mode, same as normal calls (e.g. `ve sts GetCallerIdentity --force`).
 - `--method` uses the same resolution order on normal and force paths: explicit `--method` overrides metadata; otherwise bundled action `Method`; otherwise defaults to `GET` (`--force` does not change this).
-- Public system flags use **double hyphens** `--` (including `--force` / `--version` / `--method`). Historical triple-dash aliases still work as a conflict escape but are not advertised. HTTP headers/JSON body use reserved double-dash controls **`--header` / `--body`** (see [Usage](4-Usage.md#reserved-double-dash-controls)).
+- Public system flags use **double hyphens** `--` (including `--force` / `--version` / `--method`). HTTP headers/JSON body use reserved double-dash controls **`--header` / `--body`** (see [Usage](4-Usage.md#reserved-double-dash-controls)).
 - `--force` is **presence-only**: write `--force` by itself. Do **not** write `--force true` or `--force false`; the next token is treated as a positional argument (often mistaken for an action name).
 
 ### Examples

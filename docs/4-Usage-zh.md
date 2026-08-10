@@ -18,7 +18,7 @@ ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json
 - **对外系统参数**（放在 Action 后）：`--profile` / `--region` / `--endpoint` / `--lang` / `--version` / `--method` / `--force`
 - **双横线保留控制参数**：`--header`（HTTP 头）、`--body`（JSON 请求体）；**不是**业务参数
 
-API 调用中的系统参数统一放在 Action 后。若当前 Action 暴露了大小写完全相同的业务参数，双横线优先按 API 参数解析；此时可用历史三横线别名（`---profile`、`---force` 等）强制走系统参数。三横线别名仍可用，但不对外宣传。
+API 调用中的系统参数统一使用双横线并放在 Action 后。若当前 Action 暴露了大小写完全相同的业务参数，双横线优先按 API 参数解析。
 
 ## 查看服务和接口
 
@@ -299,15 +299,7 @@ credentials not configured, please run 've login' or 've configure set', or set 
 region not set, please set it via profile, --region flag, or VOLCENGINE_REGION environment variable
 ```
 
-系统参数不支持时：
-
-```text
----debug is not supported, supported system flags: --profile, --region, --endpoint, --lang, --force, --version, --method
-```
-
 对外系统参数（双横线）：`--profile`、`--region`、`--endpoint`、`--lang`、`--force`、`--version`、`--method`。
-历史三横线别名在与 API 参数同名冲突时仍可作为系统参数逃逸。
-无冲突的 `--lang` / `---lang` 会在参数解析前被预处理剥离，因此上面 parser 报错列表中不包含它。
 双横线保留控制参数：`--header`、`--body`（见上文「双横线保留控制参数」）。
 
 ---
