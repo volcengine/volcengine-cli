@@ -340,9 +340,11 @@ jobs:
           version = os.environ["VERSION"]
           cdn_base = os.environ["CDN_BASE"]
           Path("latest").write_text(version + "\n")
+          # min_supported / security_update are reserved for future policy;
+          # leave empty/false until a real enforcement path exists.
           manifest = {
               "latest": version,
-              "min_supported": "1.0.20",
+              "min_supported": "",
               "security_update": False,
               "channels": {"cdn_base": cdn_base},
           }
