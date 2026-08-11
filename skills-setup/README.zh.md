@@ -26,15 +26,17 @@ npx -y @volcengine/skills-setup
 |---|---|---|---|
 | CLI 工具 | `ve` | `@volcengine/cli`（npm） | npm 全局 bin（`--local` → 项目 `node_modules/.bin`） |
 | CLI 工具 | `arkcli` | `@volcengine/ark-cli`（npm） | 同上（检测时 `arkcli` / `ark-cli` 两种拼写都认） |
-| Agent Skills | `volcengine/volcengine-skills` 全部 skill | 预打包 **bundle zip** | 目标 agent 的 skills 目录 |
+| Agent Skills | `volcengine/volcengine-skills` 的 4 个核心 skill | 预打包 **bundle zip** | 目标 agent 的 skills 目录 |
 
-> bundle 里**只含** `volcengine-*` 这批 skill；**不再打包** `arkcli-*`——因为第 2
-> 步安装 `@volcengine/ark-cli` 时它自带这批 skill，再打包会重复安装同一批 skill。
+> bundle 里**只含** `skills/core` 下的 `volcengine-cli`、
+> `volcengine-troubleshooting`、`volcengine-knowledge-search` 和
+> `volcengine-find-skills`；**不再打包** `arkcli-*`——因为第 2 步安装
+> `@volcengine/ark-cli` 时它自带这批 skill，再打包会重复安装同一批 skill。
 
 **skill 是怎么装的** —— 运行时**不从 GitHub clone**，而是：
 
-1. 下载一个 **bundle `.zip`**（内含 `volcengine/volcengine-skills` 仓库的
-   skill 目录）。
+1. 下载一个 **bundle `.zip`**（内含 `volcengine/volcengine-skills`
+   仓库 `skills/core` 下的 skill 目录）。
 2. 用 `tar`（失败回退 `unzip`）在本地解压。
 3. 把解压目录交给 `npx skills add <目录>`。
 

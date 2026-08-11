@@ -29,16 +29,18 @@ re-run):
 |---|---|---|---|
 | CLI tool | `ve` | `@volcengine/cli` (npm) | npm global bin (`--local` → project `node_modules/.bin`) |
 | CLI tool | `arkcli` | `@volcengine/ark-cli` (npm) | same as above (`ark-cli` spelling also accepted when detecting) |
-| Agent skills | all `volcengine/volcengine-skills` skills | pre-packaged **bundle zip** | the target agent's skills directory |
+| Agent skills | four core `volcengine/volcengine-skills` skills | pre-packaged **bundle zip** | the target agent's skills directory |
 
-> The bundle contains **only** the `volcengine-*` skills. The `arkcli-*` skills
-> are **not** re-bundled: installing `@volcengine/ark-cli` (step 2) already ships
-> them, so bundling them again would just install the same skills twice.
+> The bundle contains **only** `volcengine-cli`, `volcengine-troubleshooting`,
+> `volcengine-knowledge-search`, and `volcengine-find-skills` from `skills/core`.
+> The `arkcli-*` skills are **not** re-bundled: installing
+> `@volcengine/ark-cli` (step 2) already ships them, so bundling them again would
+> just install the same skills twice.
 
 **How skills are installed** — instead of cloning GitHub at runtime, the tool:
 
 1. Downloads a **bundle `.zip`** (contains the skill directories from
-   `volcengine/volcengine-skills`).
+   `skills/core` in `volcengine/volcengine-skills`).
 2. Extracts it locally with `tar` (falling back to `unzip`).
 3. Hands the extracted directory to `npx skills add <dir>`.
 

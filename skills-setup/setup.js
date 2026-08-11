@@ -21,8 +21,9 @@ const BINARIES = [
 
 // The repo the skills bundle is built from (informational; the bundle itself
 // is downloaded pre-packaged, so this tool never clones it at runtime). Only
-// `volcengine/volcengine-skills` is bundled — arkcli ships its own skills when
-// `@volcengine/ark-cli` is installed, so re-bundling them here is redundant.
+// `skills/core` from `volcengine/volcengine-skills` is bundled — arkcli ships
+// its own skills when `@volcengine/ark-cli` is installed, so re-bundling them
+// here is redundant.
 const SKILL_REPOS = ["volcengine/volcengine-skills"];
 
 // Default location of the pre-packaged skills bundle (a .zip containing skill
@@ -30,7 +31,7 @@ const SKILL_REPOS = ["volcengine/volcengine-skills"];
 // `skills add <dir>`. Override with --bundle-url or the SKILLS_BUNDLE_URL env
 // var; use a local zip with --bundle-file.
 const DEFAULT_BUNDLE_URL =
-  "https://cloudcache.volccdn.com/ve/skills/v1.6.0/volcengine-skill-bundle.zip";
+  "https://cloudcache.volccdn.com/ve/skills/v1.7.0/volcengine-skill-bundle.zip";
 
 // Default agents targeted by `skills add` when the caller does not pass
 // `--agent`. We enumerate the supported agents explicitly instead of using the

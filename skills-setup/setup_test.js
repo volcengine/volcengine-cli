@@ -388,7 +388,7 @@ check("npxArgvForSource defaults", () => {
 check("resolveBundleUrl priority: flag > env > default", () => {
   assert.strictEqual(
     DEFAULT_BUNDLE_URL,
-    "https://cloudcache.volccdn.com/ve/skills/v1.6.0/volcengine-skill-bundle.zip"
+    "https://cloudcache.volccdn.com/ve/skills/v1.7.0/volcengine-skill-bundle.zip"
   );
   assert.strictEqual(
     resolveBundleUrl({ bundleUrl: BUNDLE_URL }, { SKILLS_BUNDLE_URL: "http://env/x.zip" }),
@@ -810,6 +810,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
   // --- package.json / bin shim --------------------------------------------
   assert.strictEqual(pkg.bin["skills-setup"], "bin/skills-setup");
   assert.strictEqual(pkg.name, "@volcengine/skills-setup");
+  assert.strictEqual(pkg.version, "0.7.0");
   assert.strictEqual(pkg.engines.node, ">=20");
   assert.strictEqual(pkg.dependencies, undefined);
   assert.strictEqual(
