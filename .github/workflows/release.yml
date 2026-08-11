@@ -260,7 +260,7 @@ jobs:
             npm_tag="next"
           fi
 
-          published_versions_json="$(npm view "@volcengine/cli" versions --json)"
+          published_versions_json="$(npm view "@volcengine/cli@${VERSION}" versions --json)"
           promote_version="$(python3 scripts/release_version_guard.py \
             --select-channel "$npm_tag" \
             --versions-json "$published_versions_json")"

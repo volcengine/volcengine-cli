@@ -95,7 +95,7 @@ func TestReleasePublishesStablePointersAfterNPM(t *testing.T) {
 	promoteStep := workflow[promoteStart:stablePublishStart]
 	for _, want := range []string{
 		"id: promote",
-		`npm view "@volcengine/cli" versions --json`,
+		`npm view "@volcengine/cli@${VERSION}" versions --json`,
 		`--select-channel "$npm_tag"`,
 		`package_spec="@volcengine/cli@${promote_version}"`,
 		`published_version="$(npm_version_or_empty "$package_spec")"`,
@@ -109,6 +109,9 @@ func TestReleasePublishesStablePointersAfterNPM(t *testing.T) {
 		if !strings.Contains(promoteStep, want) {
 			t.Fatalf("npm channel promotion step missing guard %q", want)
 		}
+	}
+	if strings.Contains(promoteStep, `npm view "@volcengine/cli" versions --json`) {
+		t.Fatal("version discovery must not depend on latest existing before the first publish")
 	}
 
 	stableStep := workflow[lastIndex:]
