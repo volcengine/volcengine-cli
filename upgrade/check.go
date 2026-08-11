@@ -270,14 +270,18 @@ func SaveCheckFailure(previousLatest, current string) error {
 }
 
 func saveVersionCheckCache(latest, current string, failed bool) error {
-	prev, _ := loadCheckCacheFile()
-	return writeCheckCache(versionCheckCache{
-		CheckedAt:      time.Now().Unix(),
-		Latest:         NormalizeVersion(latest),
-		Current:        NormalizeVersion(current),
-		Failed:         failed,
-		NoticedAt:      prev.NoticedAt,
-		NoticedCurrent: prev.NoticedCurrent,
+	// Serialize with notice claims so a concurrent SaveCheckCache cannot clobber
+	// NoticedAt/NoticedCurrent mid-claim (which would re-enable same-day spam).
+	return withNoticeCacheLock(func() error {
+		prev, _ := loadCheckCacheFile()
+		return writeCheckCacheUnlocked(versionCheckCache{
+			CheckedAt:      time.Now().Unix(),
+			Latest:         NormalizeVersion(latest),
+			Current:        NormalizeVersion(current),
+			Failed:         failed,
+			NoticedAt:      prev.NoticedAt,
+			NoticedCurrent: prev.NoticedCurrent,
+		})
 	})
 }
 
@@ -297,14 +301,91 @@ func noticeAlreadyClaimedToday(c versionCheckCache, currentVersion string, now t
 	return sameLocalCalendarDay(time.Unix(c.NoticedAt, 0), now)
 }
 
+// noticeCacheLockWait is how long claim/save wait for the cross-process lock.
+// Bounded so a stuck holder cannot hang every ve process on the notice path.
+const noticeCacheLockWait = 500 * time.Millisecond
+
+// noticeCacheLockPath is a sibling lock file for version_check.json cross-process claim.
+// The lock file is never unlinked: flock/LockFileEx bind to the open inode/handle;
+// deleting a held lock path lets another process create a new inode and dual-hold.
+func noticeCacheLockPath() (string, error) {
+	path, err := CheckCachePath()
+	if err != nil {
+		return "", err
+	}
+	return path + ".lock", nil
+}
+
+// withNoticeCacheLock runs fn under an exclusive lock on the notice cache when
+// possible (best-effort, not a hard mutex guarantee).
+//
+// Waits up to noticeCacheLockWait using non-blocking lock attempts.
+// If the lock cannot be acquired (timeout, permissions, missing config dir),
+// fn still runs unlocked: prefer a possible duplicate notice over permanently
+// hiding upgrades or hanging the CLI. On normal local disks concurrent ve
+// processes serialize and meet the once-per-day contract (14_upgrade_e2e-10).
+//
+// Not re-entrant: do not call writeCheckCache / SaveCheckCache / this helper
+// again from inside fn — nested acquire will busy-wait then fall back to the
+// unlocked path. Locked sections must use writeCheckCacheUnlocked only.
+func withNoticeCacheLock(fn func() error) error {
+	lockPath, err := noticeCacheLockPath()
+	if err != nil {
+		return fn()
+	}
+	lock, err := acquireExclusiveFileLockWithWait(lockPath, noticeCacheLockWait)
+	if err != nil {
+		return fn()
+	}
+	defer lock.release()
+	return fn()
+}
+
+// acquireExclusiveFileLockWithWait polls a non-blocking exclusive lock until
+// success, a non-busy error, or deadline. Avoids unbounded flock/LockFileEx waits.
+func acquireExclusiveFileLockWithWait(lockPath string, wait time.Duration) (*upgradeLock, error) {
+	deadline := time.Now().Add(wait)
+	var lastErr error
+	for {
+		lock, err := acquireExclusiveFileLock(lockPath)
+		if err == nil {
+			return lock, nil
+		}
+		lastErr = err
+		if !isUpgradeLockBusy(err) {
+			return nil, err
+		}
+		if !time.Now().Before(deadline) {
+			return nil, lastErr
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 // tryClaimUpgradeNotice claims the once-per-day notice slot for currentVersion.
 // Returns true if the caller should print; false if already claimed today for
-// this running version. Best-effort write: a disk error still returns true so a
-// transient FS issue does not permanently hide upgrades, at the cost of possible
-// re-print on the next command.
+// this running version.
+//
+// Cross-process: claim is serialized with a file lock so concurrent ve processes
+// (see 14_upgrade_e2e-10) observe at most one winner per current+day when the
+// lock is acquired. If locking fails, claim still proceeds unlocked (may
+// double-print) so upgrades are never permanently hidden.
+// Best-effort write: a disk error still returns true so a transient FS issue does
+// not permanently hide upgrades, at the cost of possible re-print on the next command.
 func tryClaimUpgradeNotice(latest, current string) bool {
 	current = NormalizeVersion(current)
 	now := time.Now()
+	var shouldPrint bool
+	_ = withNoticeCacheLock(func() error {
+		shouldPrint = claimUpgradeNoticeLocked(latest, current, now)
+		return nil
+	})
+	return shouldPrint
+}
+
+// claimUpgradeNoticeLocked must run under withNoticeCacheLock (or unlocked
+// fallback). It re-reads the cache so concurrent waiters see the winner's stamp.
+func claimUpgradeNoticeLocked(latest, current string, now time.Time) bool {
 	c, ok := loadCheckCacheFile()
 	if ok && noticeAlreadyClaimedToday(c, current, now) {
 		return false
@@ -313,11 +394,12 @@ func tryClaimUpgradeNotice(latest, current string) bool {
 	if ok {
 		c.NoticedAt = ts
 		c.NoticedCurrent = current
-		_ = writeCheckCache(c)
+		// Write failure: still print (do not hide upgrades), may re-print later.
+		_ = writeCheckCacheUnlocked(c)
 		return true
 	}
 	// Rare: print path without a readable cache. Persist enough state to throttle.
-	_ = writeCheckCache(versionCheckCache{
+	_ = writeCheckCacheUnlocked(versionCheckCache{
 		CheckedAt:      ts,
 		Latest:         NormalizeVersion(latest),
 		Current:        current,
@@ -328,6 +410,8 @@ func tryClaimUpgradeNotice(latest, current string) bool {
 }
 
 // InvalidateCheckCache removes the version check cache (best-effort).
+// Does not delete the sibling .lock file: unlinking a held lock path allows a
+// second process to create a new inode and take a concurrent "exclusive" lock.
 func InvalidateCheckCache() {
 	path, err := CheckCachePath()
 	if err != nil {
@@ -337,6 +421,12 @@ func InvalidateCheckCache() {
 }
 
 func writeCheckCache(c versionCheckCache) error {
+	return withNoticeCacheLock(func() error {
+		return writeCheckCacheUnlocked(c)
+	})
+}
+
+func writeCheckCacheUnlocked(c versionCheckCache) error {
 	path, err := CheckCachePath()
 	if err != nil {
 		return err
@@ -344,11 +434,25 @@ func writeCheckCache(c versionCheckCache) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
+	// Refuse existing non-regular paths (symlink/FIFO/dir). WriteFile still
+	// follows links if the path is replaced after Lstat; this is best-effort
+	// hardening for a single-user config dir, not a full O_NOFOLLOW open.
+	if err := rejectNonRegularPath(path); err != nil {
+		return err
+	}
 	data, err := json.Marshal(c)
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(path, data, 0600)
+	// Direct write under the exclusive lock (or rare unlocked fallback). Avoid
+	// remove-then-rename, which can delete the only good cache if rename fails
+	// (Windows AV/ACL) and reopen multi-claim when waiters see a missing stamp.
+	if err := ioutil.WriteFile(path, data, 0600); err != nil {
+		return err
+	}
+	// WriteFile only applies mode on create; re-tighten existing files.
+	_ = os.Chmod(path, 0600)
+	return nil
 }
 
 // CheckForUpdate resolves latest version (using cache when fresh).
@@ -509,8 +613,9 @@ func FormatUpgradeNoticeFor(current, latest string, info InstallInfo) string {
 // MaybePrintUpgradeNotice prints to stderr when an update is available.
 // Throttle: the same running current version is reminded at most once per local
 // calendar day; after current changes (upgrade), another notice is allowed even
-// the same day. Claims the slot before printing so concurrent ve processes are
-// less likely to double-print. Never writes to stdout.
+// the same day. Claims the slot under a cross-process file lock before printing
+// so concurrent ve processes print at most once when locking succeeds. Never
+// writes to stdout.
 func MaybePrintUpgradeNotice(stderr *os.File, currentVersion string, ac *AsyncCheck) {
 	if ac == nil || stderr == nil {
 		return

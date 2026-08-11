@@ -1,11 +1,13 @@
 package upgrade
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -238,7 +240,7 @@ func TestCheckForUpdate_PreservesStaleLatestOnRemoteFailure(t *testing.T) {
 
 	// 强制 CDN + GitHub 探测全部失败（避免仅关 CDN 时 GitHub 回退仍成功）。
 	SetCheckHTTPClient(&http.Client{
-		Timeout:   200 * time.Millisecond,
+		Timeout: 200 * time.Millisecond,
 		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 			return nil, fmt.Errorf("forced network failure")
 		}),
@@ -598,6 +600,229 @@ func TestNoticeAlreadyClaimedToday(t *testing.T) {
 	}
 	if noticeAlreadyClaimedToday(versionCheckCache{}, "1.0.50", now) {
 		t.Fatal("empty stamp should not claim")
+	}
+}
+
+// TestTryClaimUpgradeNotice_ConcurrentGoroutines verifies in-process serialization
+// of the once-per-day claim under a shared cache directory.
+func TestTryClaimUpgradeNotice_ConcurrentGoroutines(t *testing.T) {
+	dir := t.TempDir()
+	orig := ConfigDirFunc
+	ConfigDirFunc = func() (string, error) { return dir, nil }
+	defer func() { ConfigDirFunc = orig }()
+
+	if err := SaveCheckCache("9.9.9", "1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+
+	const n = 32
+	var (
+		wg      sync.WaitGroup
+		mu      sync.Mutex
+		claimed int
+	)
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func() {
+			defer wg.Done()
+			if tryClaimUpgradeNotice("9.9.9", "1.0.0") {
+				mu.Lock()
+				claimed++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if claimed != 1 {
+		t.Fatalf("claimed=%d, want exactly 1 under concurrent goroutines", claimed)
+	}
+	c, ok := loadCheckCacheFile()
+	if !ok || c.NoticedCurrent != "1.0.0" || c.NoticedAt <= 0 {
+		t.Fatalf("cache after claim: ok=%v noticed_current=%q noticed_at=%d", ok, c.NoticedCurrent, c.NoticedAt)
+	}
+}
+
+// TestTryClaimUpgradeNotice_ConcurrentProcesses mirrors 14_upgrade_e2e-10:
+// many real OS processes race on the same HOME cache; only one may claim.
+// Worker mode is activated via VE_TEST_NOTICE_CLAIM_WORKER=1 (re-exec of this test).
+func TestTryClaimUpgradeNotice_ConcurrentProcesses(t *testing.T) {
+	if os.Getenv("VE_TEST_NOTICE_CLAIM_WORKER") == "1" {
+		// Subprocess worker: ConfigDir is ~/.volcengine via HOME/USERPROFILE.
+		if tryClaimUpgradeNotice("9.9.9", "1.0.0") {
+			fmt.Print("1")
+		} else {
+			fmt.Print("0")
+		}
+		os.Exit(0)
+	}
+
+	home := t.TempDir()
+	cliDir := filepath.Join(home, ".volcengine", "cli")
+	if err := os.MkdirAll(cliDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	// Seed a readable cache so claim path updates NoticedAt rather than synthesizing.
+	seed := versionCheckCache{
+		CheckedAt: time.Now().Unix(),
+		Latest:    "9.9.9",
+		Current:   "1.0.0",
+	}
+	data, err := json.Marshal(seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ioutil.WriteFile(filepath.Join(cliDir, versionCheckFileName), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	const (
+		rounds    = 5
+		processes = 16
+	)
+	for round := 0; round < rounds; round++ {
+		// Reset notice throttle between rounds (same current, new day stamp cleared).
+		seed.NoticedAt = 0
+		seed.NoticedCurrent = ""
+		seed.CheckedAt = time.Now().Unix()
+		data, err = json.Marshal(seed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ioutil.WriteFile(filepath.Join(cliDir, versionCheckFileName), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+
+		type result struct {
+			out []byte
+			err error
+		}
+		results := make(chan result, processes)
+		for i := 0; i < processes; i++ {
+			go func() {
+				cmd := exec.Command(os.Args[0], "-test.run=^TestTryClaimUpgradeNotice_ConcurrentProcesses$", "-test.v=false")
+				cmd.Env = noticeClaimWorkerEnv(home)
+				out, err := cmd.Output()
+				results <- result{out: out, err: err}
+			}()
+		}
+		claimed := 0
+		for i := 0; i < processes; i++ {
+			r := <-results
+			if r.err != nil {
+				t.Fatalf("round %d worker failed: %v out=%q", round+1, r.err, r.out)
+			}
+			switch strings.TrimSpace(string(r.out)) {
+			case "1":
+				claimed++
+			case "0":
+			default:
+				t.Fatalf("round %d unexpected worker output %q", round+1, r.out)
+			}
+		}
+		if claimed != 1 {
+			t.Fatalf("round %d claimed=%d processes=%d, want exactly 1", round+1, claimed, processes)
+		}
+	}
+}
+
+// noticeClaimWorkerEnv builds a scrubbed env so Windows/Unix workers use the
+// temp home (not the developer's real profile) for version_check.json.
+func noticeClaimWorkerEnv(home string) []string {
+	env := make([]string, 0, len(os.Environ())+4)
+	for _, kv := range os.Environ() {
+		eq := strings.IndexByte(kv, '=')
+		if eq <= 0 {
+			continue
+		}
+		switch strings.ToUpper(kv[:eq]) {
+		case "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "VE_TEST_NOTICE_CLAIM_WORKER":
+			continue
+		}
+		env = append(env, kv)
+	}
+	return append(env,
+		"VE_TEST_NOTICE_CLAIM_WORKER=1",
+		"HOME="+home,
+		"USERPROFILE="+home,
+	)
+}
+
+func TestWriteCheckCache_RejectsSymlink(t *testing.T) {
+	dir := t.TempDir()
+	orig := ConfigDirFunc
+	ConfigDirFunc = func() (string, error) { return dir, nil }
+	defer func() { ConfigDirFunc = orig }()
+
+	cliDir := filepath.Join(dir, cliSubdir)
+	if err := os.MkdirAll(cliDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dir, "secret.txt")
+	if err := ioutil.WriteFile(target, []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(cliDir, versionCheckFileName)
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink not available: %v", err)
+	}
+	err := writeCheckCache(versionCheckCache{CheckedAt: time.Now().Unix(), Latest: "1.0.0"})
+	if err == nil {
+		t.Fatal("expected symlink cache path to be rejected")
+	}
+	body, readErr := ioutil.ReadFile(target)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(body) != "keep" {
+		t.Fatalf("symlink target was clobbered: %q", body)
+	}
+}
+
+// TestSaveCheckCache_ConcurrentWithClaim ensures SaveCheckCache cannot clobber a
+// same-day Noticed* stamp while concurrent claims race for the slot.
+func TestSaveCheckCache_ConcurrentWithClaim(t *testing.T) {
+	dir := t.TempDir()
+	orig := ConfigDirFunc
+	ConfigDirFunc = func() (string, error) { return dir, nil }
+	defer func() { ConfigDirFunc = orig }()
+
+	if err := SaveCheckCache("9.9.9", "1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+
+	const n = 24
+	var (
+		wg      sync.WaitGroup
+		mu      sync.Mutex
+		claimed int
+	)
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			if i%2 == 0 {
+				_ = SaveCheckCache(fmt.Sprintf("9.9.%d", i), "1.0.0")
+				return
+			}
+			if tryClaimUpgradeNotice("9.9.9", "1.0.0") {
+				mu.Lock()
+				claimed++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if claimed != 1 {
+		t.Fatalf("claimed=%d, want 1 while SaveCheckCache races", claimed)
+	}
+	c, ok := loadCheckCacheFile()
+	if !ok || c.NoticedCurrent != "1.0.0" || c.NoticedAt <= 0 {
+		t.Fatalf("notice stamp lost under concurrent save: ok=%v c=%+v", ok, c)
+	}
+	// Second claim same day must still be suppressed after mixed saves.
+	if tryClaimUpgradeNotice("9.9.9", "1.0.0") {
+		t.Fatal("expected same-day claim suppressed after concurrent save/claim")
 	}
 }
 
