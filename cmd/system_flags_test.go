@@ -301,7 +301,12 @@ func TestSystemFlagConflictScanMatchesPublishedMetadata(t *testing.T) {
 		}
 	}
 	sort.Strings(collisions)
-	want := []string{"i18nopenapi.VideoProjectSuppressionStart.lang"}
+	// Published metadata may expose exact-name API parameters that collide with
+	// system flags; dual-dash prefers the API parameter, ---name escapes to system.
+	want := []string{
+		"i18nopenapi.VideoProjectSuppressionStart.lang",
+		"insight.AgentChat.query",
+	}
 	if !reflect.DeepEqual(collisions, want) {
 		t.Fatalf("system flag conflicts = %#v, want %#v", collisions, want)
 	}
@@ -376,12 +381,12 @@ func TestSystemFlagsAreExposedToCompletionWithoutLegacyAliases(t *testing.T) {
 		t.Fatalf("GenBashCompletion returned error: %v", err)
 	}
 	completion := output.String()
-	for _, name := range []string{"--profile", "--region", "--endpoint", "--lang", "--force", "--version", "--method"} {
+	for _, name := range []string{"--profile", "--region", "--endpoint", "--lang", "--force", "--version", "--method", "--output", "--query"} {
 		if !strings.Contains(completion, name) {
 			t.Fatalf("completion missing %q", name)
 		}
 	}
-	for _, name := range []string{"---profile", "---region", "---endpoint", "---lang", "---force", "---version", "---method"} {
+	for _, name := range []string{"---profile", "---region", "---endpoint", "---lang", "---force", "---version", "---method", "---output", "---query"} {
 		if strings.Contains(completion, name) {
 			t.Fatalf("completion exposes historical alias %q", name)
 		}
@@ -413,7 +418,7 @@ func TestSystemFlagHelpMatchesDefs(t *testing.T) {
 			t.Fatalf("localizedSystemFlagsHelp missing public system flag --%s", name)
 		}
 	}
-	for _, alias := range []string{"---profile", "---region", "---endpoint", "---lang", "---force", "---version", "---method"} {
+	for _, alias := range []string{"---profile", "---region", "---endpoint", "---lang", "---force", "---version", "---method", "---output", "---query"} {
 		if strings.Contains(help, alias) {
 			t.Fatalf("localizedSystemFlagsHelp exposes historical alias %q", alias)
 		}

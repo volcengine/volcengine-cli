@@ -6,20 +6,21 @@ import (
 	"fmt"
 )
 
-//ShowJson print data as json
-//data should be map[string]interface{}
+// ShowJson prints data as JSON to stdout.
+// color=true uses the historical ANSI printer; color=false uses indented JSON.
 func ShowJson(data interface{}, color bool) {
 	if color {
 		colorfulJson(data, 0, false, true)
-	} else {
-		buf := bytes.NewBuffer([]byte{})
-		encoder := json.NewEncoder(buf)
-		encoder.SetEscapeHTML(false)
-		encoder.SetIndent("", "    ")
-		encoder.Encode(data)
-
-		fmt.Println(buf.String())
+		return
 	}
+	buf := bytes.NewBuffer(nil)
+	encoder := json.NewEncoder(buf)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "    ")
+	if err := encoder.Encode(data); err != nil {
+		return
+	}
+	fmt.Print(buf.String())
 }
 
 func colorfulJson(data interface{}, indent int, indentValue, lastValue bool) {

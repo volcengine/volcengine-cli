@@ -388,7 +388,7 @@ func TestPublicHelpOmitsLegacySystemFlagAliases(t *testing.T) {
 		"service": serviceUsageTemplate(),
 		"action":  actionUsageTemplate("", nil, false),
 	} {
-		for _, alias := range []string{"---profile", "---region", "---endpoint", "---lang", "---force", "---version", "---method"} {
+		for _, alias := range []string{"---profile", "---region", "---endpoint", "---lang", "---force", "---version", "---method", "---output", "---query"} {
 			if strings.Contains(output, alias) {
 				t.Fatalf("%s help exposes historical alias %q:\n%s", name, alias, output)
 			}
@@ -444,5 +444,5 @@ func TestPublicDocsOnlyAdvertiseDoubleDashSystemFlags(t *testing.T) {
 func expectedFixedFlagsForTest() []string {
 	// 与 localizedSystemFlagsHelp / root·service·action usage 保持一致：
 	// 对外 system flags 全部双横线；三横线别名不展示；保留 --header/--body。
-	return []string{"--profile", "--region", "--endpoint", "--lang", "--version", "--method", "--force", "--header", "--body"}
+	return []string{"--profile", "--region", "--endpoint", "--lang", "--version", "--method", "--force", "--output", "--query", "--header", "--body"}
 }

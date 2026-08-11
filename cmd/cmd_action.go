@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/volcengine/volcengine-cli/util"
 )
 
 type paramValue struct {
@@ -206,6 +205,10 @@ func executeInvocation(ctx *Context, p invocationParams, buildInput func() (invo
 	if executeInvocationHook != nil {
 		return executeInvocationHook(ctx, p, buildInput)
 	}
+	outputPlan, err := resolveAPIOutputPlan(ctx)
+	if err != nil {
+		return err
+	}
 	debugLog, closeDebugLog, err := prepareDebugLogger(ctx)
 	if err != nil {
 		return err
@@ -259,12 +262,7 @@ func executeInvocation(ctx *Context, p invocationParams, buildInput func() (invo
 	}
 	debugLogSdkEnd(debugLog, start, nil)
 
-	if config == nil || !config.EnableColor {
-		util.ShowJson(*out, false)
-	} else {
-		util.ShowJson(*out, true)
-	}
-	return nil
+	return outputPlan.render(config, *out)
 }
 
 // resolveActionHTTPMethod 决定 HTTP 方法（正常路径与 force 共用）：元数据优先，显式 ---method 可覆盖。

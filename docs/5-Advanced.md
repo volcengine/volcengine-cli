@@ -122,7 +122,7 @@ Disable colored display:
 ve disable-color
 ```
 
-These commands update `enableColor` in the config file. Colored output affects `ve configure get`, `ve configure list`, and API response JSON display. It does not change response content.
+These commands update `enableColor` in the config file. Colored output affects `ve configure get`, `ve configure list`, and API responses when **`--output json` (default)**. It does not change response content. `table` / `text` / `yaml` / `yaml-stream` / `off` are uncolored. See [Usage](4-Usage.md#filtering-and-output-formats) for filtering and formats (use `--query 'Result....'` for nested lists; there is no nested auto-unwrap).
 
 ## Debug Logs
 
@@ -350,7 +350,7 @@ VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity
 Public system flags:
 
 ```text
---profile, --region, --endpoint, --lang, --force, --version, --method
+--profile, --region, --endpoint, --lang, --force, --version, --method, --output, --query
 ```
 
 Reserved double-dash controls:

@@ -130,7 +130,7 @@ func TestParserRejectsUnsupportedFixedFlags(t *testing.T) {
 				t.Fatalf("error missing supported system flags list: %q", err.Error())
 			}
 			hint := parts[1]
-			for _, alias := range []string{"---profile", "---region", "---endpoint", "---lang", "---force", "---version", "---method"} {
+			for _, alias := range []string{"---profile", "---region", "---endpoint", "---lang", "---force", "---version", "---method", "---output", "---query"} {
 				if strings.Contains(hint, alias) {
 					t.Fatalf("supported flag hint exposes historical alias %q: %q", alias, hint)
 				}

@@ -10,12 +10,13 @@ Basic command format:
 ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
                       [--profile name] [--region region] [--endpoint endpoint] [--lang language]
                       [--version api-version] [--method GET|POST] [--force]
+                      [--output json|table|text|yaml|yaml-stream|off] [--query jmespath]
 ```
 
 Argument kinds:
 
 - **API parameters**: double-dash `--Param value` (enter request body/query; reserved names `body` / `header` excluded)
-- **Public system flags** (after the action): `--profile` / `--region` / `--endpoint` / `--lang` / `--version` / `--method` / `--force`
+- **Public system flags** (after the action): `--profile` / `--region` / `--endpoint` / `--lang` / `--version` / `--method` / `--force` / `--output` / `--query`
 - **Reserved double-dash controls**: `--header` (HTTP headers), `--body` (JSON body); **not** API parameters
 
 System flags in API calls use double hyphens and are placed after the action. If an action exposes an exact-name API parameter (case-sensitive), the double-dash form is parsed as the API parameter.
@@ -98,6 +99,8 @@ Public system flags use the standard double-hyphen form:
 | `--version` | Set the **API version** for this call; if omitted, uses the bundled service version (not the CLI binary version from root `ve -v` / `ve --version` / `ve version`) |
 | `--force` | Skip service/action metadata validation and force-call unlisted or newly released APIs; **unlisted services** require `--version` and a fixed endpoint (`--endpoint` or profile/`VOLCENGINE_ENDPOINT` when resolver is not `standard`); bundled services can fall back to metadata. Presence-only: write `--force` alone, not `--force true` |
 | `--method` | HTTP method (`GET`/`POST`); same rules on normal and `--force` paths: explicit value wins, else action metadata, else `GET` |
+| `--output` | API response format: `json` (default), `table`, `text`, `yaml`, `yaml-stream`, `off` |
+| `--query` | JMESPath expression to filter/project the full response JSON (including `ResponseMetadata` and `Result`) before formatting |
 
 After the action, a double-dash flag whose exact case-sensitive name is exposed by that action is parsed as an API parameter. Without such a conflict, it is parsed as a system flag.
 
@@ -145,7 +148,12 @@ ve sts GetCallerIdentity --region cn-beijing --endpoint sts.volcengineapi.com
 
 If `--profile` references a profile that does not exist, the command returns an error.
 
-The only current exact-name conflict is the `--lang` API parameter on `i18nopenapi VideoProjectSuppressionStart`, so the double-dash `--lang` after that action is parsed as the API parameter.
+Known exact-name conflicts include:
+
+- `--lang` on `i18nopenapi VideoProjectSuppressionStart`: double-dash `--lang` is the API parameter
+- `--query` on `insight AgentChat`: double-dash `--query` is the API parameter; use `---query` for system JMESPath
+
+The same rule applies if other actions later expose colliding names: double-dash prefers the API parameter; system routing uses forms such as `---output` / `---query`.
 
 ### Display Language
 
@@ -300,8 +308,47 @@ Missing region:
 region not set, please set it via profile, --region flag, or VOLCENGINE_REGION environment variable
 ```
 
-Public system flags (double-dash): `--profile`, `--region`, `--endpoint`, `--lang`, `--force`, `--version`, `--method`.
+Public system flags (double-dash): `--profile`, `--region`, `--endpoint`, `--lang`, `--force`, `--version`, `--method`, `--output`, `--query`.
 Reserved double-dash controls: `--header`, `--body` (see “Reserved Double-Dash Controls” above).
+
+## Filtering and Output Formats
+
+After a successful API call, the CLI prints the **full response JSON** (typically `ResponseMetadata` + `Result`) to stdout by default. Use system flags to control presentation:
+
+| Flag | Description |
+|------|-------------|
+| `--output` | Format: `json` (default), `table`, `text`, `yaml`, `yaml-stream`, `off` |
+| `--query` | JMESPath applied **before** formatting; paths are relative to the full response (list data is usually under `Result.*`) |
+
+Pipeline: `raw response → [--query] → [--output] → stdout` (AWS-like ordering; Volcengine envelope field paths).
+
+```shell
+# Project then table (recommended for list APIs; columns come from --query)
+ve ecs DescribeInstances \
+  --query 'Result.Instances[*].{Id:InstanceId,Status:Status}' \
+  --output table
+
+# Tab-separated text for awk/grep
+ve sts GetCallerIdentity --query 'Result.AccountId' --output text
+
+# Without --query, table/text show the top-level shape only (map → Key/Value; no nested Result list auto-unwrap)
+ve sts GetCallerIdentity --output table
+
+# YAML
+ve sts GetCallerIdentity --output yaml
+
+# Exit code only (API call still runs)
+ve ecs DescribeInstances --output off
+```
+
+Notes:
+
+- `enableColor` affects **json** only; `table` / `text` / `yaml` / `yaml-stream` / `off` are uncolored.
+- Do **not** rely on bare `--output table` to guess nested lists; use explicit `--query 'Result....'`.
+- `table` / `text` render newlines, tabs, and terminal control characters as visible escapes so response data cannot break row/column boundaries or inject terminal controls.
+- On name conflicts (e.g. `insight AgentChat` `--query`), double-dash prefers the API parameter; use `---output` / `---query` for system routing.
+- `yaml-stream` currently streams a single YAML document per response (no client multi-page documents yet).
+- Empty lists: `table` prints `(empty)`; `text` prints no lines (easy empty check in scripts).
 
 ---
 

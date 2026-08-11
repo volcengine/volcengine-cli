@@ -10,12 +10,13 @@ CLI 的基本调用格式：
 ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
                       [--profile name] [--region region] [--endpoint endpoint] [--lang language]
                       [--version api-version] [--method GET|POST] [--force]
+                      [--output json|table|text|yaml|yaml-stream|off] [--query jmespath]
 ```
 
 参数分几类：
 
 - **API 业务参数**：双横线 `--Param value`，进入请求体/查询参数（保留名 `body` / `header` 除外）
-- **对外系统参数**（放在 Action 后）：`--profile` / `--region` / `--endpoint` / `--lang` / `--version` / `--method` / `--force`
+- **对外系统参数**（放在 Action 后）：`--profile` / `--region` / `--endpoint` / `--lang` / `--version` / `--method` / `--force` / `--output` / `--query`
 - **双横线保留控制参数**：`--header`（HTTP 头）、`--body`（JSON 请求体）；**不是**业务参数
 
 API 调用中的系统参数统一使用双横线并放在 Action 后。若当前 Action 暴露了大小写完全相同的业务参数，双横线优先按 API 参数解析。
@@ -98,6 +99,8 @@ ve rds_mysql ListDBInstanceIPLists --InstanceId mysql-xxxxxx --GroupName default
 | `--version` | 指定本次调用的 **API 版本**；未指定时使用内置元数据中的 service 版本（与根命令 `ve -v` / `ve --version` / `ve version` 的 CLI 二进制版本无关） |
 | `--force` | 跳过 service/action 元数据校验，强制调用未收录或新发布的接口；**未收录 service** 须提供 `--version` 与固定 endpoint（`--endpoint` 或非 standard 下的 profile/`VOLCENGINE_ENDPOINT`）；已收录 service 可回落元数据。纯开关：只写 `--force`，不要写 `--force true` |
 | `--method` | 指定 HTTP 方法（`GET`/`POST`）；正常路径与 `--force` 路径规则一致：显式值优先，否则用 action 元数据，均无则默认 `GET` |
+| `--output` | 设置 API 响应输出格式：`json`（默认）、`table`、`text`、`yaml`、`yaml-stream`、`off` |
+| `--query` | JMESPath 表达式，在格式化前过滤/投影完整响应 JSON（含 `ResponseMetadata` 与 `Result`） |
 
 Action 后如果当前 Action 暴露了大小写完全相同的参数，双横线形式优先按 API 业务参数解析；没有同名冲突时按系统参数解析。
 
@@ -144,7 +147,12 @@ ve sts GetCallerIdentity --region cn-beijing --endpoint sts.volcengineapi.com
 
 如果 `--profile` 指向不存在的 profile，会直接报错。
 
-当前唯一的精确同名冲突是 `i18nopenapi VideoProjectSuppressionStart` 的业务参数 `--lang`，因此该 Action 后的双横线 `--lang` 按业务参数解析。
+当前已知的精确同名冲突包括：
+
+- `i18nopenapi VideoProjectSuppressionStart` 的业务参数 `--lang`：双横线 `--lang` 按业务参数解析
+- `insight AgentChat` 的业务参数 `--query`：双横线 `--query` 按业务参数解析；系统 JMESPath 请用 `---query`
+
+其他 Action 若未来暴露同名业务参数，同样适用“双横线优先业务参数；系统语义使用 `---output` / `---query` 等形式”的规则。
 
 ### 显示语言
 
@@ -299,8 +307,47 @@ credentials not configured, please run 've login' or 've configure set', or set 
 region not set, please set it via profile, --region flag, or VOLCENGINE_REGION environment variable
 ```
 
-对外系统参数（双横线）：`--profile`、`--region`、`--endpoint`、`--lang`、`--force`、`--version`、`--method`。
+对外系统参数（双横线）：`--profile`、`--region`、`--endpoint`、`--lang`、`--force`、`--version`、`--method`、`--output`、`--query`。
 双横线保留控制参数：`--header`、`--body`（见上文「双横线保留控制参数」）。
+
+## 过滤与输出格式
+
+API 调用成功后，CLI 默认将**完整响应 JSON**（通常含 `ResponseMetadata` 与 `Result`）打印到 stdout。可用系统参数控制展示：
+
+| 参数 | 说明 |
+|------|------|
+| `--output` | 输出格式：`json`（默认）、`table`、`text`、`yaml`、`yaml-stream`、`off` |
+| `--query` | JMESPath 表达式，在格式化**之前**过滤/投影；路径相对完整响应，列表字段多在 `Result.*` 下 |
+
+处理顺序：`原始响应 → [--query] → [--output] → stdout`（管道顺序参考 AWS CLI；字段路径按火山引擎响应 envelope）。
+
+```shell
+# 先投影再表格（推荐；列由 query 决定，适合列表接口）
+ve ecs DescribeInstances \
+  --query 'Result.Instances[*].{Id:InstanceId,Status:Status}' \
+  --output table
+
+# 文本（Tab 分隔，便于 awk/grep）
+ve sts GetCallerIdentity --query 'Result.AccountId' --output text
+
+# 无 query 时 table/text 按顶层结构展示（map→Key/Value；不会自动展开 Result 内嵌列表）
+ve sts GetCallerIdentity --output table
+
+# YAML
+ve sts GetCallerIdentity --output yaml
+
+# 只要退出码、不要正文（仍会发起 API 调用）
+ve ecs DescribeInstances --output off
+```
+
+说明：
+
+- `enableColor` **仅**影响 `json`；`table` / `text` / `yaml` / `yaml-stream` / `off` 不着色。
+- **不要**依赖无 `--query` 的 table/text 去“猜”嵌套列表；嵌套资源请显式 `--query 'Result....'`。
+- `table` / `text` 会把换行、Tab 和终端控制字符显示为可见转义，避免响应内容破坏行列结构或触发终端控制序列。
+- 业务参数名与系统 flag 冲突时（如 `insight AgentChat` 的 `--query`），双横线优先业务参数；系统语义用 `---output` / `---query`。
+- `yaml-stream` 当前对单次响应流式写出一个 YAML document（尚无客户端分页多 document）。
+- 空列表：`table` 输出 `(empty)`；`text` 不输出行（便于脚本判断为空）。
 
 ---
 
