@@ -1,10 +1,8 @@
 package skills
 
 import (
-	"archive/tar"
 	"archive/zip"
 	"bytes"
-	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -152,42 +150,30 @@ func TestInstallDoesNotAdoptModifiedSkillsSetupInstallation(t *testing.T) {
 	)
 }
 
-func TestInstallFallsBackToBundlePackagedInNPMCLI(t *testing.T) {
+func TestInstallFallsBackToGitHubRelease(t *testing.T) {
 	home := tempDir(t)
-	pkgRoot := tempDir(t)
-	release := makeTestRelease(t, "1.0.0", "npm-local")
-	writePackagedFallback(t, pkgRoot, release)
-	executable := filepath.Join(pkgRoot, "bin", executableName())
-	writeFile(t, executable, []byte("binary"), 0755)
+	release := makeTestRelease(t, "1.0.0", "github")
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cdn unavailable", http.StatusServiceUnavailable)
 	}))
-	defer server.Close()
+	defer cdn.Close()
+	github := releaseServer(t, &release, http.StatusOK)
+	defer github.Close()
 
-	registryRequests := 0
-	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		registryRequests++
-		http.Error(w, "must not be called", http.StatusInternalServerError)
-	}))
-	defer registry.Close()
-	manager := testManager(home, server.URL+"/latest/manifest.json")
-	manager.ExecutablePath = executable
-	manager.NPMRegistryURL = registry.URL
+	manager := testManager(home, cdn.URL+"/latest/manifest.json")
+	manager.GitHubManifestURL = github.URL + "/latest/manifest.json"
 	result, err := manager.Install()
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	if result.Source != SourceNPM {
-		t.Fatalf("source = %q, want %q", result.Source, SourceNPM)
-	}
-	if registryRequests != 0 {
-		t.Fatalf("npm registry requests = %d, want 0 when package fallback exists", registryRequests)
+	if result.Source != SourceGitHub {
+		t.Fatalf("source = %q, want %q", result.Source, SourceGitHub)
 	}
 	assertFileContains(
 		t,
 		filepath.Join(home, ".agents", "skills", testSkillNames[0], "SKILL.md"),
-		"npm-local",
+		"github",
 	)
 }
 
@@ -261,43 +247,6 @@ func TestInstallDoesNotDowngradeMissingManagedSkillFromFallback(t *testing.T) {
 	}
 }
 
-func TestInstallFallsBackToNPMRegistryForStandaloneBinary(t *testing.T) {
-	home := tempDir(t)
-	release := makeTestRelease(t, "1.0.0", "npm-registry")
-	tarball := makeNPMTarball(t, release)
-
-	var registry *httptest.Server
-	registry = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/@volcengine/cli/latest":
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"dist": map[string]string{"tarball": registry.URL + "/cli.tgz"},
-			})
-		case "/cli.tgz":
-			_, _ = w.Write(tarball)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer registry.Close()
-
-	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "cdn unavailable", http.StatusServiceUnavailable)
-	}))
-	defer cdn.Close()
-
-	manager := testManager(home, cdn.URL+"/latest/manifest.json")
-	manager.ExecutablePath = filepath.Join(tempDir(t), "ve")
-	manager.NPMRegistryURL = registry.URL
-	result, err := manager.Install()
-	if err != nil {
-		t.Fatalf("Install() error = %v", err)
-	}
-	if result.Source != SourceNPM {
-		t.Fatalf("source = %q, want %q", result.Source, SourceNPM)
-	}
-}
-
 func TestUpdateUsesPerSkillVersionAndProtectsUserChanges(t *testing.T) {
 	home := tempDir(t)
 	release := makeTestRelease(t, "1.0.0", "first")
@@ -336,6 +285,33 @@ func TestUpdateUsesPerSkillVersionAndProtectsUserChanges(t *testing.T) {
 	if state.Skills["volcengine-find-skills"].Version != "1.1.0" {
 		t.Fatalf("updated skill version = %q", state.Skills["volcengine-find-skills"].Version)
 	}
+}
+
+func TestUpdateInstallsSkillAddedToManifest(t *testing.T) {
+	home := tempDir(t)
+	release := makeTestReleaseWithNames(t, "1.0.0", "first", testSkillNames)
+	server := releaseServer(t, &release, http.StatusOK)
+	defer server.Close()
+	manager := testManager(home, server.URL+"/latest/manifest.json")
+	if _, err := manager.Install(); err != nil {
+		t.Fatal(err)
+	}
+
+	newSkill := "volcengine-new-core"
+	release = makeTestReleaseWithNames(
+		t,
+		"1.1.0",
+		"second",
+		append(append([]string{}, testSkillNames...), newSkill),
+	)
+	result, err := manager.Update()
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if !contains(result.Installed, newSkill) {
+		t.Fatalf("installed = %v, want %s", result.Installed, newSkill)
+	}
+	assertFileContains(t, filepath.Join(home, ".agents", "skills", newSkill, "SKILL.md"), "second")
 }
 
 func TestUpdateWithoutStateRunsInstall(t *testing.T) {
@@ -492,6 +468,19 @@ func TestResolveBundleURLRejectsHTTPSDowngrade(t *testing.T) {
 	}
 }
 
+func TestParseManifestEnforcesFiftyMiBBundleLimit(t *testing.T) {
+	release := makeTestRelease(t, "1.0.0", "limit")
+	release.manifest = setManifestBundleSize(t, release.manifest, 50*1024*1024)
+	if _, err := parseManifest(release.manifest); err != nil {
+		t.Fatalf("parseManifest() rejected 50 MiB bundle: %v", err)
+	}
+
+	release.manifest = setManifestBundleSize(t, release.manifest, 50*1024*1024+1)
+	if _, err := parseManifest(release.manifest); err == nil {
+		t.Fatal("parseManifest() accepted bundle larger than 50 MiB")
+	}
+}
+
 func TestInstallRejectsUnsafeBundlePath(t *testing.T) {
 	home := tempDir(t)
 	release := makeTestRelease(t, "1.0.0", "safe")
@@ -521,23 +510,26 @@ func TestInstallRejectsUnsafeBundlePath(t *testing.T) {
 
 func testManager(home, manifestURL string) *Manager {
 	return &Manager{
-		HomeDir:         home,
-		ConfigDir:       filepath.Join(home, ".volcengine", "skills"),
-		CDNManifestURL:  manifestURL,
-		NPMRegistryURL:  "http://127.0.0.1:1",
-		HTTPClient:      http.DefaultClient,
-		ExecutablePath:  filepath.Join(home, "bin", executableName()),
-		ClaudeConfigDir: filepath.Join(home, ".claude"),
-		HermesHome:      filepath.Join(home, ".hermes"),
+		HomeDir:           home,
+		ConfigDir:         filepath.Join(home, ".volcengine", "skills"),
+		CDNManifestURL:    manifestURL,
+		GitHubManifestURL: "http://127.0.0.1:1",
+		HTTPClient:        http.DefaultClient,
+		ClaudeConfigDir:   filepath.Join(home, ".claude"),
+		HermesHome:        filepath.Join(home, ".hermes"),
 	}
 }
 
 func makeTestRelease(t *testing.T, version, marker string) testRelease {
+	return makeTestReleaseWithNames(t, version, marker, testSkillNames)
+}
+
+func makeTestReleaseWithNames(t *testing.T, version, marker string, names []string) testRelease {
 	t.Helper()
 	var buffer bytes.Buffer
 	archive := zip.NewWriter(&buffer)
-	skills := make([]ManifestSkill, 0, len(testSkillNames))
-	for _, name := range testSkillNames {
+	skills := make([]ManifestSkill, 0, len(names))
+	for _, name := range names {
 		content := []byte(fmt.Sprintf("---\nname: %s\ndescription: test\n---\n%s\n", name, marker))
 		entry, err := archive.Create(name + "/SKILL.md")
 		if err != nil {
@@ -559,7 +551,7 @@ func makeTestRelease(t *testing.T, version, marker string) testRelease {
 			File:   BundleFileName,
 			SHA256: digestBytes(bundle),
 			Size:   int64(len(bundle)),
-			CDNURL: "/bundle.zip",
+			URL:    "/bundle.zip",
 		},
 		Skills: skills,
 	}
@@ -584,7 +576,7 @@ func releaseServer(t *testing.T, release *testRelease, status int) *httptest.Ser
 			if err := json.Unmarshal(release.manifest, &manifest); err != nil {
 				t.Fatal(err)
 			}
-			manifest.Bundle.CDNURL = server.URL + "/bundle.zip"
+			manifest.Bundle.URL = server.URL + "/bundle.zip"
 			_ = json.NewEncoder(w).Encode(manifest)
 		case "/bundle.zip":
 			_, _ = w.Write(release.bundle)
@@ -604,38 +596,6 @@ func releaseFromTest(t *testing.T, value testRelease) release {
 	return release{manifest: manifest, bundle: value.bundle, source: SourceCDN}
 }
 
-func makeNPMTarball(t *testing.T, release testRelease) []byte {
-	t.Helper()
-	var buffer bytes.Buffer
-	gzipWriter := gzip.NewWriter(&buffer)
-	tarWriter := tar.NewWriter(gzipWriter)
-	for name, content := range map[string][]byte{
-		"package/skills/manifest.json":               release.manifest,
-		"package/skills/volcengine-skill-bundle.zip": release.bundle,
-	} {
-		header := &tar.Header{Name: name, Mode: 0644, Size: int64(len(content))}
-		if err := tarWriter.WriteHeader(header); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := tarWriter.Write(content); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := tarWriter.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := gzipWriter.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return buffer.Bytes()
-}
-
-func writePackagedFallback(t *testing.T, pkgRoot string, release testRelease) {
-	t.Helper()
-	writeFile(t, filepath.Join(pkgRoot, "skills", "manifest.json"), release.manifest, 0644)
-	writeFile(t, filepath.Join(pkgRoot, "skills", BundleFileName), release.bundle, 0644)
-}
-
 func replaceBundleMetadata(t *testing.T, manifestData, bundle []byte) []byte {
 	t.Helper()
 	var manifest Manifest
@@ -644,6 +604,20 @@ func replaceBundleMetadata(t *testing.T, manifestData, bundle []byte) []byte {
 	}
 	manifest.Bundle.SHA256 = digestBytes(bundle)
 	manifest.Bundle.Size = int64(len(bundle))
+	result, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+func setManifestBundleSize(t *testing.T, manifestData []byte, size int64) []byte {
+	t.Helper()
+	var manifest Manifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	manifest.Bundle.Size = size
 	result, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)

@@ -167,10 +167,7 @@ withTempDir((dir) => {
   assert.strictEqual(calls.length, 1);
   assert.strictEqual(calls[0].command, binPath);
   assert.deepStrictEqual(calls[0].args, ["skills", "update"]);
-  assert.strictEqual(
-    calls[0].options.env.VOLCENGINE_CLI_SKILLS_FALLBACK_DIR,
-    path.join(__dirname, "skills")
-  );
+  assert.deepStrictEqual(calls[0].options.env, {});
 });
 
 withTempDir((dir) => {

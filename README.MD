@@ -30,8 +30,8 @@ ve version
 
 npm 包要求 Node.js >= 14，安装后提供 `ve` 命令入口。
 
-通过 npm 安装或升级 CLI 时，会自动安装火山引擎的四个核心 Skill。安装程序优先从 CDN
-下载最新版本；CDN 不可用时，使用 npm 包内置的 Skill 发布物，不影响 CLI 本身安装。若需要
+通过 npm 安装或升级 CLI 时，会自动安装火山引擎的核心 Skill。安装程序优先从 CDN
+下载最新版本；CDN 不可用时，从 GitHub Release 获取同一发布物，不影响 CLI 本身安装。若需要
 暂时跳过，可设置 `VOLCENGINE_CLI_SKIP_SKILLS=1`。
 
 也可以从 Release 下载：
@@ -56,7 +56,7 @@ ve version
 ### Skill 管理
 
 `ve` 提供与 [`@volcengine/skills-setup`](https://www.npmjs.com/package/@volcengine/skills-setup)
-一致的安装布局。四个核心 Skill 安装到 `~/.agents/skills`，并链接到 Claude Code、OpenClaw、
+一致的安装布局。核心 Skill 安装到 `~/.agents/skills`，并链接到 Claude Code、OpenClaw、
 Hermes Agent 和 Trae 的专属 Skill 目录；Codex、Cursor 和 OpenCode 等支持通用目录的 Agent
 直接读取 `~/.agents/skills`。完整 Skill 清单和使用介绍请参阅
 [`volcengine-skills`](https://github.com/volcengine/volcengine-skills#skills)。
@@ -67,8 +67,8 @@ ve skills update
 ve skills uninstall
 ```
 
-安装器按 CDN、当前 npm 包内置发布物、npm Registry 中最新 `@volcengine/cli` 包的顺序获取
-Skill。`update` 只升级到更高版本；如果本地没有安装状态，则等同于 `install`。安装状态记录在
+安装器优先从 CDN 获取 Skill，失败时使用 GitHub Release。`update` 只升级到更高版本；如果本地
+没有安装状态，则等同于 `install`。安装状态记录在
 `~/.volcengine/skills/install-state.json`。本地修改过的 Skill 不会被升级或卸载覆盖。
 
 ### 快速开始

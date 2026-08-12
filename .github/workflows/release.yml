@@ -131,13 +131,6 @@ jobs:
           download_base="${public_base%/}/${prefix}"
           node scripts/configure_npm_release.js "$VERSION" "$download_base"
 
-      - name: Prepare npm Skill fallback
-        env:
-          SKILLS_MANIFEST_URL: ${{ vars.SKILLS_MANIFEST_URL }}
-        run: |
-          manifest_url="${SKILLS_MANIFEST_URL:-https://cloudcache.volccdn.com/ve/skills/latest/manifest.json}"
-          node scripts/prepare_npm_skills.js "$manifest_url" npm/skills
-
       - name: Verify public TOS download
         env:
           TOS_PREFIX: ${{ vars.TOS_PREFIX }}

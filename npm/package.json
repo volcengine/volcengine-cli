@@ -8,13 +8,12 @@
   "scripts": {
     "prepack": "node -e \"const fs=require('fs');fs.mkdirSync('bin',{recursive:true});fs.writeFileSync('bin/ve','#!/usr/bin/env node\\nconsole.error(\\\"ve not installed. Run npm rebuild for this package\\\");\\nprocess.exit(1);\\n');fs.chmodSync('bin/ve',0o755)\"",
     "postinstall": "node install.js",
-    "test": "node install_test.js && node ../scripts/prepare_npm_skills_test.js"
+    "test": "node install_test.js"
   },
   "files": [
     "bin/",
     "checksum",
-    "install.js",
-    "skills/"
+    "install.js"
   ],
   "keywords": [
     "volcengine",

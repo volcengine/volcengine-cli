@@ -207,9 +207,7 @@ function runSkillsInstall(binPath, deps) {
     run(binPath, ["skills", "update"], {
       stdio: "inherit",
       timeout: 120000,
-      env: Object.assign({}, env, {
-        VOLCENGINE_CLI_SKILLS_FALLBACK_DIR: path.join(__dirname, "skills"),
-      }),
+      env,
     });
     return true;
   } catch (err) {

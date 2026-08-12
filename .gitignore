@@ -9,7 +9,6 @@ volcengine-cli
 /bin/ve
 /bin/ve.exe
 /npm/checksum
-/npm/skills/
 /node_modules
 
 # OS

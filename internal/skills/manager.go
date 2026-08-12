@@ -1,10 +1,8 @@
 package skills
 
 import (
-	"archive/tar"
 	"archive/zip"
 	"bytes"
-	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -28,23 +26,15 @@ const (
 	StateFileName         = "install-state.json"
 	BundleFileName        = "volcengine-skill-bundle.zip"
 	SourceCDN             = "cdn"
-	SourceNPM             = "npm"
+	SourceGitHub          = "github"
 
-	defaultCDNManifestURL = "https://cloudcache.volccdn.com/ve/skills/latest/manifest.json"
-	defaultNPMRegistryURL = "https://registry.npmjs.org"
-	defaultNPMPackage     = "@volcengine/cli"
-	maxManifestBytes      = 1024 * 1024
-	maxBundleBytes        = 20 * 1024 * 1024
-	maxExtractedBytes     = 100 * 1024 * 1024
-	maxArchiveFiles       = 5000
+	defaultCDNManifestURL    = "https://cloudcache.volccdn.com/ve/skills/latest/manifest.json"
+	defaultGitHubManifestURL = "https://github.com/volcengine/volcengine-skills/releases/latest/download/manifest.json"
+	maxManifestBytes         = 1024 * 1024
+	maxBundleBytes           = 50 * 1024 * 1024
+	maxExtractedBytes        = 100 * 1024 * 1024
+	maxArchiveFiles          = 5000
 )
-
-var expectedSkills = map[string]bool{
-	"volcengine-cli":              true,
-	"volcengine-find-skills":      true,
-	"volcengine-knowledge-search": true,
-	"volcengine-troubleshooting":  true,
-}
 
 type Manifest struct {
 	SchemaVersion int             `json:"schemaVersion"`
@@ -57,7 +47,7 @@ type ManifestBundle struct {
 	File   string `json:"file"`
 	SHA256 string `json:"sha256"`
 	Size   int64  `json:"size"`
-	CDNURL string `json:"cdnUrl"`
+	URL    string `json:"url"`
 }
 
 type ManifestSkill struct {
@@ -96,14 +86,13 @@ type Result struct {
 }
 
 type Manager struct {
-	HomeDir         string
-	ConfigDir       string
-	CDNManifestURL  string
-	NPMRegistryURL  string
-	HTTPClient      *http.Client
-	ExecutablePath  string
-	ClaudeConfigDir string
-	HermesHome      string
+	HomeDir           string
+	ConfigDir         string
+	CDNManifestURL    string
+	GitHubManifestURL string
+	HTTPClient        *http.Client
+	ClaudeConfigDir   string
+	HermesHome        string
 }
 
 type release struct {
@@ -128,16 +117,6 @@ func NewManager() (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve user home: %w", err)
 	}
-	executable, err := os.Executable()
-	if err != nil {
-		executable = ""
-	} else if resolved, resolveErr := filepath.EvalSymlinks(executable); resolveErr == nil {
-		executable = resolved
-	}
-	registry := strings.TrimSpace(os.Getenv("npm_config_registry"))
-	if registry == "" {
-		registry = defaultNPMRegistryURL
-	}
 	claudeHome := strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR"))
 	if claudeHome == "" {
 		claudeHome = filepath.Join(home, ".claude")
@@ -147,14 +126,13 @@ func NewManager() (*Manager, error) {
 		hermesHome = filepath.Join(home, ".hermes")
 	}
 	return &Manager{
-		HomeDir:         home,
-		ConfigDir:       filepath.Join(home, ".volcengine", "skills"),
-		CDNManifestURL:  envOrDefault("VOLCENGINE_CLI_SKILLS_MANIFEST_URL", defaultCDNManifestURL),
-		NPMRegistryURL:  registry,
-		HTTPClient:      &http.Client{Timeout: 30 * time.Second},
-		ExecutablePath:  executable,
-		ClaudeConfigDir: claudeHome,
-		HermesHome:      hermesHome,
+		HomeDir:           home,
+		ConfigDir:         filepath.Join(home, ".volcengine", "skills"),
+		CDNManifestURL:    envOrDefault("VOLCENGINE_CLI_SKILLS_MANIFEST_URL", defaultCDNManifestURL),
+		GitHubManifestURL: envOrDefault("VOLCENGINE_CLI_SKILLS_GITHUB_MANIFEST_URL", defaultGitHubManifestURL),
+		HTTPClient:        &http.Client{Timeout: 30 * time.Second},
+		ClaudeConfigDir:   claudeHome,
+		HermesHome:        hermesHome,
 	}, nil
 }
 
@@ -214,7 +192,7 @@ func (m *Manager) Install() (Result, error) {
 				return result, compareErr
 			}
 			if comparison < 0 {
-				result.skip(payload.name, "npm fallback is older than the installed version")
+				result.skip(payload.name, "resolved release is older than the installed version")
 				continue
 			}
 			if comparison == 0 && (entry.BundleSHA256 != rel.manifest.Bundle.SHA256 || entry.ContentSHA256 != payload.digest) {
@@ -284,7 +262,23 @@ func (m *Manager) Update() (Result, error) {
 	for _, payload := range payloads {
 		entry := state.Skills[payload.name]
 		if entry == nil {
-			result.skip(payload.name, "Skill is not managed by ve; run `ve skills install` first")
+			canonical := m.canonicalPath(payload.name)
+			if pathExists(canonical) {
+				result.skip(payload.name, "existing directory is not managed by ve: "+canonical)
+				continue
+			}
+			if err := installDirectory(canonical, payload.files); err != nil {
+				return result, fmt.Errorf("install new Skill %s: %w", payload.name, err)
+			}
+			entry = &InstalledSkill{
+				Version:       rel.manifest.Version,
+				BundleSHA256:  rel.manifest.Bundle.SHA256,
+				ContentSHA256: payload.digest,
+				Targets:       map[string]*InstalledTarget{},
+			}
+			state.Skills[payload.name] = entry
+			m.ensureTargets(payload, entry, &result, false)
+			result.Installed = append(result.Installed, payload.name)
 			continue
 		}
 		comparison, compareErr := compareVersions(rel.manifest.Version, entry.Version)
@@ -292,7 +286,7 @@ func (m *Manager) Update() (Result, error) {
 			return result, compareErr
 		}
 		if comparison < 0 {
-			result.skip(payload.name, "npm fallback is older than the installed version")
+			result.skip(payload.name, "resolved release is older than the installed version")
 			continue
 		}
 		if comparison == 0 {
@@ -381,26 +375,21 @@ func (m *Manager) Uninstall() (Result, error) {
 
 func (m *Manager) resolveRelease() (release, error) {
 	var errors []string
-	if rel, err := m.fetchCDNRelease(); err == nil {
+	if rel, err := m.fetchRemoteRelease(m.CDNManifestURL, SourceCDN); err == nil {
 		return rel, nil
 	} else {
 		errors = append(errors, "cdn: "+err.Error())
 	}
-	if rel, err := m.readPackagedNPMRelease(); err == nil {
+	if rel, err := m.fetchRemoteRelease(m.GitHubManifestURL, SourceGitHub); err == nil {
 		return rel, nil
 	} else {
-		errors = append(errors, "npm package: "+err.Error())
-	}
-	if rel, err := m.fetchNPMRegistryRelease(); err == nil {
-		return rel, nil
-	} else {
-		errors = append(errors, "npm registry: "+err.Error())
+		errors = append(errors, "github: "+err.Error())
 	}
 	return release{}, fmt.Errorf("resolve Skill release failed (%s)", strings.Join(errors, "; "))
 }
 
-func (m *Manager) fetchCDNRelease() (release, error) {
-	manifestData, err := m.download(m.CDNManifestURL, maxManifestBytes)
+func (m *Manager) fetchRemoteRelease(manifestURL, source string) (release, error) {
+	manifestData, err := m.download(manifestURL, maxManifestBytes)
 	if err != nil {
 		return release{}, err
 	}
@@ -408,7 +397,7 @@ func (m *Manager) fetchCDNRelease() (release, error) {
 	if err != nil {
 		return release{}, err
 	}
-	bundleURL, err := resolveBundleURL(m.CDNManifestURL, manifest.Bundle.CDNURL)
+	bundleURL, err := resolveBundleURL(manifestURL, manifest.Bundle.URL)
 	if err != nil {
 		return release{}, err
 	}
@@ -419,80 +408,7 @@ func (m *Manager) fetchCDNRelease() (release, error) {
 	if err := verifyBundle(manifest, bundle); err != nil {
 		return release{}, err
 	}
-	return release{manifest: manifest, bundle: bundle, source: SourceCDN}, nil
-}
-
-func (m *Manager) fetchNPMRegistryRelease() (release, error) {
-	registry := strings.TrimRight(strings.TrimSpace(m.NPMRegistryURL), "/")
-	parsedRegistry, err := url.Parse(registry)
-	if err != nil || (parsedRegistry.Scheme != "http" && parsedRegistry.Scheme != "https") {
-		return release{}, fmt.Errorf("invalid npm registry URL %q", registry)
-	}
-	metadataURL := registry + "/" + url.PathEscape(defaultNPMPackage) + "/latest"
-	metadataData, err := m.download(metadataURL, maxManifestBytes)
-	if err != nil {
-		return release{}, err
-	}
-	var metadata struct {
-		Dist struct {
-			Tarball string `json:"tarball"`
-		} `json:"dist"`
-	}
-	if err := json.Unmarshal(metadataData, &metadata); err != nil {
-		return release{}, fmt.Errorf("parse npm metadata: %w", err)
-	}
-	if metadata.Dist.Tarball == "" {
-		return release{}, fmt.Errorf("npm metadata is missing dist.tarball")
-	}
-	tarball, err := m.download(metadata.Dist.Tarball, maxBundleBytes+maxManifestBytes)
-	if err != nil {
-		return release{}, err
-	}
-	manifestData, bundle, err := extractNPMTarball(tarball)
-	if err != nil {
-		return release{}, err
-	}
-	manifest, err := parseManifest(manifestData)
-	if err != nil {
-		return release{}, err
-	}
-	if err := verifyBundle(manifest, bundle); err != nil {
-		return release{}, err
-	}
-	return release{manifest: manifest, bundle: bundle, source: SourceNPM}, nil
-}
-
-func (m *Manager) readPackagedNPMRelease() (release, error) {
-	var candidates []string
-	if override := strings.TrimSpace(os.Getenv("VOLCENGINE_CLI_SKILLS_FALLBACK_DIR")); override != "" {
-		candidates = append(candidates, override)
-	}
-	if m.ExecutablePath != "" {
-		binDir := filepath.Dir(m.ExecutablePath)
-		candidates = append(candidates, filepath.Join(filepath.Dir(binDir), "skills"))
-	}
-	for _, skillsDir := range candidates {
-		manifestData, manifestErr := ioutil.ReadFile(filepath.Join(skillsDir, "manifest.json"))
-		if manifestErr != nil {
-			continue
-		}
-		manifest, manifestErr := parseManifest(manifestData)
-		if manifestErr != nil {
-			return release{}, manifestErr
-		}
-		bundle, bundleErr := ioutil.ReadFile(filepath.Join(skillsDir, manifest.Bundle.File))
-		if bundleErr != nil {
-			return release{}, bundleErr
-		}
-		if int64(len(bundle)) > maxBundleBytes {
-			return release{}, fmt.Errorf("packaged Skill bundle exceeds %d bytes", maxBundleBytes)
-		}
-		if err := verifyBundle(manifest, bundle); err != nil {
-			return release{}, err
-		}
-		return release{manifest: manifest, bundle: bundle, source: SourceNPM}, nil
-	}
-	return release{}, fmt.Errorf("packaged Skill fallback was not found")
+	return release{manifest: manifest, bundle: bundle, source: source}, nil
 }
 
 func (m *Manager) download(rawURL string, limit int64) ([]byte, error) {
@@ -561,13 +477,13 @@ func parseManifest(data []byte) (Manifest, error) {
 	}
 	seen := map[string]bool{}
 	for _, skill := range manifest.Skills {
-		if !expectedSkills[skill.Name] || seen[skill.Name] || !validSHA256(skill.SHA256) {
+		if !validSkillName(skill.Name) || seen[skill.Name] || !validSHA256(skill.SHA256) {
 			return Manifest{}, fmt.Errorf("invalid Skill manifest entry %q", skill.Name)
 		}
 		seen[skill.Name] = true
 	}
-	if len(seen) != len(expectedSkills) {
-		return Manifest{}, fmt.Errorf("Skill manifest must contain exactly the four core Skills")
+	if len(seen) == 0 {
+		return Manifest{}, fmt.Errorf("Skill manifest must contain at least one Skill")
 	}
 	return manifest, nil
 }
@@ -608,6 +524,10 @@ func extractBundle(rel release) ([]skillPayload, error) {
 		return nil, fmt.Errorf("open Skill bundle: %w", err)
 	}
 	filesBySkill := map[string]map[string][]byte{}
+	manifestSkills := map[string]ManifestSkill{}
+	for _, skill := range rel.manifest.Skills {
+		manifestSkills[skill.Name] = skill
+	}
 	var extractedBytes int64
 	var fileCount int
 	for _, file := range reader.File {
@@ -618,8 +538,11 @@ func extractBundle(rel release) ([]skillPayload, error) {
 			return nil, fmt.Errorf("unsafe Skill bundle link: %s", file.Name)
 		}
 		parts, err := safeArchiveParts(file.Name)
-		if err != nil || len(parts) < 2 || !expectedSkills[parts[0]] {
+		if err != nil || len(parts) < 2 {
 			return nil, fmt.Errorf("unsafe or unexpected Skill bundle path: %s", file.Name)
+		}
+		if _, expected := manifestSkills[parts[0]]; !expected {
+			return nil, fmt.Errorf("Skill bundle contains a Skill not listed in manifest: %s", parts[0])
 		}
 		fileCount++
 		if fileCount > maxArchiveFiles {
@@ -654,12 +577,8 @@ func extractBundle(rel release) ([]skillPayload, error) {
 		filesBySkill[parts[0]][relative] = content
 	}
 
-	manifestSkills := map[string]ManifestSkill{}
-	for _, skill := range rel.manifest.Skills {
-		manifestSkills[skill.Name] = skill
-	}
-	names := make([]string, 0, len(expectedSkills))
-	for name := range expectedSkills {
+	names := make([]string, 0, len(manifestSkills))
+	for name := range manifestSkills {
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -676,63 +595,6 @@ func extractBundle(rel release) ([]skillPayload, error) {
 		payloads = append(payloads, skillPayload{name: name, files: files, digest: digest})
 	}
 	return payloads, nil
-}
-
-func extractNPMTarball(data []byte) ([]byte, []byte, error) {
-	gzipReader, err := gzip.NewReader(bytes.NewReader(data))
-	if err != nil {
-		return nil, nil, fmt.Errorf("open npm tarball: %w", err)
-	}
-	defer gzipReader.Close()
-	tarReader := tar.NewReader(gzipReader)
-	var manifest []byte
-	var bundle []byte
-	var total int64
-	var files int
-	for {
-		header, nextErr := tarReader.Next()
-		if nextErr == io.EOF {
-			break
-		}
-		if nextErr != nil {
-			return nil, nil, fmt.Errorf("read npm tarball: %w", nextErr)
-		}
-		parts, pathErr := safeArchiveParts(header.Name)
-		if pathErr != nil {
-			return nil, nil, fmt.Errorf("unsafe npm tarball path: %s", header.Name)
-		}
-		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
-			if header.Typeflag == tar.TypeSymlink || header.Typeflag == tar.TypeLink {
-				return nil, nil, fmt.Errorf("npm tarball links are not supported")
-			}
-			continue
-		}
-		files++
-		if files > maxArchiveFiles {
-			return nil, nil, fmt.Errorf("npm tarball contains too many files")
-		}
-		total += header.Size
-		if total > maxBundleBytes+maxManifestBytes {
-			return nil, nil, fmt.Errorf("npm tarball content is too large")
-		}
-		joined := strings.Join(parts, "/")
-		if joined != "package/skills/manifest.json" && joined != "package/skills/"+BundleFileName {
-			continue
-		}
-		content, readErr := ioutil.ReadAll(io.LimitReader(tarReader, header.Size+1))
-		if readErr != nil || int64(len(content)) != header.Size {
-			return nil, nil, fmt.Errorf("read npm Skill fallback: %v", readErr)
-		}
-		if strings.HasSuffix(joined, "manifest.json") {
-			manifest = content
-		} else {
-			bundle = content
-		}
-	}
-	if manifest == nil || bundle == nil {
-		return nil, nil, fmt.Errorf("npm package does not contain the Skill fallback")
-	}
-	return manifest, bundle, nil
 }
 
 func (m *Manager) ensureTargets(payload skillPayload, entry *InstalledSkill, result *Result, refreshing bool) {
@@ -926,7 +788,7 @@ func (m *Manager) readState() (State, error) {
 		return State{}, fmt.Errorf("unsupported Skill install state schema %d", state.SchemaVersion)
 	}
 	for name, skill := range state.Skills {
-		if !expectedSkills[name] || skill == nil {
+		if !validSkillName(name) || skill == nil {
 			return State{}, fmt.Errorf("invalid Skill install state entry %q", name)
 		}
 		if _, versionErr := parseVersion(skill.Version); versionErr != nil || !validSHA256(skill.BundleSHA256) || !validSHA256(skill.ContentSHA256) {
@@ -1111,6 +973,18 @@ func validSHA256(value string) bool {
 	}
 	_, err := hex.DecodeString(value)
 	return err == nil
+}
+
+func validSkillName(value string) bool {
+	if value == "" || value == "." || value == ".." || len(value) > 128 {
+		return false
+	}
+	for _, character := range value {
+		if !(character >= 'a' && character <= 'z') && !(character >= '0' && character <= '9') && character != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 func safeArchiveParts(name string) ([]string, error) {
