@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -20,13 +21,31 @@ import (
 const scopeAllAll = "Console:All:All"
 const loginCacheDirectoryEnv = "VOLCENGINE_LOGIN_CACHE_DIRECTORY"
 const defaultConsoleLoginRegion = "cn-beijing"
+const consoleDeviceInfo = "Volcengine CLI"
+const consoleDeviceCodeDefaultInterval = 5 * time.Second
+const consoleDeviceCodeSlowDownIncrement = 5 * time.Second
+
+// consoleDeviceCodeMaxTransientErrors bounds how many consecutive transient
+// failures (network blips, decode errors, server_error) the poll loop tolerates
+// before giving up. Transient errors within this budget do not abort the login,
+// so a still-valid device code keeps polling per RFC 8628 instead of forcing the
+// user to restart on a momentary hiccup.
+const consoleDeviceCodeMaxTransientErrors = 5
+
+var (
+	consoleLoginOpenBrowser               = util.OpenBrowser
+	consoleDeviceAuthorizationSleep       = sleepWithContext
+	consoleDeviceAuthorizationCurrentTime = time.Now
+)
 
 // ConsoleLogin holds runtime state for the volcengine login flow.
 type ConsoleLogin struct {
-	Profile     string // profile name, default "default"
-	Region      string
-	Remote      bool   // true = cross-device mode
-	EndpointURL string // default "https://signin.volcengine.com"
+	Profile       string // profile name, default "default"
+	Region        string
+	Remote        bool   // true = cross-device authorization code mode
+	UseDeviceCode bool   // true = OAuth 2.0 Device Authorization Grant
+	NoBrowser     bool   // true = do not automatically open a browser in device code mode
+	EndpointURL   string // default "https://signin.volcengine.com"
 }
 
 // LoginTokenCache represents the cached login token data persisted to disk.
@@ -48,6 +67,10 @@ type LoginTokenCache struct {
 // ---------------------------------------------------------------------------
 
 func (cl *ConsoleLogin) Login() error {
+	if err := cl.validateOptions(); err != nil {
+		return err
+	}
+
 	// Apply defaults.
 	if cl.Profile == "" {
 		cl.Profile = "default"
@@ -74,67 +97,29 @@ func (cl *ConsoleLogin) Login() error {
 	}
 	cl.Region = resolvedRegion
 
-	// 1. Determine client_id based on mode.
-	clientID := ConsoleClientIDSameDevice
-	if cl.Remote {
-		clientID = ConsoleClientIDCrossDevice
-	}
-
-	// 2. Generate PKCE parameters.
-	codeVerifier, err := generateCodeVerifier()
-	if err != nil {
-		return trErrorf("generating code verifier: %w", err)
-	}
-	codeChallenge := generateCodeChallenge(codeVerifier)
-
-	// 3. Generate state (UUID v4).
-	state, err := generateState()
-	if err != nil {
-		return trErrorf("generating state: %w", err)
-	}
-
-	// 4. Create the OAuth client.
+	// Create the OAuth client shared by all console login modes.
 	oauthClient := NewConsoleOAuthClient(&ConsoleOAuthClientConfig{
 		EndpointURL: cl.EndpointURL,
 	})
 
-	// 5. Obtain the authorization code and redirect_uri used.
-	var authCode string
-	var redirectURI string
-	if cl.Remote {
-		authCode, redirectURI, err = cl.remoteAuthorize(oauthClient, clientID, codeChallenge, state)
-	} else {
-		authCode, redirectURI, err = cl.localAuthorize(oauthClient, clientID, codeChallenge, state)
-	}
+	// Obtain the initial token with the selected OAuth flow.
+	tokenResp, clientID, err := cl.fetchInitialToken(context.Background(), oauthClient)
 	if err != nil {
 		return err
 	}
 
-	// 6. Exchange authorization code for token.
-	tokenResp, err := oauthClient.ExchangeToken(context.Background(), &ConsoleTokenRequest{
-		GrantType:    "authorization_code",
-		Code:         authCode,
-		RedirectURI:  redirectURI,
-		ClientID:     clientID,
-		Scope:        scopeAllAll,
-		CodeVerifier: codeVerifier,
-	})
-	if err != nil {
-		return trErrorf("exchanging authorization code for token: %w", err)
-	}
-
-	// 7. Validate STS credentials from access_token.
+	// Validate STS credentials from access_token.
 	if _, err := ParseSTSCredentials(tokenResp.AccessToken); err != nil {
 		return trErrorf("parsing STS credentials: %w", err)
 	}
 
-	// 8. Extract login_session from id_token.
+	// Extract login_session from id_token.
 	loginSession, err := extractLoginSession(tokenResp.IDToken)
 	if err != nil {
 		return trErrorf("extracting login session from id_token: %w", err)
 	}
 
-	// 9. Confirm replacement when the profile is already bound to another login_session.
+	// Confirm replacement when the profile is already bound to another login_session.
 	profile, exists := cfg.Profiles[cl.Profile]
 	if !exists || profile == nil {
 		disableSSL := false
@@ -153,7 +138,7 @@ func (cl *ConsoleLogin) Login() error {
 		}
 	}
 
-	// 10. Cache the token to disk.
+	// Cache the token to disk.
 	accessTokenRaw := json.RawMessage(tokenResp.AccessToken)
 	cache := &LoginTokenCache{
 		LoginSession: loginSession,
@@ -171,7 +156,7 @@ func (cl *ConsoleLogin) Login() error {
 		return trErrorf("writing login cache: %w", err)
 	}
 
-	// 11. Update the CLI config profile.
+	// Update the CLI config profile.
 	profile.Mode = ModeConsoleLogin
 	if cl.Region != "" {
 		profile.Region = cl.Region
@@ -188,13 +173,197 @@ func (cl *ConsoleLogin) Login() error {
 	}
 	setRuntimeConfig(cfg)
 
-	// 12. Print success message.
+	// Print success message.
 	fmt.Println("\n" + tr("Successfully logged in!"))
 	fmt.Printf(tr("Credentials cached for profile: %s\n"), cl.Profile)
 	issuedAt, _ := time.Parse(time.RFC3339, cache.IssuedAt)
 	expiresAt := issuedAt.Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
 	fmt.Printf(tr("STS credentials expire at: %s\n"), expiresAt.Local().Format("2006-01-02 15:04:05"))
 	return nil
+}
+
+func (cl *ConsoleLogin) validateOptions() error {
+	if cl.Remote && cl.UseDeviceCode {
+		return trErrorf("--remote and --use-device-code cannot be used together")
+	}
+	if cl.NoBrowser && !cl.UseDeviceCode {
+		return trErrorf("--no-browser requires --use-device-code")
+	}
+	return nil
+}
+
+func (cl *ConsoleLogin) fetchInitialToken(
+	ctx context.Context,
+	oauthClient *ConsoleOAuthClient,
+) (*ConsoleTokenResponse, string, error) {
+	if cl.UseDeviceCode {
+		tokenResp, err := cl.deviceCodeAuthorize(ctx, oauthClient)
+		return tokenResp, ConsoleClientIDCrossDevice, err
+	}
+
+	clientID := ConsoleClientIDSameDevice
+	if cl.Remote {
+		clientID = ConsoleClientIDCrossDevice
+	}
+
+	codeVerifier, err := generateCodeVerifier()
+	if err != nil {
+		return nil, "", trErrorf("generating code verifier: %w", err)
+	}
+	codeChallenge := generateCodeChallenge(codeVerifier)
+
+	state, err := generateState()
+	if err != nil {
+		return nil, "", trErrorf("generating state: %w", err)
+	}
+
+	var authCode string
+	var redirectURI string
+	if cl.Remote {
+		authCode, redirectURI, err = cl.remoteAuthorize(oauthClient, clientID, codeChallenge, state)
+	} else {
+		authCode, redirectURI, err = cl.localAuthorize(oauthClient, clientID, codeChallenge, state)
+	}
+	if err != nil {
+		return nil, "", err
+	}
+
+	tokenResp, err := oauthClient.ExchangeToken(ctx, &ConsoleTokenRequest{
+		GrantType:    "authorization_code",
+		Code:         authCode,
+		RedirectURI:  redirectURI,
+		ClientID:     clientID,
+		Scope:        scopeAllAll,
+		CodeVerifier: codeVerifier,
+	})
+	if err != nil {
+		return nil, "", trErrorf("exchanging authorization code for token: %w", err)
+	}
+	return tokenResp, clientID, nil
+}
+
+func (cl *ConsoleLogin) deviceCodeAuthorize(
+	ctx context.Context,
+	oauthClient *ConsoleOAuthClient,
+) (*ConsoleTokenResponse, error) {
+	authResp, err := oauthClient.StartDeviceAuthorization(ctx, &ConsoleDeviceAuthorizationRequest{
+		ClientID:   ConsoleClientIDCrossDevice,
+		Scope:      scopeAllAll,
+		DeviceInfo: consoleDeviceInfo,
+	})
+	if err != nil {
+		return nil, trErrorf("starting device authorization: %w", err)
+	}
+
+	browserURL := strings.TrimSpace(authResp.VerificationURIComplete)
+	if browserURL == "" {
+		browserURL = authResp.VerificationURI
+	}
+
+	if cl.NoBrowser {
+		fmt.Println(tr("Browser will not be automatically opened."))
+	} else {
+		fmt.Println(tr("Attempting to open your default browser."))
+	}
+	fmt.Println(tr("Open the following URL to authorize this device:"))
+	fmt.Println()
+	fmt.Println(authResp.VerificationURI)
+	fmt.Println()
+	fmt.Printf(tr("Then enter the code:\n\n%s\n"), authResp.UserCode)
+	if authResp.VerificationURIComplete != "" && authResp.VerificationURIComplete != authResp.VerificationURI {
+		fmt.Println()
+		fmt.Println(tr("Alternatively, open the following URL to prefill the code:"))
+		fmt.Println()
+		fmt.Println(authResp.VerificationURIComplete)
+	}
+	fmt.Printf(tr("This device code expires in %d seconds.\n"), authResp.ExpiresIn)
+
+	if !cl.NoBrowser {
+		if err := consoleLoginOpenBrowser(browserURL); err != nil {
+			fmt.Printf(tr("Failed to open the browser automatically: %v\n"), err)
+		}
+	}
+
+	interval := time.Duration(authResp.Interval) * time.Second
+	if interval <= 0 {
+		interval = consoleDeviceCodeDefaultInterval
+	}
+	deadline := consoleDeviceAuthorizationCurrentTime().Add(time.Duration(authResp.ExpiresIn) * time.Second)
+
+	transientErrors := 0
+	for {
+		now := consoleDeviceAuthorizationCurrentTime()
+		if !now.Before(deadline) {
+			return nil, trErrorf("device authorization timed out; please run 've login --use-device-code' again")
+		}
+
+		wait := interval
+		if remaining := deadline.Sub(now); wait > remaining {
+			wait = remaining
+		}
+		if err := consoleDeviceAuthorizationSleep(ctx, wait); err != nil {
+			return nil, trErrorf("waiting for device authorization: %w", err)
+		}
+		if !consoleDeviceAuthorizationCurrentTime().Before(deadline) {
+			return nil, trErrorf("device authorization timed out; please run 've login --use-device-code' again")
+		}
+
+		// Poll with a single HTTP attempt: the loop itself owns the RFC 8628
+		// interval / slow_down backpressure, so the transport-level retry must
+		// not fire extra sub-second requests here.
+		tokenResp, err := oauthClient.exchangeToken(ctx, &ConsoleTokenRequest{
+			GrantType:  deviceCodeGrantType,
+			DeviceCode: authResp.DeviceCode,
+			ClientID:   ConsoleClientIDCrossDevice,
+			Scope:      scopeAllAll,
+		}, 1)
+		if err == nil {
+			return tokenResp, nil
+		}
+
+		code, ok := consoleOAuthErrorCode(err)
+		if !ok {
+			// Non-structured failure (network blip, decode error, empty body).
+			// Keep polling within the valid window up to a small budget instead
+			// of aborting a login the user may still be completing.
+			transientErrors++
+			if transientErrors > consoleDeviceCodeMaxTransientErrors {
+				return nil, trErrorf("polling device authorization token: %w", err)
+			}
+			continue
+		}
+		switch code {
+		case "authorization_pending":
+			transientErrors = 0
+			continue
+		case "slow_down":
+			transientErrors = 0
+			interval += consoleDeviceCodeSlowDownIncrement
+			continue
+		case "access_denied":
+			return nil, trErrorf("device authorization was denied")
+		case "expired_token", "invalid_device_code":
+			return nil, trErrorf("device code is invalid or expired; please run 've login --use-device-code' again")
+		case "server_error", "temporarily_unavailable":
+			// Documented transient upstream failures (500 / 503); retry within
+			// the budget rather than aborting the whole device login.
+			transientErrors++
+			if transientErrors > consoleDeviceCodeMaxTransientErrors {
+				return nil, trErrorf("polling device authorization token: %w", err)
+			}
+			continue
+		default:
+			return nil, trErrorf("polling device authorization token: %w", err)
+		}
+	}
+}
+
+func consoleOAuthErrorCode(err error) (string, bool) {
+	var apiErr *ConsoleOAuthAPIError
+	if !errors.As(err, &apiErr) {
+		return "", false
+	}
+	return apiErr.Response.Error, apiErr.Response.Error != ""
 }
 
 func confirmLoginSessionReplacement(input io.Reader, output io.Writer, profileName, currentLoginSession, newLoginSession string) (bool, error) {

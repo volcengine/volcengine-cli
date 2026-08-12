@@ -416,7 +416,10 @@ Console Login：
 
 ```shell
 ve login --profile dev --region cn-beijing --remote
+ve login --profile dev --region cn-beijing --use-device-code --no-browser
 ```
+
+`--remote` 使用跨设备授权码流程；`--use-device-code --no-browser` 使用设备码流程，并由 CLI 自动轮询授权结果。
 
 ### JSON body 报 `json format error` 怎么办？
 

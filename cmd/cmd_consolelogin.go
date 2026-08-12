@@ -16,13 +16,15 @@ func newLoginCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "login",
-		Short: tr("Log in to Volcengine Console via browser"),
-		Long: tr(`Authenticate with Volcengine Console using OAuth 2.0 + PKCE.
-Opens a browser for authentication and caches temporary STS credentials locally.
+		Short: tr("Log in to Volcengine Console"),
+		Long: tr(`Authenticate with Volcengine Console and cache temporary STS credentials locally.
 
-Supports two modes:
-  - Local (default): Opens browser on the same device
-  - Remote (--remote): For headless environments, displays URL and accepts code input`),
+Supports three modes:
+  - Local (default): Authorization Code + PKCE with a local callback
+  - Remote (--remote): Authorization Code + PKCE with manual code input
+  - Device code (--use-device-code): Device Authorization Grant with token polling
+
+Use --no-browser with --use-device-code to skip opening the default browser.`),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return login.Login()
 		},
@@ -34,6 +36,8 @@ Supports two modes:
 	cmd.Flags().StringVarP(&login.Profile, "profile", "p", "default", tr("Configuration profile name"))
 	cmd.Flags().StringVarP(&login.Region, "region", "r", "", tr("Region (prompts when omitted; empty input defaults to cn-beijing)"))
 	cmd.Flags().BoolVar(&login.Remote, "remote", false, tr("Enable cross-device (remote) login mode"))
+	cmd.Flags().BoolVar(&login.UseDeviceCode, "use-device-code", false, tr("Use the OAuth 2.0 Device Authorization Grant"))
+	cmd.Flags().BoolVar(&login.NoBrowser, "no-browser", false, tr("Do not automatically open the browser during device code login"))
 	cmd.Flags().StringVar(&login.EndpointURL, "endpoint-url", "https://signin.volcengine.com", tr("Override signin service endpoint URL"))
 
 	return cmd

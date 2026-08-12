@@ -1,21 +1,27 @@
 package cmd
 
 var simplifiedChineseCommandMessages = map[string]string{
-	"Log in to Volcengine Console via browser": "通过浏览器登录火山引擎控制台",
-	`Authenticate with Volcengine Console using OAuth 2.0 + PKCE.
-Opens a browser for authentication and caches temporary STS credentials locally.
+	"Log in to Volcengine Console": "登录火山引擎控制台",
+	`Authenticate with Volcengine Console and cache temporary STS credentials locally.
 
-Supports two modes:
-  - Local (default): Opens browser on the same device
-  - Remote (--remote): For headless environments, displays URL and accepts code input`: `使用 OAuth 2.0 + PKCE 登录火山引擎控制台。
-打开浏览器完成认证，并在本地缓存临时 STS 凭证。
+Supports three modes:
+  - Local (default): Authorization Code + PKCE with a local callback
+  - Remote (--remote): Authorization Code + PKCE with manual code input
+  - Device code (--use-device-code): Device Authorization Grant with token polling
 
-支持两种模式：
-  - 本地（默认）：在当前设备上打开浏览器
-  - 远程（--remote）：适用于无界面环境，显示登录地址并接收授权码`,
+Use --no-browser with --use-device-code to skip opening the default browser.`: `登录火山引擎控制台，并在本地缓存临时 STS 凭证。
+
+支持三种模式：
+  - 本地（默认）：授权码 + PKCE，通过本地回调接收结果
+  - 远程（--remote）：授权码 + PKCE，手动输入授权码
+  - 设备码（--use-device-code）：设备授权模式，由 CLI 轮询令牌
+
+可将 --no-browser 与 --use-device-code 配合使用，以禁止自动打开默认浏览器。`,
 	"Configuration profile name":                                        "配置档案名称",
 	"Region (prompts when omitted; empty input defaults to cn-beijing)": "地域（省略时交互输入，直接回车默认使用 cn-beijing）",
 	"Enable cross-device (remote) login mode":                           "启用跨设备（远程）登录模式",
+	"Use the OAuth 2.0 Device Authorization Grant":                      "使用 OAuth 2.0 设备授权模式",
+	"Do not automatically open the browser during device code login":    "设备码登录期间不自动打开浏览器",
 	"Override signin service endpoint URL":                              "覆盖登录服务接入地址",
 	"Log out of Volcengine Console and clear cached credentials":        "退出火山引擎控制台登录并清除缓存凭证",
 	`Remove locally cached login credentials for the specified profile or all profiles.
@@ -62,6 +68,11 @@ Modes:
 	"Open the following URL in a browser on any device:":                         "请在任意设备的浏览器中打开以下地址：",
 	"After completing login, enter the authorization code shown in the browser:": "完成登录后，请输入浏览器中显示的授权码：",
 	"Authorization code: ":                                                       "授权码：",
+	"Browser will not be automatically opened.":                                  "浏览器不会自动打开。",
+	"Open the following URL to authorize this device:":                           "请打开以下地址授权此设备：",
+	"Then enter the code:\n\n%s\n":                                               "然后输入以下用户码：\n\n%s\n",
+	"Alternatively, open the following URL to prefill the code:":                 "也可以打开以下地址自动填入用户码：",
+	"This device code expires in %d seconds.\n":                                  "此设备码将在 %d 秒后过期。\n",
 	"Profile %q does not have an active login session. Nothing to do.\n":         "配置档案 %q 没有有效登录会话，无需操作。\n",
 	"Successfully logged out of profile %q.\n":                                   "已成功退出配置档案 %q。\n",
 	"No configuration found; nothing to log out.":                                "未找到配置，无需退出。",
@@ -73,29 +84,37 @@ Modes:
 	"Note: Local cache has been removed for future CLI sessions.":                "注意：已删除本地缓存，后续 CLI 会话将不再使用它。",
 	"Already-running tools that loaded temporary STS credentials before logout":  "退出前已经加载临时 STS 凭证的运行中工具",
 	"may continue to use them until those credentials expire.":                   "仍可能继续使用这些凭证，直到凭证过期。",
-	"nil input reader":                                                   "输入读取器为空",
-	"resolving login region: %w":                                         "解析登录地域失败：%w",
-	"generating code verifier: %w":                                       "生成代码校验器失败：%w",
-	"generating state: %w":                                               "生成 state 失败：%w",
-	"exchanging authorization code for token: %w":                        "使用授权码交换令牌失败：%w",
-	"parsing STS credentials: %w":                                        "解析 STS 凭证失败：%w",
-	"extracting login session from id_token: %w":                         "从 id_token 提取登录会话失败：%w",
-	"confirming login session replacement: %w":                           "确认替换登录会话失败：%w",
-	"login canceled: existing login_session was not replaced":            "登录已取消：未替换现有 login_session",
-	"writing login cache: %w":                                            "写入登录缓存失败：%w",
-	"writing config: %w":                                                 "写入配置失败：%w",
-	"starting callback server: %w":                                       "启动回调服务器失败：%w",
-	"waiting for authorization callback: %w":                             "等待授权回调失败：%w",
-	"authorization failed: %s":                                           "授权失败：%s",
-	"state mismatch: expected %s, got %s (possible CSRF attack)":         "state 不匹配：期望 %s，实际 %s（可能存在 CSRF 攻击）",
-	"authorization callback did not include an authorization code":       "授权回调中没有授权码",
-	"reading authorization code from stdin: %w":                          "从标准输入读取授权码失败：%w",
-	"authorization code cannot be empty":                                 "授权码不能为空",
-	"base64 decoding authorization response: %w":                         "Base64 解码授权响应失败：%w",
-	"parsing decoded authorization response: %w":                         "解析解码后的授权响应失败：%w",
-	`decoded authorization response does not contain a "code" parameter`: "解码后的授权响应不包含 \"code\" 参数",
-	"no configuration found; nothing to log out":                         "未找到配置，无需退出",
-	"profile %q not found in configuration":                              "配置中未找到配置档案 %q",
+	"nil input reader":                                                                 "输入读取器为空",
+	"resolving login region: %w":                                                       "解析登录地域失败：%w",
+	"generating code verifier: %w":                                                     "生成代码校验器失败：%w",
+	"generating state: %w":                                                             "生成 state 失败：%w",
+	"exchanging authorization code for token: %w":                                      "使用授权码交换令牌失败：%w",
+	"parsing STS credentials: %w":                                                      "解析 STS 凭证失败：%w",
+	"extracting login session from id_token: %w":                                       "从 id_token 提取登录会话失败：%w",
+	"confirming login session replacement: %w":                                         "确认替换登录会话失败：%w",
+	"login canceled: existing login_session was not replaced":                          "登录已取消：未替换现有 login_session",
+	"writing login cache: %w":                                                          "写入登录缓存失败：%w",
+	"writing config: %w":                                                               "写入配置失败：%w",
+	"--remote and --use-device-code cannot be used together":                           "--remote 与 --use-device-code 不能同时使用",
+	"--no-browser requires --use-device-code":                                          "--no-browser 必须与 --use-device-code 同时使用",
+	"starting device authorization: %w":                                                "启动设备授权失败：%w",
+	"device authorization timed out; please run 've login --use-device-code' again":    "设备授权已超时；请重新运行 've login --use-device-code'",
+	"waiting for device authorization: %w":                                             "等待设备授权失败：%w",
+	"polling device authorization token: %w":                                           "轮询设备授权令牌失败：%w",
+	"device authorization was denied":                                                  "设备授权已被拒绝",
+	"device code is invalid or expired; please run 've login --use-device-code' again": "设备码无效或已过期；请重新运行 've login --use-device-code'",
+	"starting callback server: %w":                                                     "启动回调服务器失败：%w",
+	"waiting for authorization callback: %w":                                           "等待授权回调失败：%w",
+	"authorization failed: %s":                                                         "授权失败：%s",
+	"state mismatch: expected %s, got %s (possible CSRF attack)":                       "state 不匹配：期望 %s，实际 %s（可能存在 CSRF 攻击）",
+	"authorization callback did not include an authorization code":                     "授权回调中没有授权码",
+	"reading authorization code from stdin: %w":                                        "从标准输入读取授权码失败：%w",
+	"authorization code cannot be empty":                                               "授权码不能为空",
+	"base64 decoding authorization response: %w":                                       "Base64 解码授权响应失败：%w",
+	"parsing decoded authorization response: %w":                                       "解析解码后的授权响应失败：%w",
+	`decoded authorization response does not contain a "code" parameter`:               "解码后的授权响应不包含 \"code\" 参数",
+	"no configuration found; nothing to log out":                                       "未找到配置，无需退出",
+	"profile %q not found in configuration":                                            "配置中未找到配置档案 %q",
 	"profile %q is using %q mode, not %q mode. Only console-login profiles can be logged out with this command": "配置档案 %q 当前使用 %q 模式，而不是 %q 模式。只有 console-login 配置档案可以使用此命令退出登录",
 	"removing cached token for profile %q: %w": "删除配置档案 %q 的缓存令牌失败：%w",
 	"updating config after logout: %w":         "退出后更新配置失败：%w",
@@ -441,11 +460,17 @@ Account: {{ .AccountID }}`: `
 	"code is required for authorization_code grant":                                         "authorization_code 授权必须提供 code",
 	"code_verifier is required for authorization_code grant":                                "authorization_code 授权必须提供 code_verifier",
 	"refresh_token is required for refresh_token grant":                                     "refresh_token 授权必须提供 refresh_token",
+	"device_code is required for device code grant":                                         "设备码授权必须提供 device_code",
 	"unsupported grant_type: %s":                                                            "不支持 grant_type：%s",
 	"failed to build request: %w":                                                           "构建请求失败：%w",
 	"request failed: %w":                                                                    "请求失败：%w",
 	"failed to read response: %w":                                                           "读取响应失败：%w",
+	"failed to decode oauth response (status %d, requestId: %s): %w":                        "解析 OAuth 响应失败（状态码 %d，requestId：%s）：%w",
 	"ExchangeToken succeeded but response was empty":                                        "ExchangeToken 成功但响应为空",
+	"device authorization response missing device_code":                                     "设备授权响应缺少 device_code",
+	"device authorization response missing user_code":                                       "设备授权响应缺少 user_code",
+	"device authorization response missing verification_uri":                                "设备授权响应缺少 verification_uri",
+	"device authorization response has invalid expires_in":                                  "设备授权响应中的 expires_in 无效",
 	"access_token is empty":                                                                 "access_token 为空",
 	"failed to parse STS credentials from access_token: %w":                                 "从 access_token 解析 STS 凭证失败：%w",
 	"parsed STS credentials missing access_key_id":                                          "解析后的 STS 凭证缺少 access_key_id",

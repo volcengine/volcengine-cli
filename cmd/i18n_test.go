@@ -46,7 +46,7 @@ func TestLocalizedInteractiveCommand(t *testing.T) {
 	defer restoreLanguage()
 
 	command := newLoginCmd()
-	if command.Short != "通过浏览器登录火山引擎控制台" {
+	if command.Short != "登录火山引擎控制台" {
 		t.Fatalf("login short = %q", command.Short)
 	}
 	if usage := command.Flags().Lookup("region").Usage; !strings.Contains(usage, "地域") {

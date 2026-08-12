@@ -416,7 +416,10 @@ Console Login:
 
 ```shell
 ve login --profile dev --region cn-beijing --remote
+ve login --profile dev --region cn-beijing --use-device-code --no-browser
 ```
+
+`--remote` uses the cross-device authorization code flow. `--use-device-code --no-browser` uses Device Authorization Grant and lets the CLI poll for completion.
 
 ### Why does `--body` return `json format error`?
 
