@@ -30,6 +30,11 @@ ve version
 
 The npm package requires Node.js >= 14 and provides the `ve` command.
 
+Installing or upgrading the CLI with npm also installs the four core Volcengine Skills. The installer
+downloads the latest release from the CDN first and falls back to the Skill release bundled in the npm
+package if the CDN is unavailable. A Skill installation failure does not fail the CLI installation. Set
+`VOLCENGINE_CLI_SKIP_SKILLS=1` to skip this step temporarily.
+
 You can also download from Release:
 
 1. Open <https://github.com/volcengine/volcengine-cli/releases>.
@@ -48,6 +53,28 @@ Put `ve` on PATH:
 sudo cp ve /usr/local/bin
 ve version
 ```
+
+### Skill Management
+
+`ve` uses the same installation layout as
+[`@volcengine/skills-setup`](https://www.npmjs.com/package/@volcengine/skills-setup). The four core Skills
+are installed under `~/.agents/skills` and linked into the dedicated Skill directories for Claude Code,
+OpenClaw, Hermes Agent, and Trae. Agents that support the universal directory, including Codex, Cursor,
+and OpenCode, read `~/.agents/skills` directly. See
+[`volcengine-skills`](https://github.com/volcengine/volcengine-skills/blob/main/README_en.md#skills) for the
+full Skill catalog and usage details.
+
+```shell
+ve skills install
+ve skills update
+ve skills uninstall
+```
+
+The installer resolves releases in this order: CDN, the current npm package's bundled release, and the
+latest `@volcengine/cli` package from the npm registry. `update` only installs a newer version. If the
+local install-state file is absent, it behaves like `install`. State is stored in
+`~/.volcengine/skills/install-state.json`. Locally modified Skills are not overwritten during update or
+uninstall.
 
 ### Quick Start
 

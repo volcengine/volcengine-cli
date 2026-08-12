@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { execSync } = require("child_process");
+const { execFileSync, execSync } = require("child_process");
 const crypto = require("crypto");
 const https = require("https");
 const fs = require("fs");
@@ -190,6 +190,38 @@ function download(url) {
   });
 }
 
+function shouldInstallSkills(env) {
+  env = env || {};
+  return env.VOLCENGINE_CLI_SKIP_SKILLS !== "1";
+}
+
+function runSkillsInstall(binPath, deps) {
+  deps = deps || {};
+  const env = deps.env || process.env;
+  const run = deps.execFileSync || execFileSync;
+  const warn = deps.warn || console.warn;
+  if (!shouldInstallSkills(env)) {
+    return true;
+  }
+  try {
+    run(binPath, ["skills", "update"], {
+      stdio: "inherit",
+      timeout: 120000,
+      env: Object.assign({}, env, {
+        VOLCENGINE_CLI_SKILLS_FALLBACK_DIR: path.join(__dirname, "skills"),
+      }),
+    });
+    return true;
+  } catch (err) {
+    warn(
+      `Volcengine CLI installation succeeded, but Skill installation was skipped: ${
+        (err && err.message) || err
+      }. Run \`ve skills update\` to retry.`
+    );
+    return false;
+  }
+}
+
 async function install() {
   const target = targetForPlatform(process.platform, process.arch);
 
@@ -252,6 +284,7 @@ async function install() {
     }
 
     console.log(`Volcengine CLI v${VERSION} installed for ${target.platform}/${target.arch}`);
+    runSkillsInstall(binPath);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
@@ -274,7 +307,9 @@ module.exports = {
   downloadErrorMessage,
   normalizeBaseURL,
   parseChecksum,
+  runSkillsInstall,
   sha256,
+  shouldInstallSkills,
   targetForPlatform,
   verifyArchiveChecksum,
   version: VERSION,
