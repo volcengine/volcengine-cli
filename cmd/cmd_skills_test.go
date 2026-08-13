@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	skillmanager "github.com/volcengine/volcengine-cli/internal/skills"
 )
 
@@ -128,6 +129,19 @@ func TestSkillsCommandRejectsUnexpectedArguments(t *testing.T) {
 	command.SetArgs([]string{"install", "extra"})
 	if err := command.Execute(); err == nil {
 		t.Fatal("expected argument validation error")
+	}
+}
+
+func TestSkillsCommandRejectsUnknownSubcommand(t *testing.T) {
+	for _, name := range []string{"skills", "skill"} {
+		t.Run(name, func(t *testing.T) {
+			root := &cobra.Command{Use: "ve"}
+			root.AddCommand(newSkillsCommand(func() (skillsManager, error) { return &fakeSkillsManager{}, nil }))
+			root.SetArgs([]string{name, "unknown"})
+			if err := root.Execute(); err == nil {
+				t.Fatal("expected unknown subcommand error")
+			}
+		})
 	}
 }
 

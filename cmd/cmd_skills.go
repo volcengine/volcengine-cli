@@ -27,6 +27,9 @@ func newSkillsCommand(factory skillsManagerFactory) *cobra.Command {
 		Aliases: []string{"skill"},
 		Short:   tr("Manage Volcengine Agent Skills"),
 		Args:    cobra.NoArgs,
+		RunE: func(command *cobra.Command, args []string) error {
+			return command.Help()
+		},
 	}
 	command.AddCommand(
 		newSkillsActionCommand("install", tr("Install Volcengine Agent Skills"), factory, func(manager skillsManager) (skillmanager.Result, error) {

@@ -401,6 +401,18 @@ func (m *Manager) installWithNPX(releaseErr error) (Result, error) {
 		"--full-depth",
 		"--skill",
 		"*",
+		"--agent",
+		"claude-code",
+		"codex",
+	}
+	if pathExists(filepath.Join(m.HomeDir, ".openclaw")) {
+		args = append(args, "openclaw")
+	}
+	if pathExists(m.HermesHome) {
+		args = append(args, "hermes-agent")
+	}
+	if pathExists(filepath.Join(m.HomeDir, ".trae")) {
+		args = append(args, "trae")
 	}
 	if err := run("npx", args...); err != nil {
 		return Result{}, fmt.Errorf("%v; npx: %w", releaseErr, err)

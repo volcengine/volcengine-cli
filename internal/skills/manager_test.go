@@ -260,12 +260,58 @@ func TestInstallFallsBackToNpxAfterRemoteSourcesFail(t *testing.T) {
 		"-y", "skills", "add",
 		"https://github.com/volcengine/volcengine-skills/tree/main/skills/core",
 		"--global", "--yes", "--copy", "--full-depth", "--skill", "*",
+		"--agent", "claude-code", "codex",
 	}
 	if strings.Join(args, "\x00") != strings.Join(wantArgs, "\x00") {
 		t.Fatalf("args = %#v, want %#v", args, wantArgs)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".volcengine", "skills", StateFileName)); !os.IsNotExist(err) {
 		t.Fatalf("npx fallback wrote ve state: %v", err)
+	}
+}
+
+func TestInstallWithNPXIncludesDetectedOptionalAgents(t *testing.T) {
+	home := tempDir(t)
+	for _, dir := range []string{".openclaw", ".hermes", ".trae"} {
+		if err := os.MkdirAll(filepath.Join(home, dir), 0700); err != nil {
+			t.Fatalf("MkdirAll(%s) error = %v", dir, err)
+		}
+	}
+	manager := testManager(home, "http://127.0.0.1:1/cdn/manifest.json")
+	manager.GitHubManifestURL = "http://127.0.0.1:1/github/manifest.json"
+	var args []string
+	manager.RunCommand = func(_ string, values ...string) error {
+		args = append([]string(nil), values...)
+		return nil
+	}
+
+	if _, err := manager.Install(); err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+	wantAgents := []string{"--agent", "claude-code", "codex", "openclaw", "hermes-agent", "trae"}
+	if !strings.Contains(strings.Join(args, "\x00"), strings.Join(wantAgents, "\x00")) {
+		t.Fatalf("args = %#v, want agent arguments %#v", args, wantAgents)
+	}
+}
+
+func TestInstallWithNPXDoesNotTreatLegacyOpenClawHomeAsNPXAgent(t *testing.T) {
+	home := tempDir(t)
+	if err := os.MkdirAll(filepath.Join(home, ".clawdbot"), 0700); err != nil {
+		t.Fatalf("MkdirAll(.clawdbot) error = %v", err)
+	}
+	manager := testManager(home, "http://127.0.0.1:1/cdn/manifest.json")
+	manager.GitHubManifestURL = "http://127.0.0.1:1/github/manifest.json"
+	var args []string
+	manager.RunCommand = func(_ string, values ...string) error {
+		args = append([]string(nil), values...)
+		return nil
+	}
+
+	if _, err := manager.Install(); err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+	if strings.Contains(strings.Join(args, "\x00"), "openclaw") {
+		t.Fatalf("args = %#v, legacy OpenClaw home must not enable npx openclaw target", args)
 	}
 }
 
