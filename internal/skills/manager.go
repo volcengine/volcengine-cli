@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -27,9 +28,11 @@ const (
 	BundleFileName        = "volcengine-skill-bundle.zip"
 	SourceCDN             = "cdn"
 	SourceGitHub          = "github"
+	SourceNPX             = "npx"
 
 	defaultCDNManifestURL    = "https://cloudcache.volccdn.com/ve/skills/latest/manifest.json"
 	defaultGitHubManifestURL = "https://github.com/volcengine/volcengine-skills/releases/latest/download/manifest.json"
+	defaultNPXSkillSource    = "https://github.com/volcengine/volcengine-skills/tree/main/skills/core"
 	maxManifestBytes         = 1024 * 1024
 	maxBundleBytes           = 50 * 1024 * 1024
 	maxExtractedBytes        = 100 * 1024 * 1024
@@ -93,6 +96,7 @@ type Manager struct {
 	HTTPClient        *http.Client
 	ClaudeConfigDir   string
 	HermesHome        string
+	RunCommand        func(name string, args ...string) error
 }
 
 type release struct {
@@ -137,15 +141,15 @@ func NewManager() (*Manager, error) {
 }
 
 func (m *Manager) Install() (Result, error) {
+	state, err := m.readState()
+	if err != nil {
+		return Result{}, err
+	}
 	rel, err := m.resolveRelease()
 	if err != nil {
-		return Result{}, err
+		return m.installWithNPX(err)
 	}
 	payloads, err := extractBundle(rel)
-	if err != nil {
-		return Result{}, err
-	}
-	state, err := m.readState()
 	if err != nil {
 		return Result{}, err
 	}
@@ -252,7 +256,7 @@ func (m *Manager) Update() (Result, error) {
 
 	rel, err := m.resolveRelease()
 	if err != nil {
-		return Result{}, err
+		return m.installWithNPX(err)
 	}
 	payloads, err := extractBundle(rel)
 	if err != nil {
@@ -386,6 +390,37 @@ func (m *Manager) resolveRelease() (release, error) {
 		errors = append(errors, "github: "+err.Error())
 	}
 	return release{}, fmt.Errorf("resolve Skill release failed (%s)", strings.Join(errors, "; "))
+}
+
+func (m *Manager) installWithNPX(releaseErr error) (Result, error) {
+	run := m.RunCommand
+	if run == nil {
+		run = runCommand
+	}
+	args := []string{
+		"-y",
+		"skills",
+		"add",
+		defaultNPXSkillSource,
+		"--global",
+		"--yes",
+		"--copy",
+		"--full-depth",
+		"--skill",
+		"*",
+	}
+	if err := run("npx", args...); err != nil {
+		return Result{}, fmt.Errorf("%v; npx: %w", releaseErr, err)
+	}
+	return Result{Source: SourceNPX}, nil
+}
+
+func runCommand(name string, args ...string) error {
+	command := exec.Command(name, args...)
+	command.Stdin = os.Stdin
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
+	return command.Run()
 }
 
 func (m *Manager) fetchRemoteRelease(manifestURL, source string) (release, error) {

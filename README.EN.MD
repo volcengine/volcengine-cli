@@ -31,8 +31,8 @@ ve version
 The npm package requires Node.js >= 14 and provides the `ve` command.
 
 Installing or upgrading the CLI with npm also installs the core Volcengine Skills. The installer
-downloads the latest release from the CDN first and falls back to the same release on GitHub
-if the CDN is unavailable. A Skill installation failure does not fail the CLI installation. Set
+tries the CDN, the matching GitHub Release, and finally an npx fallback scoped to the repository's
+`skills/core` directory. A Skill installation failure does not fail the CLI installation. Set
 `VOLCENGINE_CLI_SKIP_SKILLS=1` to skip this step temporarily.
 
 You can also download from Release:
@@ -70,7 +70,8 @@ ve skills update
 ve skills uninstall
 ```
 
-The installer resolves releases from the CDN first and GitHub Releases second. `update` only installs a
+The installer tries the CDN, GitHub Releases, and the npx `skills/core` fallback in that order. npx
+installations are not written to the `ve` state or managed by `ve skills uninstall`. `update` only installs a
 newer version. If the
 local install-state file is absent, it behaves like `install`. State is stored in
 `~/.volcengine/skills/install-state.json`. Locally modified Skills are not overwritten during update or

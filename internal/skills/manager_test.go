@@ -177,6 +177,136 @@ func TestInstallFallsBackToGitHubRelease(t *testing.T) {
 	)
 }
 
+func TestInstallFallsBackToNpxAfterRemoteSourcesFail(t *testing.T) {
+	home := tempDir(t)
+	unavailable := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer unavailable.Close()
+
+	manager := testManager(home, unavailable.URL+"/cdn/manifest.json")
+	manager.GitHubManifestURL = unavailable.URL + "/github/manifest.json"
+	var command string
+	var args []string
+	manager.RunCommand = func(name string, values ...string) error {
+		command = name
+		args = append([]string(nil), values...)
+		return nil
+	}
+
+	result, err := manager.Install()
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+	if result.Source != SourceNPX {
+		t.Fatalf("source = %q, want %q", result.Source, SourceNPX)
+	}
+	if command != "npx" {
+		t.Fatalf("command = %q, want npx", command)
+	}
+	wantArgs := []string{
+		"-y", "skills", "add",
+		"https://github.com/volcengine/volcengine-skills/tree/main/skills/core",
+		"--global", "--yes", "--copy", "--full-depth", "--skill", "*",
+	}
+	if strings.Join(args, "\x00") != strings.Join(wantArgs, "\x00") {
+		t.Fatalf("args = %#v, want %#v", args, wantArgs)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".volcengine", "skills", StateFileName)); !os.IsNotExist(err) {
+		t.Fatalf("npx fallback wrote ve state: %v", err)
+	}
+}
+
+func TestUpdateWithoutStateFallsBackToNpx(t *testing.T) {
+	home := tempDir(t)
+	manager := testManager(home, "http://127.0.0.1:1/cdn/manifest.json")
+	manager.GitHubManifestURL = "http://127.0.0.1:1/github/manifest.json"
+	calls := 0
+	manager.RunCommand = func(name string, values ...string) error {
+		calls++
+		return nil
+	}
+
+	result, err := manager.Update()
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if result.Source != SourceNPX || calls != 1 {
+		t.Fatalf("result = %#v, calls = %d", result, calls)
+	}
+}
+
+func TestUpdateWithManagedStateFallsBackToNpx(t *testing.T) {
+	home := tempDir(t)
+	release := makeTestRelease(t, "1.0.0", "first")
+	server := releaseServer(t, &release, http.StatusOK)
+	manager := testManager(home, server.URL+"/latest/manifest.json")
+	if _, err := manager.Install(); err != nil {
+		server.Close()
+		t.Fatalf("Install() error = %v", err)
+	}
+	server.Close()
+
+	manager.CDNManifestURL = "http://127.0.0.1:1/cdn/manifest.json"
+	manager.GitHubManifestURL = "http://127.0.0.1:1/github/manifest.json"
+	calls := 0
+	manager.RunCommand = func(name string, values ...string) error {
+		calls++
+		return nil
+	}
+
+	result, err := manager.Update()
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if result.Source != SourceNPX || calls != 1 {
+		t.Fatalf("result = %#v, calls = %d", result, calls)
+	}
+	state := readTestState(t, filepath.Join(home, ".volcengine", "skills", StateFileName))
+	if state.LastResolvedVersion != "1.0.0" {
+		t.Fatalf("npx fallback changed ve state: %#v", state)
+	}
+}
+
+func TestInstallReportsAllSourcesWhenNpxFails(t *testing.T) {
+	home := tempDir(t)
+	manager := testManager(home, "http://127.0.0.1:1/cdn/manifest.json")
+	manager.GitHubManifestURL = "http://127.0.0.1:1/github/manifest.json"
+	manager.RunCommand = func(name string, values ...string) error {
+		return fmt.Errorf("npx unavailable")
+	}
+
+	_, err := manager.Install()
+	if err == nil {
+		t.Fatal("Install() error = nil, want all sources failure")
+	}
+	for _, marker := range []string{"cdn:", "github:", "npx:", "npx unavailable"} {
+		if !strings.Contains(err.Error(), marker) {
+			t.Fatalf("Install() error = %q, want %q", err, marker)
+		}
+	}
+}
+
+func TestInstallInvalidStateDoesNotRunNpx(t *testing.T) {
+	home := tempDir(t)
+	statePath := filepath.Join(home, ".volcengine", "skills", StateFileName)
+	writeFile(t, statePath, []byte("not json\n"), 0600)
+	manager := testManager(home, "http://127.0.0.1:1/cdn/manifest.json")
+	manager.GitHubManifestURL = "http://127.0.0.1:1/github/manifest.json"
+	calls := 0
+	manager.RunCommand = func(name string, values ...string) error {
+		calls++
+		return nil
+	}
+
+	if _, err := manager.Install(); err == nil || !strings.Contains(err.Error(), "parse Skill install state") {
+		t.Fatalf("Install() error = %v, want state parse error", err)
+	}
+	if calls != 0 {
+		t.Fatalf("npx calls = %d, want 0", calls)
+	}
+}
+
 func TestInstallDoesNotUpgradeManagedCopyTarget(t *testing.T) {
 	home := tempDir(t)
 	release := makeTestRelease(t, "1.0.0", "first")

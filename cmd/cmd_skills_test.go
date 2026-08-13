@@ -70,6 +70,15 @@ func TestSkillsSubcommandsInvokeManager(t *testing.T) {
 			wantCall: "uninstall",
 			wantText: "Removed 1 Skill(s); skipped 1",
 		},
+		{
+			name: "npx fallback",
+			args: []string{"install"},
+			manager: &fakeSkillsManager{installResult: skillmanager.Result{
+				Source: skillmanager.SourceNPX,
+			}},
+			wantCall: "install",
+			wantText: "Installed core Skills using npx fallback",
+		},
 	}
 
 	for _, test := range tests {

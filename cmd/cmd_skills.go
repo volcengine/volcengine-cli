@@ -71,6 +71,10 @@ func printSkillsResult(command *cobra.Command, action string, result skillmanage
 	for _, warning := range result.Warnings {
 		fmt.Fprintf(command.ErrOrStderr(), "Warning: %s\n", warning)
 	}
+	if result.Source == skillmanager.SourceNPX {
+		fmt.Fprintln(command.OutOrStdout(), "Installed core Skills using npx fallback")
+		return
+	}
 	switch action {
 	case "install":
 		fmt.Fprintf(

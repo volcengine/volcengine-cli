@@ -30,8 +30,8 @@ ve version
 
 npm 包要求 Node.js >= 14，安装后提供 `ve` 命令入口。
 
-通过 npm 安装或升级 CLI 时，会自动安装火山引擎的核心 Skill。安装程序优先从 CDN
-下载最新版本；CDN 不可用时，从 GitHub Release 获取同一发布物，不影响 CLI 本身安装。若需要
+通过 npm 安装或升级 CLI 时，会自动安装火山引擎的核心 Skill。安装程序依次尝试 CDN、
+GitHub Release，以及从 GitHub 仓库 `skills/core` 安装的 npx 兜底；全部失败也不影响 CLI 本身安装。若需要
 暂时跳过，可设置 `VOLCENGINE_CLI_SKIP_SKILLS=1`。
 
 也可以从 Release 下载：
@@ -67,7 +67,8 @@ ve skills update
 ve skills uninstall
 ```
 
-安装器优先从 CDN 获取 Skill，失败时使用 GitHub Release。`update` 只升级到更高版本；如果本地
+安装器依次尝试 CDN、GitHub Release 和 npx `skills/core` 兜底。npx 安装结果不写入 `ve` 的状态，
+也不由 `ve skills uninstall` 管理。`update` 只升级到更高版本；如果本地
 没有安装状态，则等同于 `install`。安装状态记录在
 `~/.volcengine/skills/install-state.json`。本地修改过的 Skill 不会被升级或卸载覆盖。
 
