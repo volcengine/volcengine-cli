@@ -61,6 +61,18 @@ func TestSkillsSubcommandsInvokeManager(t *testing.T) {
 			wantText: "Updated 1 Skill(s) from github (version 1.2.4)",
 		},
 		{
+			name: "update with newly added Skill",
+			args: []string{"update"},
+			manager: &fakeSkillsManager{updateResult: skillmanager.Result{
+				Source:    "cdn",
+				Version:   "1.3.0",
+				Installed: []string{"volcengine-new-core"},
+				Updated:   []string{"volcengine-cli"},
+			}},
+			wantCall: "update",
+			wantText: "Installed 1 Skill(s) and updated 1 Skill(s) from cdn (version 1.3.0)",
+		},
+		{
 			name: "uninstall",
 			args: []string{"uninstall"},
 			manager: &fakeSkillsManager{uninstallResult: skillmanager.Result{

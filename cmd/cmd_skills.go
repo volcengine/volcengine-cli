@@ -83,7 +83,15 @@ func printSkillsResult(command *cobra.Command, action string, result skillmanage
 			len(result.Installed), result.Source, result.Version, len(result.Skipped),
 		)
 	case "update":
-		if len(result.Installed) > 0 && len(result.Updated) == 0 {
+		if len(result.Installed) > 0 {
+			if len(result.Updated) > 0 {
+				fmt.Fprintf(
+					command.OutOrStdout(),
+					"Installed %d Skill(s) and updated %d Skill(s) from %s (version %s); skipped %d\n",
+					len(result.Installed), len(result.Updated), result.Source, result.Version, len(result.Skipped),
+				)
+				return
+			}
 			fmt.Fprintf(
 				command.OutOrStdout(),
 				"Installed %d Skill(s) from %s (version %s); skipped %d\n",
