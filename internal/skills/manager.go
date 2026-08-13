@@ -161,6 +161,9 @@ func (m *Manager) Install() (Result, error) {
 	for _, payload := range payloads {
 		entry := state.Skills[payload.name]
 		canonical := m.canonicalPath(payload.name)
+		if err := recoverInterruptedDirectoryReplacement(canonical); err != nil {
+			return result, fmt.Errorf("recover %s: %w", payload.name, err)
+		}
 		targetPayload := payload
 		if entry == nil {
 			if pathExists(canonical) {
@@ -269,8 +272,11 @@ func (m *Manager) Update() (Result, error) {
 	result := Result{Source: rel.source, Version: rel.manifest.Version}
 	for _, payload := range payloads {
 		entry := state.Skills[payload.name]
+		canonical := m.canonicalPath(payload.name)
+		if err := recoverInterruptedDirectoryReplacement(canonical); err != nil {
+			return result, fmt.Errorf("recover %s: %w", payload.name, err)
+		}
 		if entry == nil {
-			canonical := m.canonicalPath(payload.name)
 			if pathExists(canonical) {
 				result.skip(payload.name, "existing directory is not managed by ve: "+canonical)
 				continue
@@ -305,7 +311,6 @@ func (m *Manager) Update() (Result, error) {
 			}
 		}
 
-		canonical := m.canonicalPath(payload.name)
 		currentDigest, digestErr := digestDirectory(canonical)
 		needsRefresh := comparison > 0 || digestErr != nil || currentDigest != payload.digest
 		if needsRefresh {
@@ -339,6 +344,9 @@ func (m *Manager) Uninstall() (Result, error) {
 	for _, name := range names {
 		entry := state.Skills[name]
 		canonical := m.canonicalPath(name)
+		if err := recoverInterruptedDirectoryReplacement(canonical); err != nil {
+			return result, fmt.Errorf("recover %s: %w", name, err)
+		}
 		currentDigest, digestErr := digestDirectory(canonical)
 		if digestErr != nil && !os.IsNotExist(digestErr) {
 			return result, fmt.Errorf("inspect %s: %w", name, digestErr)
@@ -661,6 +669,9 @@ func ensureTarget(targetPath, canonical string, files map[string][]byte, existin
 	if existing != nil && existing.Path != targetPath {
 		return "", fmt.Errorf("recorded target path changed from %s to %s", existing.Path, targetPath)
 	}
+	if err := recoverInterruptedDirectoryReplacement(targetPath); err != nil {
+		return "", err
+	}
 	if info, err := os.Lstat(targetPath); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
 			resolved, resolveErr := filepath.EvalSymlinks(targetPath)
@@ -734,6 +745,9 @@ func ensureTarget(targetPath, canonical string, files map[string][]byte, existin
 }
 
 func removeManagedTarget(name string, target *InstalledTarget, canonical, contentDigest string, result *Result) error {
+	if err := recoverInterruptedDirectoryReplacement(target.Path); err != nil {
+		return err
+	}
 	info, err := os.Lstat(target.Path)
 	if os.IsNotExist(err) {
 		return nil
@@ -909,6 +923,9 @@ func installDirectory(target string, files map[string][]byte) error {
 	if err := os.MkdirAll(parent, 0755); err != nil {
 		return err
 	}
+	if err := recoverInterruptedDirectoryReplacement(target); err != nil {
+		return err
+	}
 	staging, err := ioutil.TempDir(parent, ".skill-install-")
 	if err != nil {
 		return err
@@ -932,9 +949,6 @@ func installDirectory(target string, files map[string][]byte) error {
 		}
 	}
 	backup := target + ".ve-backup"
-	if pathExists(backup) {
-		return fmt.Errorf("stale backup exists: %s", backup)
-	}
 	hadTarget := pathExists(target)
 	if hadTarget {
 		if err := os.Rename(target, backup); err != nil {
@@ -951,6 +965,29 @@ func installDirectory(target string, files map[string][]byte) error {
 		if err := os.RemoveAll(backup); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func recoverInterruptedDirectoryReplacement(target string) error {
+	backup := target + ".ve-backup"
+	if _, err := os.Lstat(backup); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("inspect interrupted backup %s: %w", backup, err)
+	}
+
+	if _, err := os.Lstat(target); os.IsNotExist(err) {
+		if err := os.Rename(backup, target); err != nil {
+			return fmt.Errorf("restore interrupted backup %s: %w", backup, err)
+		}
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("inspect replacement target %s: %w", target, err)
+	}
+
+	if err := os.RemoveAll(backup); err != nil {
+		return fmt.Errorf("remove completed replacement backup %s: %w", backup, err)
 	}
 	return nil
 }

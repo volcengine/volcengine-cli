@@ -563,6 +563,103 @@ func TestUpdateReplacesLocalChangesWithLatestRelease(t *testing.T) {
 	}
 }
 
+func TestUpdateRecoversInterruptedCanonicalReplacement(t *testing.T) {
+	home := tempDir(t)
+	release := makeTestRelease(t, "1.0.0", "first")
+	server := releaseServer(t, &release, http.StatusOK)
+	defer server.Close()
+	manager := testManager(home, server.URL+"/latest/manifest.json")
+	if _, err := manager.Install(); err != nil {
+		t.Fatal(err)
+	}
+
+	skillName := "volcengine-cli"
+	canonical := filepath.Join(home, ".agents", "skills", skillName)
+	backup := canonical + ".ve-backup"
+	if err := os.Rename(canonical, backup); err != nil {
+		t.Fatal(err)
+	}
+	release = makeTestRelease(t, "1.1.0", "second")
+
+	if _, err := manager.Update(); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	assertFileContains(t, filepath.Join(canonical, "SKILL.md"), "second")
+	if _, err := os.Lstat(backup); !os.IsNotExist(err) {
+		t.Fatalf("stale backup still exists after update: %v", err)
+	}
+}
+
+func TestUpdateCleansBackupAfterCompletedCanonicalReplacement(t *testing.T) {
+	home := tempDir(t)
+	release := makeTestRelease(t, "1.0.0", "first")
+	server := releaseServer(t, &release, http.StatusOK)
+	defer server.Close()
+	manager := testManager(home, server.URL+"/latest/manifest.json")
+	if _, err := manager.Install(); err != nil {
+		t.Fatal(err)
+	}
+
+	skillName := "volcengine-cli"
+	canonical := filepath.Join(home, ".agents", "skills", skillName)
+	backup := canonical + ".ve-backup"
+	writeFile(t, filepath.Join(backup, "SKILL.md"), []byte("old\n"), 0644)
+
+	result, err := manager.Update()
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if contains(result.Updated, skillName) {
+		t.Fatalf("updated = %v, completed replacement must not force a refresh", result.Updated)
+	}
+	assertFileContains(t, filepath.Join(canonical, "SKILL.md"), "first")
+	if _, err := os.Lstat(backup); !os.IsNotExist(err) {
+		t.Fatalf("completed replacement backup still exists: %v", err)
+	}
+}
+
+func TestUpdateRecoversInterruptedCopyTargetReplacement(t *testing.T) {
+	home := tempDir(t)
+	release := makeTestRelease(t, "1.0.0", "first")
+	server := releaseServer(t, &release, http.StatusOK)
+	defer server.Close()
+	manager := testManager(home, server.URL+"/latest/manifest.json")
+	if _, err := manager.Install(); err != nil {
+		t.Fatal(err)
+	}
+
+	skillName := "volcengine-cli"
+	canonical := filepath.Join(home, ".agents", "skills", skillName)
+	target := filepath.Join(home, ".claude", "skills", skillName)
+	if err := os.Remove(target); err != nil {
+		t.Fatal(err)
+	}
+	content, err := ioutil.ReadFile(filepath.Join(canonical, "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := installDirectory(target, map[string][]byte{"SKILL.md": content}); err != nil {
+		t.Fatal(err)
+	}
+	state := readTestState(t, filepath.Join(home, ".volcengine", "skills", StateFileName))
+	state.Skills[skillName].Targets["claude-code"] = &InstalledTarget{
+		Mode: "copy", Path: target, ContentSHA256: state.Skills[skillName].ContentSHA256,
+	}
+	writeTestState(t, manager, state)
+	backup := target + ".ve-backup"
+	if err := os.Rename(target, backup); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := manager.Update(); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	assertFileContains(t, filepath.Join(target, "SKILL.md"), "first")
+	if _, err := os.Lstat(backup); !os.IsNotExist(err) {
+		t.Fatalf("stale target backup still exists after update: %v", err)
+	}
+}
+
 func TestUpdateRestoresMissingManagedSkillAtCurrentRelease(t *testing.T) {
 	home := tempDir(t)
 	release := makeTestRelease(t, "1.0.0", "first")
@@ -791,6 +888,127 @@ func TestUninstallRemovesManagedLinkWhenCanonicalSkillIsMissing(t *testing.T) {
 	}
 	if _, err := os.Lstat(target); !os.IsNotExist(err) {
 		t.Fatalf("dangling managed link still exists: %v", err)
+	}
+}
+
+func TestUninstallRecoversInterruptedCanonicalReplacement(t *testing.T) {
+	home := tempDir(t)
+	release := makeTestRelease(t, "1.0.0", "first")
+	server := releaseServer(t, &release, http.StatusOK)
+	defer server.Close()
+	manager := testManager(home, server.URL+"/latest/manifest.json")
+	if _, err := manager.Install(); err != nil {
+		t.Fatal(err)
+	}
+
+	skillName := "volcengine-cli"
+	canonical := filepath.Join(home, ".agents", "skills", skillName)
+	backup := canonical + ".ve-backup"
+	if err := os.Rename(canonical, backup); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := manager.Uninstall(); err != nil {
+		t.Fatalf("Uninstall() error = %v", err)
+	}
+	for _, path := range []string{canonical, backup} {
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatalf("uninstall left %s: %v", path, err)
+		}
+	}
+	if _, err := manager.Install(); err != nil {
+		t.Fatalf("Install() after interrupted uninstall error = %v", err)
+	}
+	assertFileContains(t, filepath.Join(canonical, "SKILL.md"), "first")
+}
+
+func TestUninstallPreservesModifiedInterruptedBackup(t *testing.T) {
+	home := tempDir(t)
+	release := makeTestRelease(t, "1.0.0", "first")
+	server := releaseServer(t, &release, http.StatusOK)
+	defer server.Close()
+	manager := testManager(home, server.URL+"/latest/manifest.json")
+	if _, err := manager.Install(); err != nil {
+		t.Fatal(err)
+	}
+
+	skillName := "volcengine-cli"
+	canonical := filepath.Join(home, ".agents", "skills", skillName)
+	backup := canonical + ".ve-backup"
+	if err := os.Rename(canonical, backup); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(backup, "local.txt"), []byte("keep me\n"), 0644)
+
+	result, err := manager.Uninstall()
+	if err != nil {
+		t.Fatalf("Uninstall() error = %v", err)
+	}
+	if !contains(result.Skipped, skillName) {
+		t.Fatalf("skipped = %v, want %s", result.Skipped, skillName)
+	}
+	assertFileContains(t, filepath.Join(canonical, "local.txt"), "keep me")
+	if _, err := os.Lstat(backup); !os.IsNotExist(err) {
+		t.Fatalf("backup path still exists after recovery: %v", err)
+	}
+}
+
+func TestUninstallRecoversInterruptedCopyTargetReplacement(t *testing.T) {
+	home := tempDir(t)
+	release := makeTestRelease(t, "1.0.0", "first")
+	server := releaseServer(t, &release, http.StatusOK)
+	defer server.Close()
+	manager := testManager(home, server.URL+"/latest/manifest.json")
+	if _, err := manager.Install(); err != nil {
+		t.Fatal(err)
+	}
+
+	skillName := "volcengine-cli"
+	canonical := filepath.Join(home, ".agents", "skills", skillName)
+	target := filepath.Join(home, ".claude", "skills", skillName)
+	if err := os.Remove(target); err != nil {
+		t.Fatal(err)
+	}
+	content, err := ioutil.ReadFile(filepath.Join(canonical, "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := installDirectory(target, map[string][]byte{"SKILL.md": content}); err != nil {
+		t.Fatal(err)
+	}
+	state := readTestState(t, filepath.Join(home, ".volcengine", "skills", StateFileName))
+	state.Skills[skillName].Targets["claude-code"] = &InstalledTarget{
+		Mode: "copy", Path: target, ContentSHA256: state.Skills[skillName].ContentSHA256,
+	}
+	writeTestState(t, manager, state)
+	backup := target + ".ve-backup"
+	if err := os.Rename(target, backup); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := manager.Uninstall(); err != nil {
+		t.Fatalf("Uninstall() error = %v", err)
+	}
+	for _, path := range []string{target, backup} {
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatalf("uninstall left target path %s: %v", path, err)
+		}
+	}
+}
+
+func TestInstallDirectoryCleansBackupAfterCompletedReplacement(t *testing.T) {
+	root := tempDir(t)
+	target := filepath.Join(root, "volcengine-cli")
+	backup := target + ".ve-backup"
+	writeFile(t, filepath.Join(target, "SKILL.md"), []byte("current\n"), 0644)
+	writeFile(t, filepath.Join(backup, "SKILL.md"), []byte("old\n"), 0644)
+
+	if err := installDirectory(target, map[string][]byte{"SKILL.md": []byte("latest\n")}); err != nil {
+		t.Fatalf("installDirectory() error = %v", err)
+	}
+	assertFileContains(t, filepath.Join(target, "SKILL.md"), "latest")
+	if _, err := os.Lstat(backup); !os.IsNotExist(err) {
+		t.Fatalf("stale backup still exists: %v", err)
 	}
 }
 
