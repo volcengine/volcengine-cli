@@ -482,7 +482,7 @@ func ssoUsageTemplate() string {
 
 ` + tr(`Use "{{.CommandPath}} [command] --help" for more information about a command.`) + `{{end}}
 
-` + tr("Fixed Flags:") + `
-  ---lang string    ` + tr("Set the display language for this invocation (EN or ZH).") + `
+` + tr("System Flags:") + `
+  --lang string     ` + tr("Set the display language for this invocation (EN or ZH).") + `
 `
 }

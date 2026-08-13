@@ -5,6 +5,32 @@ import (
 	"testing"
 )
 
+func TestParserAcceptsEmptyStringFlagValue(t *testing.T) {
+	// Explicit empty token is a valid value (shell: --Name "").
+	// Missing value remains an error (trailing flag / consecutive flags).
+	parser := NewParser([]string{"--Name", "", "--ZoneId", "cn-beijing"})
+	ctx := NewContext()
+	_, err := parser.ReadArgs(ctx)
+	if err != nil {
+		t.Fatalf("empty string value should be accepted: %v", err)
+	}
+	name := ctx.dynamicFlags.GetByName("Name")
+	if name == nil {
+		t.Fatal("expected Name flag")
+	}
+	if name.GetValue() != "" {
+		t.Fatalf("Name value = %q, want empty string", name.GetValue())
+	}
+	// Empty string must still count as "set" (values slice non-empty), not as missing.
+	if len(name.GetValues()) != 1 || name.GetValues()[0] != "" {
+		t.Fatalf("Name GetValues = %v, want [\"\"]", name.GetValues())
+	}
+	zone := ctx.dynamicFlags.GetByName("ZoneId")
+	if zone == nil || zone.GetValue() != "cn-beijing" {
+		t.Fatalf("ZoneId should still parse after empty Name, got %#v", zone)
+	}
+}
+
 func TestParserReturnsErrorWhenTrailingFlagHasNoValue(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -20,6 +46,11 @@ func TestParserReturnsErrorWhenTrailingFlagHasNoValue(t *testing.T) {
 			name:    "fixed flag",
 			args:    []string{"---profile"},
 			wantErr: "---profile must set value.",
+		},
+		{
+			name:    "double dash system flag",
+			args:    []string{"--profile"},
+			wantErr: "--profile must set value.",
 		},
 	}
 
@@ -87,8 +118,22 @@ func TestParserRejectsUnsupportedFixedFlags(t *testing.T) {
 			if !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("error = %q, want to contain %q", err.Error(), tt.want)
 			}
-			if !strings.Contains(err.Error(), "supported fixed flags") {
-				t.Fatalf("error = %q, want supported fixed flags", err.Error())
+			if !strings.Contains(err.Error(), "supported system flags") {
+				t.Fatalf("error = %q, want supported system flags", err.Error())
+			}
+			// Public help/error lists only double-dash system flags.
+			if !strings.Contains(err.Error(), systemFlags.supportedMessage) {
+				t.Fatalf("error = %q, want system-flag list %q", err.Error(), systemFlags.supportedMessage)
+			}
+			parts := strings.SplitN(err.Error(), "supported system flags:", 2)
+			if len(parts) != 2 {
+				t.Fatalf("error missing supported system flags list: %q", err.Error())
+			}
+			hint := parts[1]
+			for _, alias := range []string{"---profile", "---region", "---endpoint", "---lang", "---force", "---version", "---method"} {
+				if strings.Contains(hint, alias) {
+					t.Fatalf("supported flag hint exposes historical alias %q: %q", alias, hint)
+				}
 			}
 		})
 	}
@@ -99,6 +144,8 @@ func TestParserAcceptsOnlySupportedFixedFlags(t *testing.T) {
 		"---profile", "test",
 		"---region", "cn-beijing",
 		"---endpoint", "sts.volcengineapi.com",
+		"---version", "2024-01-01",
+		"---force",
 	})
 	ctx := NewContext()
 
@@ -106,10 +153,109 @@ func TestParserAcceptsOnlySupportedFixedFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadArgs returned error: %v", err)
 	}
-	for _, name := range []string{"profile", "region", "endpoint"} {
+	for _, name := range []string{"profile", "region", "endpoint", "version", "force"} {
 		if ctx.fixedFlags.GetByName(name) == nil {
 			t.Fatalf("expected fixed flag %q to be accepted", name)
 		}
+	}
+	if ctx.fixedFlags.GetByName("force").GetValue() != "true" {
+		t.Fatalf("expected bare ---force to default to true, got %q", ctx.fixedFlags.GetByName("force").GetValue())
+	}
+}
+
+func TestParserForceFlagBeforeActionName(t *testing.T) {
+	parser := NewParser([]string{"---version", "2024-01-01", "---force", "DescribeNewResource"})
+	ctx := NewContext()
+
+	positional, err := parser.ReadArgs(ctx)
+	if err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+	if !isForceEnabled(ctx) {
+		t.Fatal("expected ---force to be enabled when followed by action name")
+	}
+	if ctx.fixedFlags.GetByName("version").GetValue() != "2024-01-01" {
+		t.Fatalf("unexpected version: %q", ctx.fixedFlags.GetByName("version").GetValue())
+	}
+	if len(positional) != 1 || positional[0] != "DescribeNewResource" {
+		t.Fatalf("expected action as positional arg, got %#v", positional)
+	}
+}
+
+func TestParserDynamicForceFlagRequiresValue(t *testing.T) {
+	// Exact-name API conflict: double-dash --force is a business parameter.
+	parser := NewParser([]string{"--force", "true", "SomeAction"}, map[string]struct{}{"force": {}})
+	ctx := NewContext()
+
+	positional, err := parser.ReadArgs(ctx)
+	if err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+	if ctx.dynamicFlags.GetByName("force") == nil {
+		t.Fatal("expected dynamic --force flag")
+	}
+	if got := ctx.dynamicFlags.GetByName("force").GetValue(); got != "true" {
+		t.Fatalf("expected dynamic --force=true, got %q", got)
+	}
+	if isForceEnabled(ctx) {
+		t.Fatal("system force must not be enabled by conflicting API --force")
+	}
+	if len(positional) != 1 || positional[0] != "SomeAction" {
+		t.Fatalf("expected action positional arg, got %#v", positional)
+	}
+}
+
+func TestParserDoubleDashForceIsSystemWhenNoConflict(t *testing.T) {
+	parser := NewParser([]string{"--force", "SomeAction", "--version", "2024-01-01"})
+	ctx := NewContext()
+
+	positional, err := parser.ReadArgs(ctx)
+	if err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+	if !isForceEnabled(ctx) {
+		t.Fatal("expected system --force when no API conflict")
+	}
+	if got := ctx.fixedFlags.GetByName("version"); got == nil || got.GetValue() != "2024-01-01" {
+		t.Fatalf("expected system --version, got %#v", got)
+	}
+	if ctx.dynamicFlags.GetByName("force") != nil || ctx.dynamicFlags.GetByName("version") != nil {
+		t.Fatal("system flags must not enter dynamicFlags")
+	}
+	if len(positional) != 1 || positional[0] != "SomeAction" {
+		t.Fatalf("positional = %#v", positional)
+	}
+}
+
+func TestParserForceFlagDoesNotConsumeNextToken(t *testing.T) {
+	parser := NewParser([]string{"---force", "false", "DescribeNewResource"})
+	ctx := NewContext()
+
+	positional, err := parser.ReadArgs(ctx)
+	if err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+	if !isForceEnabled(ctx) {
+		t.Fatal("expected ---force to enable force without consuming next token")
+	}
+	if len(positional) != 2 || positional[0] != "false" || positional[1] != "DescribeNewResource" {
+		t.Fatalf("expected following tokens as positional args, got %#v", positional)
+	}
+}
+
+func TestParserForceFlagWithoutValueBeforeDynamicFlag(t *testing.T) {
+	parser := NewParser([]string{"---force", "--SomeParam", "value"})
+	ctx := NewContext()
+
+	_, err := parser.ReadArgs(ctx)
+	if err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+	if ctx.fixedFlags.GetByName("force").GetValue() != "true" {
+		t.Fatalf("expected ---force before --SomeParam to default to true")
+	}
+	if ctx.dynamicFlags.GetByName("SomeParam").GetValue() != "value" {
+		t.Fatalf("expected SomeParam=value, got %q", ctx.dynamicFlags.GetByName("SomeParam").GetValue())
 	}
 }
 

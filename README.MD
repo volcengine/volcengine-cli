@@ -49,6 +49,16 @@ sudo cp ve /usr/local/bin
 ve version
 ```
 
+升级到最新版本：
+
+```shell
+ve upgrade
+```
+
+- **standalone / Release**：下载并原地替换当前二进制
+- **npm**：委托执行 `npm install -g @volcengine/cli@latest`（失败时会提示同一条手动命令）
+- **Homebrew**：依次执行 `brew update` 与 `brew upgrade volcengine-cli`
+
 ### 快速开始
 
 ```shell
@@ -70,8 +80,8 @@ ve sts GetCallerIdentity
 1. [入门](docs/1-GettingStarted-zh.md)：安装、源码编译、PATH 配置、第一次调用 API。
 2. [认证与登录](docs/2-Authentication-zh.md)：AK/SK、默认凭证链、OIDC、ECS 实例角色、SSO、Console Login。
 3. [配置管理](docs/3-Configuration-zh.md)：profile 查看、列表、切换、修改、删除。
-4. [使用指南](docs/4-Usage-zh.md)：服务查询、API 调用、固定参数、JSON body、数组和嵌套参数。
-5. [高级用法](docs/5-Advanced-zh.md)：自动补全、彩色输出、debug 日志、常见问题。
+4. [使用指南](docs/4-Usage-zh.md)：服务查询、API 调用、系统参数、JSON body、数组和嵌套参数。
+5. [高级用法](docs/5-Advanced-zh.md)：自动补全、彩色输出、debug 日志、`--force` 强制泛化调用、常见问题。
 
 ### Security and privacy
 This project takes security seriously.

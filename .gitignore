@@ -73,6 +73,12 @@ coverage.xml
 *.so
 *.exe
 *.exe~
+*.exe.old
+*.bak
+/ve-test-upgrade.exe.old
 
 ## Profiling data
 *.prof
+/mcps/**
+/.gocache/**
+/.gomodcache/**

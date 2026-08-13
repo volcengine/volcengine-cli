@@ -1,12 +1,18 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/volcengine/volcengine-cli/util"
 )
+
+// errBodyRequiresJSON is returned when --body is used with a non-JSON Content-Type.
+// Users can re-enable --body via --header Content-Type=application/json.
+const errBodyRequiresJSON = "--body requires Content-Type application/json (use --header Content-Type=application/json or flattened --Param values)"
 
 func buildActionInput(flags []*Flag, apiMeta *ApiMeta, jsonBody bool) (interface{}, bool, error) {
 	hasBody := false
@@ -15,9 +21,16 @@ func buildActionInput(flags []*Flag, apiMeta *ApiMeta, jsonBody bool) (interface
 	flat := make(map[string]string)
 
 	for _, f := range flags {
+		if f == nil {
+			continue
+		}
 		if f.Name == "body" {
 			hasBody = true
 			bodyVal = f.value
+			continue
+		}
+		if isSkipBodyDynamicFlag(f.Name) {
+			// Reserved CLI double-dash controls (e.g. --header).
 			continue
 		}
 		hasFlat = true
@@ -29,6 +42,12 @@ func buildActionInput(flags []*Flag, apiMeta *ApiMeta, jsonBody bool) (interface
 	}
 
 	if hasBody {
+		// --body is the JSON request-body path. Non-JSON (query/form) actions must use
+		// flattened --Param values; accepting --body there used to type-assert away the
+		// payload and silently call the SDK with an empty map.
+		if !jsonBody {
+			return nil, false, fmt.Errorf("%s", errBodyRequiresJSON)
+		}
 		parsed, err := parseJSONBody(bodyVal)
 		if err != nil {
 			return nil, false, err
@@ -60,15 +79,23 @@ func buildActionInput(flags []*Flag, apiMeta *ApiMeta, jsonBody bool) (interface
 }
 
 func parseJSONBody(body string) (interface{}, error) {
-	m := make(map[string]interface{})
-	if err := json.Unmarshal([]byte(body), &m); err == nil {
-		return &m, nil
+	decoder := json.NewDecoder(bytes.NewBufferString(body))
+	decoder.UseNumber()
+
+	var parsed interface{}
+	if err := decoder.Decode(&parsed); err != nil {
+		return nil, fmt.Errorf("json format error")
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return nil, fmt.Errorf("json format error")
 	}
 
-	var a []interface{}
-	if err := json.Unmarshal([]byte(body), &a); err == nil {
-		return &a, nil
+	switch value := parsed.(type) {
+	case map[string]interface{}:
+		return &value, nil
+	case []interface{}:
+		return &value, nil
+	default:
+		return nil, fmt.Errorf("json format error")
 	}
-
-	return nil, fmt.Errorf("json format error")
 }

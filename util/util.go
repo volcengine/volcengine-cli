@@ -5,6 +5,7 @@ package util
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"os/user"
 	"runtime"
@@ -50,13 +51,24 @@ func GetConfigFileDir() (string, error) {
 	return homeDir + "/.volcengine/", nil
 }
 
+// getHomeDir 解析当前用户主目录。
+// 优先 os.UserHomeDir（先读 $HOME / $USERPROFILE），在 Docker/chroot 等
+// 无完整 /etc/passwd 条目的环境更稳；失败时再回退 user.Current()。
 func getHomeDir() (string, error) {
-	user, err := user.Current()
+	if home, err := os.UserHomeDir(); err == nil {
+		if home = strings.TrimSpace(home); home != "" {
+			return home, nil
+		}
+	}
+	u, err := user.Current()
 	if err != nil {
 		return "", err
 	}
-
-	return user.HomeDir, nil
+	home := strings.TrimSpace(u.HomeDir)
+	if home == "" {
+		return "", fmt.Errorf("empty home directory")
+	}
+	return home, nil
 }
 
 // OpenBrowser 打开浏览器

@@ -31,6 +31,146 @@ type SdkClientInfo struct {
 	Version     string
 	Method      string
 	ContentType string
+	// Headers are custom HTTP headers from --header Name=Value. Content-Type is
+	// also carried in ContentType so protocol selection can happen before build.
+	Headers []requestHeader
+}
+
+// selectInvocationProfile 解析本次调用使用的 profile。
+// 优先级：---profile > config.Current > 环境变量（VOLCENGINE_PROFILE / VOLCSTACK_PROFILE）。
+// 注意：
+//   - Current 为空且无 env 时不会回落到某个“默认 profile”，profile 为 nil，走默认凭证链；
+//   - ---profile 指定了不存在的名字时返回 error；
+//   - c.config 为 nil 时忽略 profile 相关 flag（与历史 NewSimpleClient 行为一致）。
+//
+// 返回值 name/source 供 debug 日志使用；profile 为 nil 表示未选中有效 profile。
+func selectInvocationProfile(c *Context) (name, source string, profile *Profile, err error) {
+	source = "default-chain"
+	if c == nil || c.config == nil {
+		return "", source, nil, nil
+	}
+	name, source = defaultProfileNameWithSource(c.config)
+	override := false
+	if c.fixedFlags != nil {
+		if f := c.fixedFlags.GetByName("profile"); f != nil {
+			if v := strings.TrimSpace(f.GetValue()); v != "" {
+				name = v
+				source = "flag"
+				override = true
+			}
+		}
+	}
+	if name != "" {
+		profile = c.config.Profiles[name]
+	}
+	if override && profile == nil {
+		return name, source, nil, fmt.Errorf("profile %q not found", name)
+	}
+	return name, source, profile, nil
+}
+
+// validateProfileIfSpecified 在指定了 ---profile 时校验该 profile 是否存在。
+// 规则与 NewSimpleClient 一致；force 预检在创建 client 之前调用，以便尽早给出明确错误。
+func validateProfileIfSpecified(c *Context) error {
+	_, _, _, err := selectInvocationProfile(c)
+	return err
+}
+
+// explicitEndpointFlag 读取 ---endpoint：去空白后非空则返回，否则返回 ""（表示未设置）。
+func explicitEndpointFlag(c *Context) string {
+	if c == nil || c.fixedFlags == nil {
+		return ""
+	}
+	f := c.fixedFlags.GetByName("endpoint")
+	if f == nil {
+		return ""
+	}
+	return strings.TrimSpace(f.GetValue())
+}
+
+// isAutoAddressingEndpoint 判断 endpoint 是否为 auto-addressing 特殊值（大小写不敏感）。
+// 该值表示走 SDK standard resolver，而不是固定 host。
+func isAutoAddressingEndpoint(s string) bool {
+	return strings.ToLower(strings.TrimSpace(s)) == "auto-addressing"
+}
+
+// endpointSourcesFromProfileAndEnv 读取 ---endpoint 覆盖之前的 host/resolver 来源。
+// 有 profile 时：profile 字段优先，字段为空再回落 VOLCENGINE_ENDPOINT / VOLCENGINE_ENDPOINT_RESOLVER；
+// 无 profile 时：直接读环境变量。
+func endpointSourcesFromProfileAndEnv(profile *Profile) (endpoint, resolver string) {
+	if profile != nil {
+		endpoint = strings.TrimSpace(profile.Endpoint)
+		if endpoint == "" {
+			endpoint = strings.TrimSpace(os.Getenv("VOLCENGINE_ENDPOINT"))
+		}
+		resolver = strings.TrimSpace(profile.EndpointResolver)
+		if resolver == "" {
+			resolver = strings.TrimSpace(os.Getenv("VOLCENGINE_ENDPOINT_RESOLVER"))
+		}
+		return endpoint, resolver
+	}
+	return strings.TrimSpace(os.Getenv("VOLCENGINE_ENDPOINT")),
+		strings.TrimSpace(os.Getenv("VOLCENGINE_ENDPOINT_RESOLVER"))
+}
+
+// resolveClientEndpoint 按 NewSimpleClient 完整优先级解析最终 host/resolver：
+//
+//	显式 ---endpoint（非空时清空 resolver）
+//	> profile/env 的 resolver + host
+//	> （由调用方再交给 classifyEndpoint / SDK 默认解析）
+func resolveClientEndpoint(c *Context, profile *Profile) (endpoint, resolver string) {
+	endpoint, resolver = endpointSourcesFromProfileAndEnv(profile)
+	if ep := explicitEndpointFlag(c); ep != "" {
+		return ep, ""
+	}
+	return endpoint, resolver
+}
+
+// endpointMode 表示 resolveClientEndpoint 结果在 SDK 上的落地方式。
+// NewSimpleClient 应用配置与 force 未收录 service 的固定 host 预检共用此分类。
+type endpointMode int
+
+const (
+	// endpointModeSDKDefault：无固定 host、无 standard resolver，交给 SDK 按 service+region 解析。
+	endpointModeSDKDefault endpointMode = iota
+	// endpointModeStandardResolver：使用 standard endpoint resolver（含 auto-addressing）。
+	endpointModeStandardResolver
+	// endpointModeFixedHost：使用显式固定 host（WithEndpoint）。
+	endpointModeFixedHost
+)
+
+// classifyEndpoint 解释 resolveClientEndpoint 得到的 host+resolver，输出唯一落地模式。
+// 规则：
+//   - resolver=standard → standard（忽略 host）；
+//   - host 为空 → SDK 默认；
+//   - host 为 auto-addressing → standard；
+//   - 其它非空 host → 固定 host。
+//
+// 必须同时被 NewSimpleClient 与 hasEffectiveFixedEndpoint 使用，避免双源漂移。
+func classifyEndpoint(endpoint, resolver string) endpointMode {
+	if strings.ToLower(strings.TrimSpace(resolver)) == "standard" {
+		return endpointModeStandardResolver
+	}
+	if strings.TrimSpace(endpoint) == "" {
+		return endpointModeSDKDefault
+	}
+	if isAutoAddressingEndpoint(endpoint) {
+		return endpointModeStandardResolver
+	}
+	return endpointModeFixedHost
+}
+
+// hasEffectiveFixedEndpoint 判断按 NewSimpleClient 规则最终是否会落到固定 host。
+// 供 force 未收录 service 预检使用；内部依赖 classifyEndpoint，不得再写第二套判断。
+// 若 profile 选择报错则返回 false（validateForceCall 会先校验 profile 并返回明确错误）。
+func hasEffectiveFixedEndpoint(c *Context) bool {
+	_, _, profile, err := selectInvocationProfile(c)
+	if err != nil {
+		// validateForceCall 会先校验 profile；其它调用方视为“无固定 host”。
+		return false
+	}
+	endpoint, resolver := resolveClientEndpoint(c, profile)
+	return classifyEndpoint(endpoint, resolver) == endpointModeFixedHost
 }
 
 // NewSimpleClient creates an SDK client with credential resolution:
@@ -52,24 +192,10 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 	if ctx == nil || ctx.fixedFlags == nil {
 		return nil, fmt.Errorf("invalid context for creating sdk client")
 	}
-	var currentProfile *Profile
-	profileName := ""
-	profileSource := "default-chain"
-	if ctx.config != nil {
-		// profile selection priority: ---profile > Current > env.
-		// Empty Current with no env does NOT fall back to a default profile;
-		// it goes to the default credential chain instead.
-		profileName, profileSource = defaultProfileNameWithSource(ctx.config)
-		overrideProfile := false
-		if f := ctx.fixedFlags.GetByName("profile"); f != nil && f.GetValue() != "" {
-			profileName = f.GetValue()
-			profileSource = "flag"
-			overrideProfile = true
-		}
-		currentProfile = ctx.config.Profiles[profileName]
-		if overrideProfile && currentProfile == nil {
-			return nil, fmt.Errorf("profile %q not found", profileName)
-		}
+
+	profileName, profileSource, currentProfile, err := selectInvocationProfile(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	if currentProfile != nil {
@@ -100,14 +226,6 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		if region == "" {
 			region = os.Getenv("VOLCENGINE_REGION")
 		}
-		endpoint = currentProfile.Endpoint
-		if endpoint == "" {
-			endpoint = os.Getenv("VOLCENGINE_ENDPOINT")
-		}
-		endpointResolver = currentProfile.EndpointResolver
-		if endpointResolver == "" {
-			endpointResolver = os.Getenv("VOLCENGINE_ENDPOINT_RESOLVER")
-		}
 		httpProxy = currentProfile.HTTPProxy
 		httpsProxy = currentProfile.HTTPSProxy
 		if currentProfile.DisableSSL != nil {
@@ -126,8 +244,6 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		creds = defaults.NewDefaultCredentialProvider()
 
 		region = os.Getenv("VOLCENGINE_REGION")
-		endpoint = os.Getenv("VOLCENGINE_ENDPOINT")
-		endpointResolver = os.Getenv("VOLCENGINE_ENDPOINT_RESOLVER")
 		ssl := os.Getenv("VOLCENGINE_DISABLE_SSL")
 		if ssl == "true" || ssl == "false" {
 			disableSSl, _ = strconv.ParseBool(ssl)
@@ -138,22 +254,20 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		}
 	}
 
-	// ---region 运行时覆盖 region
+	// --region 运行时覆盖 region
 	if f := ctx.fixedFlags.GetByName("region"); f != nil && f.GetValue() != "" {
 		region = f.GetValue()
 	}
 
-	// ---endpoint 运行时覆盖 endpoint
-	if f := ctx.fixedFlags.GetByName("endpoint"); f != nil && f.GetValue() != "" {
-		endpoint = f.GetValue()
-		endpointResolver = ""
-	}
+	// endpoint 优先级：--endpoint / ---endpoint（清空 resolver）> profile/env resolver/host > SDK 默认
+	endpoint, endpointResolver = resolveClientEndpoint(ctx, currentProfile)
+	mode := classifyEndpoint(endpoint, endpointResolver)
 
 	if region == "" {
 		if currentProfile == nil && !hasLocalCredentialSignal() {
 			return nil, fmt.Errorf("credentials not configured, please run 've login' or 've configure set', or set VOLCENGINE_ACCESS_KEY and VOLCENGINE_SECRET_KEY environment variables")
 		}
-		return nil, fmt.Errorf("region not set, please set it via profile, ---region flag, or VOLCENGINE_REGION environment variable")
+		return nil, fmt.Errorf("region not set, please set it via profile, --region flag, or VOLCENGINE_REGION environment variable")
 	}
 
 	config := volcengine.NewConfig().
@@ -161,18 +275,12 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		WithCredentials(creds).
 		WithDisableSSL(disableSSl)
 
-	resolverValue := strings.ToLower(strings.TrimSpace(endpointResolver))
-	switch resolverValue {
-	case "standard":
+	// endpoint 应用规则与 classifyEndpoint / hasEffectiveFixedEndpoint 共用同一解释。
+	switch mode {
+	case endpointModeStandardResolver:
 		config.WithEndpointResolver(endpoints.NewStandardEndpointResolver())
-	default:
-		if endpoint != "" {
-			if strings.ToLower(strings.TrimSpace(endpoint)) == "auto-addressing" {
-				config.WithEndpointResolver(endpoints.NewStandardEndpointResolver())
-			} else {
-				config.WithEndpoint(endpoint)
-			}
-		}
+	case endpointModeFixedHost:
+		config.WithEndpoint(endpoint)
 	}
 
 	if useDualStack {
@@ -185,12 +293,16 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		config.WithHTTPSProxy(httpsProxy)
 	}
 
+	debugEndpoint := endpoint
+	if mode == endpointModeStandardResolver {
+		debugEndpoint = "standard-resolver"
+	}
 	debugLogClientConfig(ctx, debugClientConfig{
 		ProfileName:          profileName,
 		ProfileSource:        profileSource,
 		CredentialMode:       debugCredentialMode(currentProfile),
 		Region:               region,
-		Endpoint:             endpoint,
+		Endpoint:             debugEndpoint,
 		EndpointResolver:     endpointResolver,
 		DisableSSL:           disableSSl,
 		UseDualStack:         useDualStack,
@@ -287,8 +399,16 @@ func debugLogClientConfig(ctx *Context, info debugClientConfig) {
 	)
 }
 
-func (s *SdkClient) initClient(svc string, version string) *client.Client {
+func (s *SdkClient) initClient(svc string, version string) (*client.Client, error) {
+	if s == nil || s.Session == nil {
+		return nil, fmt.Errorf("failed to initialize SDK client for service %q: session is not configured", svc)
+	}
 	config := s.Session.ClientConfig(svc)
+	// SDK 的 ClientConfig 会吞掉 endpoint resolver 错误并返回零值配置。
+	// 调用方可能传入 SDK 尚未收录的 service，必须在解引用前转成可读错误，避免 CLI panic。
+	if config.Config == nil {
+		return nil, fmt.Errorf("failed to initialize SDK client for service %q: endpoint or service configuration could not be resolved", svc)
+	}
 	c := client.New(
 		*config.Config,
 		metadata.ClientInfo{
@@ -310,11 +430,14 @@ func (s *SdkClient) initClient(svc string, version string) *client.Client {
 	c.Handlers.UnmarshalError.PushBackNamed(volcenginequery.UnmarshalErrorHandler)
 	s.addDebugRequestAttemptHandler(c)
 
-	return c
+	return c, nil
 }
 
 func (s *SdkClient) CallSdk(info SdkClientInfo, input interface{}) (output *map[string]interface{}, err error) {
-	c := s.initClient(info.ServiceName, info.Version)
+	c, err := s.initClient(info.ServiceName, info.Version)
+	if err != nil {
+		return nil, err
+	}
 	op := &request.Operation{
 		Name:       info.Action,
 		HTTPMethod: strings.ToUpper(info.Method),
@@ -325,11 +448,28 @@ func (s *SdkClient) CallSdk(info SdkClientInfo, input interface{}) (output *map[
 	}
 	output = &map[string]interface{}{}
 	req := c.NewRequest(op, input, output)
-	if strings.ToLower(info.ContentType) == "application/json" {
-		req.HTTPRequest.Header.Set("Content-Type", "application/json; charset=utf-8")
-	} else if info.ContentType != "" {
-		req.HTTPRequest.Header.Set("Content-Type", info.ContentType)
-	}
+	applySdkRequestHeaders(req, info)
+	// The SDK query build handler canonicalizes JSON Content-Type while encoding
+	// the body. Restore the user's exact value after body construction and before
+	// SigV4 signing so the signed and transmitted headers are identical.
+	req.Handlers.Build.PushBackNamed(request.NamedHandler{
+		Name: "volcengine-cli.apply-request-headers",
+		Fn: func(built *request.Request) {
+			applySdkRequestHeaders(built, info)
+		},
+	})
 	err = req.Send()
 	return output, err
+}
+
+func applySdkRequestHeaders(req *request.Request, info SdkClientInfo) {
+	if req == nil || req.HTTPRequest == nil {
+		return
+	}
+	if strings.TrimSpace(info.ContentType) != "" {
+		req.HTTPRequest.Header.Set("Content-Type", info.ContentType)
+	}
+	for _, h := range info.Headers {
+		req.HTTPRequest.Header.Set(h.Name, h.Value)
+	}
 }

@@ -10,20 +10,20 @@ Volcengine CLI supports config profiles, the environment-based default credentia
 
 When a service command creates an SDK client, credentials and runtime settings are resolved in this order:
 
-1. `---profile`: applies only to the current invocation and must reference an existing profile.
+1. `--profile`: applies only to the current invocation and must reference an existing profile.
 2. The `current` profile in the config file.
 3. The profile named by `VOLCENGINE_PROFILE` or `VOLCSTACK_PROFILE`.
 4. The SDK default credential chain: environment variables, OIDC, CLI config provider, ECS instance role, and other SDK providers.
 
 Region priority:
 
-1. `---region`
+1. `--region`
 2. `region` in the profile
 3. `VOLCENGINE_REGION`
 
 Endpoint priority:
 
-1. `---endpoint`
+1. `--endpoint`
 2. `endpoint` in the profile
 3. `VOLCENGINE_ENDPOINT`
 
@@ -94,7 +94,7 @@ mode: Credential mode. One of ak, sso, console-login, ramrolearn, oidc, ecsrole.
 access-key: Access Key.
 secret-key: Secret Key.
 session-token: Temporary credential session token.
-region: API region. Optional during configure set, but required by API calls through profile, ---region, or VOLCENGINE_REGION.
+region: API region. Optional during configure set, but required by API calls through profile, --region, or VOLCENGINE_REGION.
 endpoint: Custom endpoint. Ignored when endpoint-resolver is standard.
 endpoint-resolver: Set to standard to use the standard endpoint resolver.
 http-proxy: HTTP proxy used by the SDK when SSL is disabled.
