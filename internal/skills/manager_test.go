@@ -27,7 +27,7 @@ type testRelease struct {
 	bundle   []byte
 }
 
-func TestInstallUsesCDNAndMatchesSkillsSetupTargets(t *testing.T) {
+func TestInstallCreatesOnlyDefaultTargetsWhenOtherAgentsAreAbsent(t *testing.T) {
 	home := tempDir(t)
 	release := makeTestRelease(t, "1.0.0", "first")
 	server := releaseServer(t, &release, http.StatusOK)
@@ -45,19 +45,71 @@ func TestInstallUsesCDNAndMatchesSkillsSetupTargets(t *testing.T) {
 	for _, name := range testSkillNames {
 		canonical := filepath.Join(home, ".agents", "skills", name)
 		assertFileContains(t, filepath.Join(canonical, "SKILL.md"), "first")
+		assertTargetMatchesCanonical(t, filepath.Join(home, ".claude", "skills", name), canonical)
 		for _, target := range []string{
-			filepath.Join(home, ".claude", "skills", name),
 			filepath.Join(home, ".openclaw", "skills", name),
 			filepath.Join(home, ".hermes", "skills", name),
 			filepath.Join(home, ".trae", "skills", name),
 		} {
-			assertTargetMatchesCanonical(t, target, canonical)
+			if _, err := os.Lstat(target); !os.IsNotExist(err) {
+				t.Fatalf("unexpected target %s: %v", target, err)
+			}
 		}
 	}
 
 	state := readTestState(t, filepath.Join(home, ".volcengine", "skills", StateFileName))
 	if state.SchemaVersion != StateSchemaVersion || len(state.Skills) != len(testSkillNames) {
 		t.Fatalf("unexpected state: %#v", state)
+	}
+}
+
+func TestInstallCreatesTargetsForDetectedAgents(t *testing.T) {
+	home := tempDir(t)
+	for _, directory := range []string{".openclaw", ".hermes", ".trae"} {
+		if err := os.MkdirAll(filepath.Join(home, directory), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	release := makeTestRelease(t, "1.0.0", "detected")
+	server := releaseServer(t, &release, http.StatusOK)
+	defer server.Close()
+
+	manager := testManager(home, server.URL+"/latest/manifest.json")
+	if _, err := manager.Install(); err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+	name := testSkillNames[0]
+	canonical := filepath.Join(home, ".agents", "skills", name)
+	for _, target := range []string{
+		filepath.Join(home, ".openclaw", "skills", name),
+		filepath.Join(home, ".hermes", "skills", name),
+		filepath.Join(home, ".trae", "skills", name),
+	} {
+		assertTargetMatchesCanonical(t, target, canonical)
+	}
+}
+
+func TestUpdateDoesNotRecreateRemovedOptionalAgentHome(t *testing.T) {
+	home := tempDir(t)
+	openClawHome := filepath.Join(home, ".openclaw")
+	if err := os.MkdirAll(openClawHome, 0700); err != nil {
+		t.Fatal(err)
+	}
+	release := makeTestRelease(t, "1.0.0", "detected")
+	server := releaseServer(t, &release, http.StatusOK)
+	defer server.Close()
+	manager := testManager(home, server.URL+"/latest/manifest.json")
+	if _, err := manager.Install(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(openClawHome); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Update(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(openClawHome); !os.IsNotExist(err) {
+		t.Fatalf("optional agent home was recreated: %v", err)
 	}
 }
 
@@ -236,7 +288,7 @@ func TestUpdateWithoutStateFallsBackToNpx(t *testing.T) {
 	}
 }
 
-func TestUpdateWithManagedStateFallsBackToNpx(t *testing.T) {
+func TestUpdateWithManagedStateDoesNotFallBackToNpx(t *testing.T) {
 	home := tempDir(t)
 	release := makeTestRelease(t, "1.0.0", "first")
 	server := releaseServer(t, &release, http.StatusOK)
@@ -255,16 +307,43 @@ func TestUpdateWithManagedStateFallsBackToNpx(t *testing.T) {
 		return nil
 	}
 
-	result, err := manager.Update()
-	if err != nil {
-		t.Fatalf("Update() error = %v", err)
+	_, err := manager.Update()
+	if err == nil || !strings.Contains(err.Error(), "resolve Skill release failed") {
+		t.Fatalf("Update() error = %v, want remote resolution error", err)
 	}
-	if result.Source != SourceNPX || calls != 1 {
-		t.Fatalf("result = %#v, calls = %d", result, calls)
+	if calls != 0 {
+		t.Fatalf("npx calls = %d, want 0", calls)
 	}
 	state := readTestState(t, filepath.Join(home, ".volcengine", "skills", StateFileName))
 	if state.LastResolvedVersion != "1.0.0" {
 		t.Fatalf("npx fallback changed ve state: %#v", state)
+	}
+}
+
+func TestInstallWithManagedStateDoesNotFallBackToNpx(t *testing.T) {
+	home := tempDir(t)
+	release := makeTestRelease(t, "1.0.0", "first")
+	server := releaseServer(t, &release, http.StatusOK)
+	manager := testManager(home, server.URL+"/latest/manifest.json")
+	if _, err := manager.Install(); err != nil {
+		server.Close()
+		t.Fatalf("Install() error = %v", err)
+	}
+	server.Close()
+
+	manager.CDNManifestURL = "http://127.0.0.1:1/cdn/manifest.json"
+	manager.GitHubManifestURL = "http://127.0.0.1:1/github/manifest.json"
+	calls := 0
+	manager.RunCommand = func(name string, values ...string) error {
+		calls++
+		return nil
+	}
+
+	if _, err := manager.Install(); err == nil || !strings.Contains(err.Error(), "resolve Skill release failed") {
+		t.Fatalf("Install() error = %v, want remote resolution error", err)
+	}
+	if calls != 0 {
+		t.Fatalf("npx calls = %d, want 0", calls)
 	}
 }
 
@@ -377,7 +456,7 @@ func TestInstallDoesNotDowngradeMissingManagedSkillFromFallback(t *testing.T) {
 	}
 }
 
-func TestUpdateUsesPerSkillVersionAndProtectsUserChanges(t *testing.T) {
+func TestUpdateReplacesLocalChangesWithLatestRelease(t *testing.T) {
 	home := tempDir(t)
 	release := makeTestRelease(t, "1.0.0", "first")
 	server := releaseServer(t, &release, http.StatusOK)
@@ -389,32 +468,161 @@ func TestUpdateUsesPerSkillVersionAndProtectsUserChanges(t *testing.T) {
 
 	modifiedName := "volcengine-cli"
 	modifiedPath := filepath.Join(home, ".agents", "skills", modifiedName, "SKILL.md")
+	modifiedTarget := filepath.Join(home, ".claude", "skills", modifiedName)
+	if err := os.Remove(modifiedTarget); err != nil {
+		t.Fatal(err)
+	}
+	state := readTestState(t, filepath.Join(home, ".volcengine", "skills", StateFileName))
+	if err := installDirectory(modifiedTarget, map[string][]byte{
+		"SKILL.md": []byte("user target change\n"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	state.Skills[modifiedName].Targets["claude-code"] = &InstalledTarget{
+		Mode:          "copy",
+		Path:          modifiedTarget,
+		ContentSHA256: state.Skills[modifiedName].ContentSHA256,
+	}
+	writeTestState(t, manager, state)
 	if err := ioutil.WriteFile(modifiedPath, []byte("user change\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	writeFile(t, filepath.Join(home, ".agents", "skills", modifiedName, "extra.txt"), []byte("extra\n"), 0644)
 	release = makeTestRelease(t, "1.1.0", "second")
 
 	result, err := manager.Update()
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
-	if !contains(result.Skipped, modifiedName) {
-		t.Fatalf("skipped = %v, want %s", result.Skipped, modifiedName)
+	if !contains(result.Updated, modifiedName) {
+		t.Fatalf("updated = %v, want %s", result.Updated, modifiedName)
 	}
-	assertFileContains(t, modifiedPath, "user change")
+	assertFileContains(t, modifiedPath, "second")
+	assertFileContains(t, filepath.Join(modifiedTarget, "SKILL.md"), "second")
+	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", modifiedName, "extra.txt")); !os.IsNotExist(err) {
+		t.Fatalf("extra file survived update: %v", err)
+	}
 	assertFileContains(
 		t,
 		filepath.Join(home, ".agents", "skills", "volcengine-find-skills", "SKILL.md"),
 		"second",
 	)
 
-	state := readTestState(t, filepath.Join(home, ".volcengine", "skills", StateFileName))
-	if state.Skills[modifiedName].Version != "1.0.0" {
+	state = readTestState(t, filepath.Join(home, ".volcengine", "skills", StateFileName))
+	if state.Skills[modifiedName].Version != "1.1.0" {
 		t.Fatalf("modified skill version = %q", state.Skills[modifiedName].Version)
 	}
 	if state.Skills["volcengine-find-skills"].Version != "1.1.0" {
 		t.Fatalf("updated skill version = %q", state.Skills["volcengine-find-skills"].Version)
 	}
+}
+
+func TestUpdateRestoresMissingManagedSkillAtCurrentRelease(t *testing.T) {
+	home := tempDir(t)
+	release := makeTestRelease(t, "1.0.0", "first")
+	server := releaseServer(t, &release, http.StatusOK)
+	defer server.Close()
+	manager := testManager(home, server.URL+"/latest/manifest.json")
+	if _, err := manager.Install(); err != nil {
+		t.Fatal(err)
+	}
+
+	name := "volcengine-cli"
+	canonical := filepath.Join(home, ".agents", "skills", name)
+	if err := os.RemoveAll(canonical); err != nil {
+		t.Fatal(err)
+	}
+	result, err := manager.Update()
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if !contains(result.Updated, name) {
+		t.Fatalf("updated = %v, want restored %s", result.Updated, name)
+	}
+	assertFileContains(t, filepath.Join(canonical, "SKILL.md"), "first")
+	assertTargetMatchesCanonical(t, filepath.Join(home, ".claude", "skills", name), canonical)
+}
+
+func TestUpdateRestoresModifiedManagedSkillAtCurrentRelease(t *testing.T) {
+	home := tempDir(t)
+	release := makeTestRelease(t, "1.0.0", "official")
+	server := releaseServer(t, &release, http.StatusOK)
+	defer server.Close()
+	manager := testManager(home, server.URL+"/latest/manifest.json")
+	if _, err := manager.Install(); err != nil {
+		t.Fatal(err)
+	}
+
+	name := "volcengine-cli"
+	canonical := filepath.Join(home, ".agents", "skills", name)
+	writeFile(t, filepath.Join(canonical, "SKILL.md"), []byte("user change\n"), 0644)
+	writeFile(t, filepath.Join(canonical, "extra.txt"), []byte("extra\n"), 0644)
+
+	result, err := manager.Update()
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if !contains(result.Updated, name) {
+		t.Fatalf("updated = %v, want restored %s", result.Updated, name)
+	}
+	assertFileContains(t, filepath.Join(canonical, "SKILL.md"), "official")
+	if _, err := os.Stat(filepath.Join(canonical, "extra.txt")); !os.IsNotExist(err) {
+		t.Fatalf("extra file survived update: %v", err)
+	}
+}
+
+func TestUpdateRestoresManagedTargetWhoseTypeChanged(t *testing.T) {
+	home := tempDir(t)
+	release := makeTestRelease(t, "1.0.0", "official")
+	server := releaseServer(t, &release, http.StatusOK)
+	defer server.Close()
+	manager := testManager(home, server.URL+"/latest/manifest.json")
+	if _, err := manager.Install(); err != nil {
+		t.Fatal(err)
+	}
+
+	name := "volcengine-cli"
+	canonical := filepath.Join(home, ".agents", "skills", name)
+	target := filepath.Join(home, ".claude", "skills", name)
+	if err := os.Remove(target); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(target, "SKILL.md"), []byte("user replacement\n"), 0644)
+
+	if _, err := manager.Update(); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	assertTargetMatchesCanonical(t, target, canonical)
+	assertFileContains(t, filepath.Join(target, "SKILL.md"), "official")
+}
+
+func TestUpdateRestoresManagedPathsReplacedWithFiles(t *testing.T) {
+	home := tempDir(t)
+	release := makeTestRelease(t, "1.0.0", "official")
+	server := releaseServer(t, &release, http.StatusOK)
+	defer server.Close()
+	manager := testManager(home, server.URL+"/latest/manifest.json")
+	if _, err := manager.Install(); err != nil {
+		t.Fatal(err)
+	}
+
+	name := "volcengine-cli"
+	canonical := filepath.Join(home, ".agents", "skills", name)
+	target := filepath.Join(home, ".claude", "skills", name)
+	if err := os.RemoveAll(canonical); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, canonical, []byte("user replacement\n"), 0644)
+	if err := os.Remove(target); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, target, []byte("user replacement\n"), 0644)
+
+	if _, err := manager.Update(); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	assertFileContains(t, filepath.Join(canonical, "SKILL.md"), "official")
+	assertTargetMatchesCanonical(t, target, canonical)
 }
 
 func TestUpdateInstallsSkillAddedToManifest(t *testing.T) {
@@ -556,6 +764,24 @@ func TestDownloadRejectsHTTPSRedirectDowngrade(t *testing.T) {
 	}
 }
 
+func TestDownloadRejectsPlainHTTP(t *testing.T) {
+	manager := &Manager{HTTPClient: http.DefaultClient}
+	if _, err := manager.download("http://example.com/manifest.json", 1024); err == nil || !strings.Contains(err.Error(), "https") {
+		t.Fatalf("download() error = %v, want HTTPS requirement", err)
+	}
+}
+
+func TestContentDigestMatchesReleaseContract(t *testing.T) {
+	digest, err := digestDirectory(filepath.Join("testdata", "content-digest"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const expected = "b08649421766bbc8bd9f11f5245bb9f4440e6a5cd526bf7772d58dbdd9b5df74"
+	if digest != expected {
+		t.Fatalf("content digest = %s, want %s", digest, expected)
+	}
+}
+
 func TestUninstallRejectsStateSkillPathTraversal(t *testing.T) {
 	home := tempDir(t)
 	manager := testManager(home, "http://127.0.0.1:1/manifest.json")
@@ -645,6 +871,7 @@ func testManager(home, manifestURL string) *Manager {
 		CDNManifestURL:    manifestURL,
 		GitHubManifestURL: "http://127.0.0.1:1",
 		HTTPClient:        http.DefaultClient,
+		allowHTTPForTests: true,
 		ClaudeConfigDir:   filepath.Join(home, ".claude"),
 		HermesHome:        filepath.Join(home, ".hermes"),
 	}

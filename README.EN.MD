@@ -30,10 +30,9 @@ ve version
 
 The npm package requires Node.js >= 14 and provides the `ve` command.
 
-Installing or upgrading the CLI with npm also installs the core Volcengine Skills. The installer
-tries the CDN, the matching GitHub Release, and finally an npx fallback scoped to the repository's
-`skills/core` directory. A Skill installation failure does not fail the CLI installation. Set
-`VOLCENGINE_CLI_SKIP_SKILLS=1` to skip this step temporarily.
+Installing or upgrading the CLI with npm also installs the core Volcengine Skills. A Skill installation
+failure does not fail the CLI installation. Set `VOLCENGINE_CLI_SKIP_SKILLS=1` to skip Skill installation
+temporarily.
 
 You can also download from Release:
 
@@ -56,11 +55,9 @@ ve version
 
 ### Skill Management
 
-`ve` uses the same installation layout as
-[`@volcengine/skills-setup`](https://www.npmjs.com/package/@volcengine/skills-setup). The core Skills
-are installed under `~/.agents/skills` and linked into the dedicated Skill directories for Claude Code,
-OpenClaw, Hermes Agent, and Trae. Agents that support the universal directory, including Codex, Cursor,
-and OpenCode, read `~/.agents/skills` directly. See
+Core Skills are installed under `~/.agents/skills` and `~/.claude/skills`. When OpenClaw, Hermes Agent, or Trae
+is detected, Skills are also installed in its dedicated directory. Codex, Cursor, and OpenCode can read
+`~/.agents/skills` directly. See
 [`volcengine-skills`](https://github.com/volcengine/volcengine-skills/blob/main/README_en.md#skills) for the
 full Skill catalog and usage details.
 
@@ -70,12 +67,9 @@ ve skills update
 ve skills uninstall
 ```
 
-The installer tries the CDN, GitHub Releases, and the npx `skills/core` fallback in that order. npx
-installations are not written to the `ve` state or managed by `ve skills uninstall`. `update` only installs a
-newer version. If the
-local install-state file is absent, it behaves like `install`. State is stored in
-`~/.volcengine/skills/install-state.json`. Locally modified Skills are not overwritten during update or
-uninstall.
+- `install`: Install core Skills that are not already installed.
+- `update`: Update to the latest version and restore missing or modified core Skills to the latest official content. If no Skills are installed, it performs an installation.
+- `uninstall`: Remove core Skills installed by `ve` while preserving locally modified content.
 
 ### Quick Start
 

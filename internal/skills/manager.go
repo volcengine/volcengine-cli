@@ -97,6 +97,7 @@ type Manager struct {
 	ClaudeConfigDir   string
 	HermesHome        string
 	RunCommand        func(name string, args ...string) error
+	allowHTTPForTests bool
 }
 
 type release struct {
@@ -147,6 +148,9 @@ func (m *Manager) Install() (Result, error) {
 	}
 	rel, err := m.resolveRelease()
 	if err != nil {
+		if len(state.Skills) > 0 {
+			return Result{}, err
+		}
 		return m.installWithNPX(err)
 	}
 	payloads, err := extractBundle(rel)
@@ -256,7 +260,7 @@ func (m *Manager) Update() (Result, error) {
 
 	rel, err := m.resolveRelease()
 	if err != nil {
-		return m.installWithNPX(err)
+		return Result{}, err
 	}
 	payloads, err := extractBundle(rel)
 	if err != nil {
@@ -299,34 +303,23 @@ func (m *Manager) Update() (Result, error) {
 					"Skill release %s has different content for the same version", rel.manifest.Version,
 				)
 			}
-			m.ensureTargets(payload, entry, &result, false)
-			continue
 		}
 
 		canonical := m.canonicalPath(payload.name)
 		currentDigest, digestErr := digestDirectory(canonical)
-		if digestErr != nil {
-			if os.IsNotExist(digestErr) {
-				result.skip(payload.name, "managed Skill directory is missing: "+canonical)
-				continue
+		needsRefresh := comparison > 0 || digestErr != nil || currentDigest != payload.digest
+		if needsRefresh {
+			if err := installDirectory(canonical, payload.files); err != nil {
+				return result, fmt.Errorf("update %s: %w", payload.name, err)
 			}
-			return result, fmt.Errorf("inspect %s: %w", payload.name, digestErr)
-		}
-		if currentDigest != entry.ContentSHA256 {
-			result.skip(payload.name, "managed Skill has local changes: "+canonical)
-			continue
-		}
-		if err := m.prepareCopiedTargets(entry, &result); err != nil {
-			return result, err
-		}
-		if err := installDirectory(canonical, payload.files); err != nil {
-			return result, fmt.Errorf("update %s: %w", payload.name, err)
 		}
 		entry.Version = rel.manifest.Version
 		entry.BundleSHA256 = rel.manifest.Bundle.SHA256
 		entry.ContentSHA256 = payload.digest
 		m.ensureTargets(payload, entry, &result, true)
-		result.Updated = append(result.Updated, payload.name)
+		if needsRefresh {
+			result.Updated = append(result.Updated, payload.name)
+		}
 	}
 	state.LastResolvedVersion = rel.manifest.Version
 	state.LastResolvedSHA256 = rel.manifest.Bundle.SHA256
@@ -448,8 +441,8 @@ func (m *Manager) fetchRemoteRelease(manifestURL, source string) (release, error
 
 func (m *Manager) download(rawURL string, limit int64) ([]byte, error) {
 	parsed, err := url.Parse(rawURL)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return nil, fmt.Errorf("invalid download URL %q", rawURL)
+	if err != nil || (parsed.Scheme != "https" && !(m.allowHTTPForTests && parsed.Scheme == "http")) {
+		return nil, fmt.Errorf("download URL must use https: %q", rawURL)
 	}
 	client := m.HTTPClient
 	if client == nil {
@@ -639,13 +632,7 @@ func (m *Manager) ensureTargets(payload skillPayload, entry *InstalledSkill, res
 	canonical := m.canonicalPath(payload.name)
 	for _, target := range m.targets(payload.name) {
 		existing := entry.Targets[target.name]
-		if existing != nil && existing.Mode == "copy" && refreshing {
-			if existingDigest, err := digestDirectory(target.path); err == nil && existingDigest != existing.ContentSHA256 {
-				result.Warnings = append(result.Warnings, fmt.Sprintf("%s target has local changes and was not refreshed: %s", target.name, target.path))
-				continue
-			}
-		}
-		mode, err := ensureTarget(target.path, canonical, payload.files, existing)
+		mode, err := ensureTarget(target.path, canonical, payload.files, existing, refreshing && existing != nil)
 		if err != nil {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("%s target was skipped: %v", target.name, err))
 			continue
@@ -658,26 +645,7 @@ func (m *Manager) ensureTargets(payload skillPayload, entry *InstalledSkill, res
 	}
 }
 
-func (m *Manager) prepareCopiedTargets(entry *InstalledSkill, result *Result) error {
-	for name, target := range entry.Targets {
-		if target.Mode != "copy" {
-			continue
-		}
-		digest, err := digestDirectory(target.Path)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			return fmt.Errorf("inspect %s target: %w", name, err)
-		}
-		if digest != target.ContentSHA256 {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("%s target has local changes: %s", name, target.Path))
-		}
-	}
-	return nil
-}
-
-func ensureTarget(targetPath, canonical string, files map[string][]byte, existing *InstalledTarget) (string, error) {
+func ensureTarget(targetPath, canonical string, files map[string][]byte, existing *InstalledTarget, force bool) (string, error) {
 	if existing != nil && existing.Path != targetPath {
 		return "", fmt.Errorf("recorded target path changed from %s to %s", existing.Path, targetPath)
 	}
@@ -688,7 +656,34 @@ func ensureTarget(targetPath, canonical string, files map[string][]byte, existin
 			if resolveErr == nil && canonicalErr == nil && resolved == canonicalResolved {
 				return "symlink", nil
 			}
-			return "", fmt.Errorf("existing symlink does not point to the managed Skill: %s", targetPath)
+			if !force {
+				return "", fmt.Errorf("existing symlink does not point to the managed Skill: %s", targetPath)
+			}
+			if err := os.Remove(targetPath); err != nil {
+				return "", err
+			}
+			if err := os.Symlink(canonical, targetPath); err == nil {
+				return "symlink", nil
+			}
+			if err := installDirectory(targetPath, files); err != nil {
+				return "", err
+			}
+			return "copy", nil
+		}
+		if !info.IsDir() {
+			if !force {
+				return "", fmt.Errorf("existing target is not a directory: %s", targetPath)
+			}
+			if err := os.Remove(targetPath); err != nil {
+				return "", err
+			}
+			if err := os.Symlink(canonical, targetPath); err == nil {
+				return "symlink", nil
+			}
+			if err := installDirectory(targetPath, files); err != nil {
+				return "", err
+			}
+			return "copy", nil
 		}
 		current, digestErr := digestDirectory(targetPath)
 		if digestErr != nil {
@@ -697,11 +692,14 @@ func ensureTarget(targetPath, canonical string, files map[string][]byte, existin
 		expected := digestFiles(files)
 		if existing != nil {
 			if existing.Mode != "copy" {
-				return "", fmt.Errorf("existing path is not a managed copy: %s", targetPath)
+				if !force {
+					return "", fmt.Errorf("existing path is not a managed copy: %s", targetPath)
+				}
+			} else {
+				expected = existing.ContentSHA256
 			}
-			expected = existing.ContentSHA256
 		}
-		if current != expected {
+		if current != expected && !force {
 			return "", fmt.Errorf("managed copy has local changes: %s", targetPath)
 		}
 		if err := installDirectory(targetPath, files); err != nil {
@@ -779,12 +777,23 @@ func symlinkPointsTo(linkPath, expectedPath string) bool {
 }
 
 func (m *Manager) targets(skillName string) []targetSpec {
-	return []targetSpec{
+	targets := []targetSpec{
 		{name: "claude-code", path: filepath.Join(m.ClaudeConfigDir, "skills", skillName)},
-		{name: "openclaw", path: filepath.Join(m.openClawHome(), "skills", skillName)},
-		{name: "hermes-agent", path: filepath.Join(m.HermesHome, "skills", skillName)},
-		{name: "trae", path: filepath.Join(m.HomeDir, ".trae", "skills", skillName)},
 	}
+	optional := []struct {
+		target targetSpec
+		home   string
+	}{
+		{target: targetSpec{name: "openclaw", path: filepath.Join(m.openClawHome(), "skills", skillName)}, home: m.openClawHome()},
+		{target: targetSpec{name: "hermes-agent", path: filepath.Join(m.HermesHome, "skills", skillName)}, home: m.HermesHome},
+		{target: targetSpec{name: "trae", path: filepath.Join(m.HomeDir, ".trae", "skills", skillName)}, home: filepath.Join(m.HomeDir, ".trae")},
+	}
+	for _, candidate := range optional {
+		if pathExists(candidate.home) {
+			targets = append(targets, candidate.target)
+		}
+	}
+	return targets
 }
 
 func (m *Manager) openClawHome() string {
