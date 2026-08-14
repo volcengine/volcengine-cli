@@ -974,7 +974,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
   // --- package.json / bin shim --------------------------------------------
   assert.strictEqual(pkg.bin["skills-setup"], "bin/skills-setup");
   assert.strictEqual(pkg.name, "@volcengine/skills-setup");
-  assert.strictEqual(pkg.version, "0.7.0");
+  assert.strictEqual(pkg.version, "0.8.0");
   assert.strictEqual(pkg.engines.node, ">=20");
   assert.strictEqual(pkg.dependencies, undefined);
   assert.strictEqual(
