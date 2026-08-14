@@ -16,7 +16,9 @@ const {
   downloadErrorMessage,
   normalizeBaseURL,
   parseChecksum,
+  runSkillsInstall,
   sha256,
+  shouldInstallSkills,
   targetForPlatform,
   verifyArchiveChecksum,
   version,
@@ -40,6 +42,10 @@ assert.strictEqual(pkg.name, "@volcengine/cli");
 assert.strictEqual(version, pkg.version);
 assert.strictEqual(pkg.repository.url, "https://github.com/volcengine/volcengine-cli");
 assert.strictEqual(defaultDownloadBaseURL, "https://cloudcache.volccdn.com/ve");
+assert.strictEqual(shouldInstallSkills({}), true);
+assert.strictEqual(shouldInstallSkills({ VOLCENGINE_CLI_SKIP_SKILLS: "1" }), false);
+assert.strictEqual(shouldInstallSkills({ CI: "true" }), true);
+assert.strictEqual(shouldInstallSkills({ CI: "1" }), true);
 assert.strictEqual(binaryNameForPlatform("win32"), "ve.exe");
 assert.strictEqual(binaryNameForPlatform("linux"), "ve");
 assert.strictEqual(binaryNameForPlatform("darwin"), "ve");
@@ -140,5 +146,56 @@ withTempDir((dir) => {
   assert.strictEqual(result.status, 7);
   assert.strictEqual(result.stdout.trim(), "ve.exe arg1 arg2");
 });
+
+withTempDir((dir) => {
+  const binPath = path.join(dir, "bin", "ve");
+  fs.mkdirSync(path.dirname(binPath), { recursive: true });
+  fs.writeFileSync(binPath, "binary");
+  const calls = [];
+  const warnings = [];
+  const ok = runSkillsInstall(binPath, {
+    env: {},
+    execFileSync(command, args, options) {
+      calls.push({ command, args, options });
+    },
+    warn(message) {
+      warnings.push(message);
+    },
+  });
+  assert.strictEqual(ok, true);
+  assert.strictEqual(warnings.length, 0);
+  assert.strictEqual(calls.length, 1);
+  assert.strictEqual(calls[0].command, binPath);
+  assert.deepStrictEqual(calls[0].args, ["skills", "update"]);
+  assert.deepStrictEqual(calls[0].options.env, {});
+});
+
+withTempDir((dir) => {
+  const warnings = [];
+  const ok = runSkillsInstall(path.join(dir, "ve"), {
+    env: {},
+    execFileSync() {
+      throw new Error("skill install failed");
+    },
+    warn(message) {
+      warnings.push(message);
+    },
+  });
+  assert.strictEqual(ok, false);
+  assert.strictEqual(warnings.length, 1);
+  assert.match(warnings[0], /CLI installation succeeded/);
+  assert.match(warnings[0], /ve skills update/);
+});
+
+assert.strictEqual(
+  runSkillsInstall("/does/not/matter", {
+    env: { VOLCENGINE_CLI_SKIP_SKILLS: "1" },
+    execFileSync() {
+      throw new Error("must not run");
+    },
+    warn() {},
+  }),
+  true
+);
 
 console.log("install tests passed");

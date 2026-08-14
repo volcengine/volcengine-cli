@@ -127,6 +127,10 @@ func trErrorf(english string, args ...interface{}) error {
 var simplifiedChineseMessages = map[string]string{
 	"Show CLI version":                      "显示 CLI 版本",
 	"Generate shell autocompletion scripts": "生成 Shell 自动补全脚本",
+	"Manage Volcengine Agent Skills":        "管理火山引擎 Agent Skills",
+	"Install Volcengine Agent Skills":       "安装火山引擎 Agent Skills",
+	"Update Volcengine Agent Skills":        "更新火山引擎 Agent Skills",
+	"Uninstall Volcengine Agent Skills":     "卸载火山引擎 Agent Skills",
 	"Usage:":                                "用法：",
 	"Examples:":                             "示例：",
 	"Available Commands:":                   "可用命令：",

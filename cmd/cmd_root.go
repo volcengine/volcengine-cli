@@ -183,6 +183,7 @@ func localizeHelpFlags(command *cobra.Command) {
 		"login":      {},
 		"logout":     {},
 		"sso":        {},
+		"skills":     {},
 		"version":    {},
 	}
 	for _, child := range command.Commands() {
