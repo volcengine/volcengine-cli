@@ -10,6 +10,7 @@ const {
   BINARIES,
   SKILL_REPOS,
   DEFAULT_BUNDLE_URL,
+  VE_LEGACY_SKILLS_MAX_VERSION,
   DEFAULT_AGENTS,
   USAGE,
   normalizeList,
@@ -20,6 +21,9 @@ const {
   buildNpmInstallArgs,
   buildSkillsAddArgs,
   npxArgvForSource,
+  parseSemanticVersion,
+  compareSemanticVersions,
+  supportsManagedSkills,
   resolveBundleUrl,
   extractCandidates,
   formatArg,
@@ -29,7 +33,9 @@ const {
   commandCandidates,
   commandExists,
   detectBinary,
+  detectVeVersion,
   planSetup,
+  veCommandForPlan,
   aggregateExitCode,
   renderSummary,
   executePlan,
@@ -58,15 +64,22 @@ function fakeExec(opts) {
   opts = opts || {};
   const failMatchers = opts.fail || []; // substrings of "cmd args" that should fail
   const enoent = opts.enoent || []; // commands that simulate ENOENT
+  const veVersion = Object.prototype.hasOwnProperty.call(opts, "veVersion")
+    ? opts.veVersion
+    : "1.1.2";
   const calls = [];
-  const exec = (cmd, args) => {
-    calls.push({ cmd, args });
+  const exec = (cmd, args, execOptions) => {
+    calls.push({ cmd, args, options: execOptions });
     const line = [cmd].concat(args).join(" ");
     if (enoent.indexOf(cmd) !== -1) {
       return { error: Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" }), status: null };
     }
     if (failMatchers.some((m) => line.indexOf(m) !== -1)) {
       return { status: 1 };
+    }
+    const commandName = String(cmd).split(/[\\/]/).pop().replace(/\.cmd$/, "");
+    if (commandName === "ve" && args.length === 1 && args[0] === "version") {
+      return { status: 0, stdout: veVersion === null ? "unknown" : veVersion + "\n" };
     }
     return { status: 0 };
   };
@@ -211,6 +224,19 @@ check("detectBinary not found", () => {
     isExecutable: fakeIsExecutable([]),
   };
   assert.deepStrictEqual(detectBinary(BINARIES[0], deps).found, false);
+});
+check("detectVeVersion captures and normalizes ve output", () => {
+  const exec = fakeExec({ veVersion: "ve version v1.2.3-beta.1" });
+  assert.strictEqual(detectVeVersion(exec, "linux"), "1.2.3");
+  assert.deepStrictEqual(exec.calls[0].args, ["version"]);
+  assert.strictEqual(exec.calls[0].options.capture, true);
+});
+check("detectVeVersion returns null for failed or unrecognized output", () => {
+  assert.strictEqual(
+    detectVeVersion(fakeExec({ fail: ["ve version"] }), "linux"),
+    null
+  );
+  assert.strictEqual(detectVeVersion(fakeExec({ veVersion: null }), "linux"), null);
 });
 
 // --- parseArgs -------------------------------------------------------------
@@ -384,6 +410,20 @@ check("npxArgvForSource defaults", () => {
   );
 });
 
+// --- ve version routing ----------------------------------------------------
+check("semantic version helpers enforce the exclusive 1.1.2 boundary", () => {
+  assert.strictEqual(VE_LEGACY_SKILLS_MAX_VERSION, "1.1.2");
+  assert.deepStrictEqual(parseSemanticVersion("ve version v2.3.4-beta.1"), [2, 3, 4]);
+  assert.strictEqual(compareSemanticVersions("1.1.2", "1.1.2"), 0);
+  assert.strictEqual(compareSemanticVersions("1.1.10", "1.1.2"), 1);
+  assert.strictEqual(compareSemanticVersions("1.0.99", "1.1.2"), -1);
+  assert.strictEqual(compareSemanticVersions("unknown", "1.1.2"), null);
+  assert.strictEqual(supportsManagedSkills("1.1.2"), false);
+  assert.strictEqual(supportsManagedSkills("1.1.3"), true);
+  assert.strictEqual(supportsManagedSkills("2.0.0"), true);
+  assert.strictEqual(supportsManagedSkills(null), false);
+});
+
 // --- resolveBundleUrl ------------------------------------------------------
 check("resolveBundleUrl priority: flag > env > default", () => {
   assert.strictEqual(
@@ -430,6 +470,7 @@ function detectDeps(present, env) {
 check("planSetup all present -> no installs, one bundle", () => {
   const plan = planSetup(parseArgs(["--bundle-url", BUNDLE_URL]), detectDeps(["ve", "arkcli"]));
   assert.deepStrictEqual(plan.installs, []);
+  assert.strictEqual(plan.vePresentAtStart, true);
   assert.ok(plan.bundle);
   assert.strictEqual(plan.bundle.url, BUNDLE_URL);
   assert.strictEqual(plan.bundle.file, null);
@@ -453,6 +494,13 @@ check("planSetup skip-install / skip-skills / force", () => {
   const skipInstall = planSetup(parseArgs(["--skip-install"]), detectDeps([]));
   assert.deepStrictEqual(skipInstall.installs, []);
   assert.strictEqual(skipInstall.detections[0].found, null);
+  assert.strictEqual(skipInstall.bundle, null);
+
+  const skipInstallWithVe = planSetup(
+    parseArgs(["--skip-install"]),
+    detectDeps(["ve", "arkcli"])
+  );
+  assert.ok(skipInstallWithVe.bundle);
 
   const skipSkills = planSetup(parseArgs(["--skip-skills"]), detectDeps(["ve", "arkcli"]));
   assert.strictEqual(skipSkills.bundle, null);
@@ -483,6 +531,14 @@ check("planSetup --update forces reinstall of present binaries", () => {
 check("planSetup local scope", () => {
   const plan = planSetup(parseArgs(["--local"]), detectDeps([]));
   assert.deepStrictEqual(plan.installs[0].args, ["install", "@volcengine/cli@latest"]);
+  assert.strictEqual(plan.vePresentAtStart, false);
+  assert.strictEqual(plan.bundle, null);
+  assert.strictEqual(veCommandForPlan(plan, "linux"), path.join("node_modules", ".bin", "ve"));
+  assert.strictEqual(veCommandForPlan(plan, "win32"), path.join("node_modules", ".bin", "ve.cmd"));
+});
+check("veCommandForPlan uses PATH command without a local ve install", () => {
+  const plan = planSetup(parseArgs([]), detectDeps(["ve", "arkcli"]));
+  assert.strictEqual(veCommandForPlan(plan, "linux"), "ve");
 });
 
 // --- aggregateExitCode -----------------------------------------------------
@@ -565,7 +621,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
 (async () => {
   const opts = (a) => parseArgs(a);
 
-  // executePlan: no installs, bundle download+extract(tar)+npx all succeed
+  // executePlan: ve 1.1.2 keeps bundle download+extract(tar)+npx
   {
     const parsed = opts(["--bundle-url", BUNDLE_URL]);
     const plan = planSetup(parsed, detectDeps(["ve", "arkcli"]));
@@ -577,9 +633,98 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
     });
     assert.strictEqual(res.code, 0);
     assert.strictEqual(download.calls.length, 1);
-    // tar (extract) then npx (skills add); no npm installs
-    assert.deepStrictEqual(exec.calls.map((c) => c.cmd), ["tar", "npx"]);
+    assert.deepStrictEqual(exec.calls.map((c) => c.cmd), ["ve", "tar", "npx"]);
     assert.ok(log.text().indexOf("Result: OK") !== -1);
+    passed += 1;
+  }
+
+  // executePlan: ve newer than 1.1.2 uses ve skills update only
+  {
+    const parsed = opts(["--bundle-url", BUNDLE_URL]);
+    const plan = planSetup(parsed, detectDeps(["ve", "arkcli"]));
+    const exec = fakeExec({ veVersion: "1.1.3" });
+    const download = fakeDownload();
+    const log = captureLog();
+    const res = await executePlan(plan, {
+      exec, download, log, platform: "linux", addOptions: parsed,
+    });
+    assert.strictEqual(res.code, 0);
+    assert.strictEqual(download.calls.length, 0);
+    assert.deepStrictEqual(exec.calls.map((c) => c.cmd), ["ve", "ve"]);
+    assert.deepStrictEqual(exec.calls[1].args, ["skills", "update"]);
+    assert.deepStrictEqual(res.steps.map((s) => s.label), ["ve skills update"]);
+    assert.ok(log.text().indexOf("using managed skill update") !== -1);
+    passed += 1;
+  }
+
+  // managed update failure is reported and never falls back to npx
+  {
+    const parsed = opts(["--bundle-url", BUNDLE_URL]);
+    const plan = planSetup(parsed, detectDeps(["ve", "arkcli"]));
+    const exec = fakeExec({
+      veVersion: "2.0.0",
+      fail: ["ve skills update"],
+    });
+    const download = fakeDownload();
+    const res = await executePlan(plan, {
+      exec, download, log: captureLog(), platform: "linux", addOptions: parsed,
+    });
+    assert.strictEqual(res.code, 3);
+    assert.strictEqual(download.calls.length, 0);
+    assert.strictEqual(exec.calls.filter((c) => c.cmd === "npx").length, 0);
+    assert.deepStrictEqual(exec.calls.map((c) => c.args), [
+      ["version"],
+      ["skills", "update"],
+    ]);
+    passed += 1;
+  }
+
+  // a missing ve is installed locally without a second skill installation
+  {
+    const parsed = opts(["--local", "--bundle-url", BUNDLE_URL]);
+    const plan = planSetup(parsed, detectDeps(["arkcli"]));
+    const exec = fakeExec({ veVersion: "1.1.3" });
+    const download = fakeDownload();
+    const res = await executePlan(plan, {
+      exec, download, log: captureLog(), platform: "linux", addOptions: parsed,
+    });
+    assert.strictEqual(res.code, 0);
+    assert.strictEqual(download.calls.length, 0);
+    assert.deepStrictEqual(exec.calls.map((c) => c.cmd), ["npm"]);
+    assert.deepStrictEqual(res.steps.map((s) => s.label), ["install @volcengine/cli"]);
+    passed += 1;
+  }
+
+  // globally installing a missing ve also skips all separate skill commands
+  {
+    const parsed = opts([]);
+    const plan = planSetup(parsed, detectDeps([]));
+    const exec = fakeExec({ veVersion: "1.1.3" });
+    const download = fakeDownload();
+    const res = await executePlan(plan, {
+      exec, download, log: captureLog(), platform: "linux", addOptions: parsed,
+    });
+    assert.strictEqual(res.code, 0);
+    assert.strictEqual(download.calls.length, 0);
+    assert.deepStrictEqual(exec.calls.map((c) => c.cmd), ["npm", "npm"]);
+    assert.strictEqual(exec.calls.some((c) => c.cmd === "ve" || c.cmd === "npx"), false);
+    passed += 1;
+  }
+
+  // unrecognized ve output conservatively keeps the legacy install path
+  {
+    const parsed = opts(["--bundle-url", BUNDLE_URL]);
+    const plan = planSetup(parsed, detectDeps(["ve", "arkcli"]));
+    const exec = fakeExec({ veVersion: null });
+    const download = fakeDownload();
+    const log = captureLog();
+    const res = await executePlan(plan, {
+      exec, download, log, platform: "linux", addOptions: parsed,
+    });
+    assert.strictEqual(res.code, 0);
+    assert.strictEqual(download.calls.length, 1);
+    assert.deepStrictEqual(exec.calls.map((c) => c.cmd), ["ve", "tar", "npx"]);
+    assert.ok(log.text().indexOf("Could not determine ve version") !== -1);
     passed += 1;
   }
 
@@ -594,7 +739,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
       exec, download, log, platform: "linux", addOptions: parsed,
     });
     assert.strictEqual(res.code, 0);
-    assert.deepStrictEqual(exec.calls.map((c) => c.cmd), ["npm", "tar", "npx"]);
+    assert.deepStrictEqual(exec.calls.map((c) => c.cmd), ["npm", "ve", "tar", "npx"]);
     passed += 1;
   }
 
@@ -609,7 +754,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
       exec, download, log, platform: "linux", addOptions: parsed,
     });
     assert.strictEqual(res.code, 0);
-    assert.deepStrictEqual(exec.calls.map((c) => c.cmd), ["tar", "unzip", "npx"]);
+    assert.deepStrictEqual(exec.calls.map((c) => c.cmd), ["ve", "tar", "unzip", "npx"]);
     passed += 1;
   }
 
@@ -658,7 +803,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
     });
     assert.strictEqual(res.code, 3);
     assert.ok(log.text().indexOf("download failed") !== -1);
-    assert.strictEqual(exec.calls.length, 0);
+    assert.strictEqual(exec.calls.length, 1); // ve version only
     passed += 1;
   }
 
@@ -724,7 +869,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
     });
     assert.strictEqual(res.code, 0);
     assert.strictEqual(download.calls.length, 0);
-    assert.deepStrictEqual(exec.calls.map((c) => c.cmd), ["tar", "npx"]);
+    assert.deepStrictEqual(exec.calls.map((c) => c.cmd), ["ve", "tar", "npx"]);
     passed += 1;
   }
 
@@ -740,11 +885,11 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
     });
     assert.strictEqual(res.code, 3);
     assert.ok(log.text().indexOf("bundle file not found") !== -1);
-    assert.strictEqual(exec.calls.length, 0);
+    assert.strictEqual(exec.calls.length, 1); // ve version only
     passed += 1;
   }
 
-  // main dry-run: prints download + extract + npx add <tmp-dir>
+  // main dry-run: prints both version-dependent skill paths without executing
   {
     const exec = fakeExec();
     const log = captureLog();
@@ -754,8 +899,27 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
     });
     assert.strictEqual(code, 0);
     assert.strictEqual(exec.calls.length, 0);
+    assert.ok(log.text().indexOf("if ve > 1.1.2") !== -1);
+    assert.ok(log.text().indexOf("ve skills update") !== -1);
     assert.ok(log.text().indexOf("download " + BUNDLE_URL) !== -1);
     assert.ok(log.text().indexOf("npx --yes skills add '<tmp-dir>'") !== -1);
+    passed += 1;
+  }
+
+  // main dry-run: a missing ve only plans npm installation, not a skill command
+  {
+    const exec = fakeExec();
+    const log = captureLog();
+    const code = await main(["--dry-run"], {
+      exec, log, platform: "linux", env: UNIX_ENV,
+      isExecutable: fakeIsExecutable(["arkcli"]),
+    });
+    assert.strictEqual(code, 0);
+    assert.strictEqual(exec.calls.length, 0);
+    assert.ok(log.text().indexOf("npm install -g @volcengine/cli@latest") !== -1);
+    assert.strictEqual(log.text().indexOf("check ve version"), -1);
+    assert.strictEqual(log.text().indexOf("ve skills update"), -1);
+    assert.strictEqual(log.text().indexOf("npx --yes skills add"), -1);
     passed += 1;
   }
 
@@ -803,7 +967,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
       isExecutable: fakeIsExecutable(["ve", "arkcli"]),
     });
     assert.strictEqual(code, 0);
-    assert.deepStrictEqual(exec.calls.map((c) => c.cmd), ["tar", "npx"]);
+    assert.deepStrictEqual(exec.calls.map((c) => c.cmd), ["ve", "tar", "npx"]);
     passed += 1;
   }
 
