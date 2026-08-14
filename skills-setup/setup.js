@@ -31,7 +31,7 @@ const SKILL_REPOS = ["volcengine/volcengine-skills"];
 // then hands it to `skills add <dir>`. Override with --bundle-url or the
 // SKILLS_BUNDLE_URL env var; use a local zip with --bundle-file.
 const DEFAULT_BUNDLE_URL =
-  "https://cloudcache.volccdn.com/ve/skills/v1.7.0/volcengine-skill-bundle.zip";
+  "https://cloudcache.volccdn.com/ve/skills/v1.1.1/volcengine-skill-bundle.zip";
 
 // `ve skills update` was introduced after v1.1.2. Older versions keep using
 // the legacy bundle + `npx skills add` flow below.
