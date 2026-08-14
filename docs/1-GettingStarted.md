@@ -28,10 +28,20 @@ ve version
 ve --help
 ```
 
-To upgrade to the latest version:
+To upgrade an **npm** install, keep package metadata consistent by upgrading through npm:
 
 ```shell
-npm update -g @volcengine/cli
+npm install -g @volcengine/cli@latest
+```
+
+`ve upgrade` detects npm installs and runs the same `npm install -g` command for you (it never replaces the binary in place). If the delegated npm command fails, it prints the manual command above so you can fix permissions or network issues and retry.
+
+For **Release binaries** or **source builds** (standalone):
+
+```shell
+ve upgrade
+ve upgrade --yes
+ve upgrade --version 1.0.49
 ```
 
 ### Download from Release
@@ -132,10 +142,10 @@ ve sts GetCallerIdentity
 Override region for one invocation:
 
 ```shell
-ve sts GetCallerIdentity ---region cn-beijing
+ve sts GetCallerIdentity --region cn-beijing
 ```
 
-`---region` is a CLI fixed flag and does not conflict with API parameters written as `--Param value`. See [Usage](4-Usage.md) for more examples.
+`--region` is a public CLI system flag and is placed after the action. If the action exposes an exact case-sensitive business parameter with the same name, the double-dash form is parsed as the business parameter. See [Usage](4-Usage.md) for more examples.
 
 ---
 

@@ -80,10 +80,10 @@ ve configure profile --profile prod
 
 `--profile` 必填。指定 profile 不存在时，current 不会变化并返回错误。
 
-切换 current 只影响后续未指定 `---profile` 的业务命令。单次调用时也可以使用运行时覆盖：
+切换 current 只影响后续未指定 `--profile` 的业务命令。单次调用时也可以使用运行时覆盖：
 
 ```shell
-ve ecs DescribeInstances ---profile prod
+ve ecs DescribeInstances --profile prod
 ```
 
 ## 新建或修改 Profile
@@ -166,7 +166,7 @@ ve ecs DescribeInstances
 
 ```shell
 ve configure profile --profile dev
-ve ecs DescribeInstances ---profile prod
+ve ecs DescribeInstances --profile prod
 ```
 
 这条命令只在本次调用中使用 `prod`，不会修改 `current`。
@@ -174,8 +174,8 @@ ve ecs DescribeInstances ---profile prod
 ### 单次调用覆盖 Region 和 Endpoint
 
 ```shell
-ve ecs DescribeInstances ---region cn-shanghai
-ve sts GetCallerIdentity ---region cn-beijing ---endpoint sts.volcengineapi.com
+ve ecs DescribeInstances --region cn-shanghai
+ve sts GetCallerIdentity --region cn-beijing --endpoint sts.volcengineapi.com
 ```
 
 ---

@@ -53,6 +53,16 @@ sudo cp ve /usr/local/bin
 ve version
 ```
 
+### Upgrade to the latest version
+
+```shell
+ve upgrade
+```
+
+- **standalone / Release**: download and replace the current binary in place
+- **npm**: runs `npm install -g @volcengine/cli@latest` (on failure, prints the same manual command)
+- **Homebrew**: runs `brew update`, then `brew upgrade volcengine-cli`
+
 ### Skill Management
 
 Core Skills are installed under `~/.agents/skills` and `~/.claude/skills`. When OpenClaw, Hermes Agent, or Trae
@@ -92,8 +102,8 @@ ve sts GetCallerIdentity
 1. [Getting Started](docs/1-GettingStarted.md): install, build from source, configure PATH, and make the first API call.
 2. [Authentication](docs/2-Authentication.md): AK/SK, default credential chain, OIDC, ECS instance role, SSO, and Console Login.
 3. [Configuration](docs/3-Configuration.md): inspect, list, switch, update, and delete profiles.
-4. [Usage](docs/4-Usage.md): service discovery, API calls, fixed flags, JSON body, arrays, and nested parameters.
-5. [Advanced Usage](docs/5-Advanced.md): shell completion, colored output, debug logs, and FAQ.
+4. [Usage](docs/4-Usage.md): service discovery, API calls, system flags, JSON body, arrays, and nested parameters.
+5. [Advanced Usage](docs/5-Advanced.md): shell completion, colored output, debug logs, `--force` invocation, and FAQ.
 
 ### Security and privacy
 This project takes security seriously.

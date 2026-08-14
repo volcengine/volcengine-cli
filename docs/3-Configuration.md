@@ -80,10 +80,10 @@ ve configure profile --profile prod
 
 `--profile` is required. If the profile does not exist, current is not changed and an error is returned.
 
-Switching current affects later service commands that do not specify `---profile`. For a single invocation, use:
+Switching current affects later service commands that do not specify `--profile`. For a single invocation, use:
 
 ```shell
-ve ecs DescribeInstances ---profile prod
+ve ecs DescribeInstances --profile prod
 ```
 
 ## Create or Update a Profile
@@ -166,7 +166,7 @@ ve ecs DescribeInstances
 
 ```shell
 ve configure profile --profile dev
-ve ecs DescribeInstances ---profile prod
+ve ecs DescribeInstances --profile prod
 ```
 
 This call uses `prod` only for this invocation and does not modify `current`.
@@ -174,8 +174,8 @@ This call uses `prod` only for this invocation and does not modify `current`.
 ### Override Region and Endpoint for One Call
 
 ```shell
-ve ecs DescribeInstances ---region cn-shanghai
-ve sts GetCallerIdentity ---region cn-beijing ---endpoint sts.volcengineapi.com
+ve ecs DescribeInstances --region cn-shanghai
+ve sts GetCallerIdentity --region cn-beijing --endpoint sts.volcengineapi.com
 ```
 
 ---

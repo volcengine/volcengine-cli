@@ -1,0 +1,124 @@
+package upgrade
+
+import "testing"
+
+func TestNormalizeVersion(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"1.0.49", "1.0.49"},
+		{"v1.0.49", "1.0.49"},
+		{"V1.0.49", "1.0.49"},
+		{"  v1.0.0  ", "1.0.0"},
+	}
+	for _, c := range cases {
+		if got := NormalizeVersion(c.in); got != c.want {
+			t.Errorf("NormalizeVersion(%q)=%q want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestIsNewer(t *testing.T) {
+	tests := []struct {
+		current, latest string
+		want            bool
+	}{
+		{"1.0.48", "1.0.49", true},
+		{"1.0.49", "1.0.49", false},
+		{"1.0.50", "1.0.49", false},
+		{"v1.0.0", "1.1.0", true},
+		{"2.0.0", "1.9.9", false},
+		{"1.0.0-beta", "1.0.0", true},
+		{"1.0.0", "1.0.0-beta", false},
+		{"1.0.0-alpha", "1.0.0-beta", true},
+		{"1.0.0-rc.2", "1.0.0-rc.10", true},
+		{"1.0.0-rc.10", "1.0.0-rc.2", false},
+		// Build metadata does not affect precedence (including hyphens inside +build).
+		{"1.2.3+build-1", "1.2.3", false},
+		{"1.2.3", "1.2.3+build-1", false},
+		{"1.2.3+build-1", "1.2.4", true},
+		{"1.2.3-rc.1+build-1", "1.2.3", true},
+	}
+	for _, tt := range tests {
+		if got := IsNewer(tt.current, tt.latest); got != tt.want {
+			t.Errorf("IsNewer(%q,%q)=%v want %v", tt.current, tt.latest, got, tt.want)
+		}
+	}
+}
+
+func TestParseSemverBuildMetadataWithHyphen(t *testing.T) {
+	got, ok := parseSemver("1.2.3+build-1")
+	if !ok {
+		t.Fatal("expected parse ok")
+	}
+	if got.hasPre {
+		t.Fatalf("build metadata must not set prerelease, got pre=%q", got.pre)
+	}
+	if got.major != 1 || got.minor != 2 || got.patch != 3 {
+		t.Fatalf("core version: %+v", got)
+	}
+}
+
+func TestIsNewer_NonSemver(t *testing.T) {
+	// Both opaque: cannot prove order → not newer.
+	if IsNewer("custom-1", "custom-2") {
+		t.Fatal("expected opaque vs opaque to not claim newer")
+	}
+	if IsNewer("same", "same") {
+		t.Fatal("expected same opaque versions to not be newer")
+	}
+	// Running opaque/dev, official release available → newer.
+	if !IsNewer("dev-build", "1.0.50") {
+		t.Fatal("expected official release newer than opaque current")
+	}
+	// Official current, opaque latest → cannot prove newer.
+	if IsNewer("1.0.50", "dev-build") {
+		t.Fatal("expected opaque latest not to claim newer than semver current")
+	}
+}
+
+func TestSameVersion(t *testing.T) {
+	if !SameVersion("v1.0.1", "1.0.1") {
+		t.Fatal("expected same")
+	}
+	if SameVersion("1.0.1", "1.0.2") {
+		t.Fatal("expected different")
+	}
+}
+
+func TestIsStrictlyOlder(t *testing.T) {
+	if !isStrictlyOlder("2.0.0", "1.0.0") {
+		t.Fatal("expected 1.0.0 older than 2.0.0")
+	}
+	if isStrictlyOlder("1.0.0", "2.0.0") {
+		t.Fatal("expected 2.0.0 not older than 1.0.0")
+	}
+	if isStrictlyOlder("1.0.0", "1.0.0") {
+		t.Fatal("same version is not strictly older")
+	}
+	// Incomparable / opaque: cannot prove older.
+	if isStrictlyOlder("1.0.50", "dev-build") {
+		t.Fatal("opaque target must not be treated as strictly older")
+	}
+	if isStrictlyOlder("dev-build", "1.0.50") {
+		t.Fatal("opaque current vs semver target is not strictly-older of target")
+	}
+}
+
+func TestValidateVersion(t *testing.T) {
+	if err := ValidateVersion("1.0.49"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateVersion("v1.0.49-rc.1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateVersion("../evil"); err == nil {
+		t.Fatal("expected path rejection")
+	}
+	if err := ValidateVersion("1.0/../../x"); err == nil {
+		t.Fatal("expected path rejection")
+	}
+	if err := ValidateVersion(""); err == nil {
+		t.Fatal("expected empty rejection")
+	}
+}

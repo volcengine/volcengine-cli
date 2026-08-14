@@ -28,10 +28,20 @@ ve version
 ve --help
 ```
 
-如需升级到最新版本：
+**npm 安装**请通过 npm 升级，以保持包元数据一致：
 
 ```shell
-npm update -g @volcengine/cli
+npm install -g @volcengine/cli@latest
+```
+
+`ve upgrade` 会识别 npm 安装并委托执行上述 `npm install -g` 命令（不会原地替换二进制）。若委托失败，会打印上述手动命令，便于你处理权限或网络问题后自行重试。
+
+**Release 解压**或**源码编译**（standalone）可使用：
+
+```shell
+ve upgrade
+ve upgrade --yes
+ve upgrade --version 1.0.49
 ```
 
 ### 通过 Release 获取客户端
@@ -132,10 +142,10 @@ ve sts GetCallerIdentity
 临时指定 region：
 
 ```shell
-ve sts GetCallerIdentity ---region cn-beijing
+ve sts GetCallerIdentity --region cn-beijing
 ```
 
-`---region` 是 CLI 内部固定参数，和 API 参数的 `--Param value` 不冲突。更多调用示例见 [使用指南](4-Usage-zh.md)。
+`--region` 是对外公开的 CLI 系统参数，统一放在 Action 后。若当前 Action 存在大小写完全相同的业务参数，双横线形式优先作为业务参数。更多调用示例见 [使用指南](4-Usage-zh.md)。
 
 ---
 

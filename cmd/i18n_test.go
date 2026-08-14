@@ -3,9 +3,13 @@ package cmd
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/volcengine/volcengine-cli/upgrade"
 )
 
 func TestResolveLanguageExplicitFlag(t *testing.T) {
@@ -16,8 +20,8 @@ func TestResolveLanguageExplicitFlag(t *testing.T) {
 		wantLang Language
 	}{
 		{name: "english", args: []string{"---lang", "EN", "--help"}, wantArgs: []string{"--help"}, wantLang: LanguageEnglish},
-		{name: "english locale", args: []string{"sts", "--help", "---lang", "en_US"}, wantArgs: []string{"sts", "--help"}, wantLang: LanguageEnglish},
-		{name: "simplified chinese", args: []string{"sts", "---lang", "ZH", "--help"}, wantArgs: []string{"sts", "--help"}, wantLang: LanguageSimplifiedChinese},
+		{name: "english locale", args: []string{"sts", "GetCallerIdentity", "--help", "---lang", "en_US"}, wantArgs: []string{"sts", "GetCallerIdentity", "--help"}, wantLang: LanguageEnglish},
+		{name: "simplified chinese", args: []string{"sts", "GetCallerIdentity", "---lang", "ZH", "--help"}, wantArgs: []string{"sts", "GetCallerIdentity", "--help"}, wantLang: LanguageSimplifiedChinese},
 		{name: "simplified chinese locale", args: []string{"sts", "GetCallerIdentity", "---lang", "zh-CN", "--help"}, wantArgs: []string{"sts", "GetCallerIdentity", "--help"}, wantLang: LanguageSimplifiedChinese},
 	}
 
@@ -80,12 +84,12 @@ func TestLocalizedUsageTemplates(t *testing.T) {
 	for name, output := range map[string]string{
 		"root":      rootUsageTemplate(),
 		"service":   serviceUsageTemplate(),
-		"action":    actionUsageTemplate("", nil),
+		"action":    actionUsageTemplate("", nil, false),
 		"login":     loginUsageTemplate(),
 		"configure": configureUsageTemplate(),
 		"sso":       ssoUsageTemplate(),
 	} {
-		if !strings.Contains(output, "用法：") || !strings.Contains(output, "---lang") {
+		if !strings.Contains(output, "用法：") || (name != "root" && !strings.Contains(output, "--lang")) {
 			t.Fatalf("%s usage template was not localized:\n%s", name, output)
 		}
 	}
@@ -119,11 +123,11 @@ func TestResolveLanguageFromEnvironment(t *testing.T) {
 }
 
 func TestResolveLanguageFallsBackForUnsupportedExplicitLanguage(t *testing.T) {
-	gotArgs, gotLang, err := resolveLanguage([]string{"sts", "---lang", "FR", "--help"}, mapEnvironment(map[string]string{"LANG": "zh_CN.UTF-8"}))
+	gotArgs, gotLang, err := resolveLanguage([]string{"sts", "GetCallerIdentity", "---lang", "FR", "--help"}, mapEnvironment(map[string]string{"LANG": "zh_CN.UTF-8"}))
 	if err != nil {
 		t.Fatalf("resolveLanguage returned error: %v", err)
 	}
-	if !reflect.DeepEqual(gotArgs, []string{"sts", "--help"}) {
+	if !reflect.DeepEqual(gotArgs, []string{"sts", "GetCallerIdentity", "--help"}) {
 		t.Fatalf("args = %#v, want language flag removed", gotArgs)
 	}
 	if gotLang != LanguageEnglish {
@@ -172,7 +176,7 @@ func TestResolveLanguageRejectsMalformedFlag(t *testing.T) {
 	}{
 		{name: "missing value", args: []string{"---lang"}, want: "requires a value"},
 		{name: "duplicate flag", args: []string{"---lang", "EN", "---lang", "ZH"}, want: "specified more than once"},
-		{name: "equals syntax", args: []string{"sts", "---lang=zh", "--help"}, want: "does not support '='"},
+		{name: "equals syntax", args: []string{"sts", "GetCallerIdentity", "---lang=zh", "--help"}, want: "does not support '='"},
 	}
 
 	for _, tt := range tests {
@@ -182,6 +186,32 @@ func TestResolveLanguageRejectsMalformedFlag(t *testing.T) {
 				t.Fatalf("error = %v, want text %q", err, tt.want)
 			}
 		})
+	}
+}
+
+// TestRunMain_LanguageErrorReturnsWithoutOsExit ensures malformed ---lang exits via
+// return code (so upgrade-notice defer can run) instead of os.Exit killing the process.
+func TestRunMain_LanguageErrorReturnsWithoutOsExit(t *testing.T) {
+	oldDisable := os.Getenv(upgrade.EnvDisableUpdateCheck)
+	_ = os.Setenv(upgrade.EnvDisableUpdateCheck, "1")
+	defer func() {
+		if oldDisable == "" {
+			_ = os.Unsetenv(upgrade.EnvDisableUpdateCheck)
+		} else {
+			_ = os.Setenv(upgrade.EnvDisableUpdateCheck, oldDisable)
+		}
+	}()
+
+	prev := processLanguageResolution
+	processLanguageResolution = languageResolution{
+		err: fmt.Errorf("---lang requires a value"),
+	}
+	defer func() { processLanguageResolution = prev }()
+
+	// If runMain still called os.Exit(1), this test process would terminate.
+	code := runMain()
+	if code != 1 {
+		t.Fatalf("runMain exit code = %d, want 1", code)
 	}
 }
 
