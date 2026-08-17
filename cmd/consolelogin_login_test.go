@@ -212,11 +212,13 @@ func TestDeviceCodeAuthorizeToleratesTransientErrorsThenSucceeds(t *testing.T) {
 	}))
 	defer server.Close()
 
+	var waits []time.Duration
 	now := time.Unix(1000, 0)
 	restore := setConsoleDeviceAuthorizationHooks(
 		t,
 		func(string) error { return nil },
 		func(_ context.Context, wait time.Duration) error {
+			waits = append(waits, wait)
 			now = now.Add(wait)
 			return nil
 		},
@@ -237,6 +239,14 @@ func TestDeviceCodeAuthorizeToleratesTransientErrorsThenSucceeds(t *testing.T) {
 	}
 	if tokenAttempts != 4 {
 		t.Fatalf("token attempts = %d, want 4 (three transient, one success)", tokenAttempts)
+	}
+	if len(waits) != 4 {
+		t.Fatalf("waits = %v, want 4 entries", waits)
+	}
+	for i, wait := range waits {
+		if wait != 5*time.Second {
+			t.Fatalf("waits[%d] = %v, want 5s; non-timeout transients must not change interval", i, wait)
+		}
 	}
 }
 

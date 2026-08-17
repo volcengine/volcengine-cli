@@ -6,7 +6,6 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -22,15 +21,6 @@ const scopeAllAll = "Console:All:All"
 const loginCacheDirectoryEnv = "VOLCENGINE_LOGIN_CACHE_DIRECTORY"
 const defaultConsoleLoginRegion = "cn-beijing"
 const consoleDeviceInfo = "Volcengine CLI"
-const consoleDeviceCodeDefaultInterval = 5 * time.Second
-const consoleDeviceCodeSlowDownIncrement = 5 * time.Second
-
-// consoleDeviceCodeMaxTransientErrors bounds how many consecutive transient
-// failures (network blips, decode errors, server_error) the poll loop tolerates
-// before giving up. Transient errors within this budget do not abort the login,
-// so a still-valid device code keeps polling per RFC 8628 instead of forcing the
-// user to restart on a momentary hiccup.
-const consoleDeviceCodeMaxTransientErrors = 5
 
 var (
 	consoleLoginOpenBrowser               = util.OpenBrowser
@@ -284,20 +274,15 @@ func (cl *ConsoleLogin) deviceCodeAuthorize(
 		}
 	}
 
-	interval := time.Duration(authResp.Interval) * time.Second
-	if interval <= 0 {
-		interval = consoleDeviceCodeDefaultInterval
-	}
+	poll := newDeviceCodePollControl(authResp.Interval)
 	deadline := consoleDeviceAuthorizationCurrentTime().Add(time.Duration(authResp.ExpiresIn) * time.Second)
-
-	transientErrors := 0
 	for {
 		now := consoleDeviceAuthorizationCurrentTime()
 		if !now.Before(deadline) {
 			return nil, trErrorf("device authorization timed out; please run 've login --use-device-code' again")
 		}
 
-		wait := interval
+		wait := poll.interval
 		if remaining := deadline.Sub(now); wait > remaining {
 			wait = remaining
 		}
@@ -320,50 +305,10 @@ func (cl *ConsoleLogin) deviceCodeAuthorize(
 		if err == nil {
 			return tokenResp, nil
 		}
-
-		code, ok := consoleOAuthErrorCode(err)
-		if !ok {
-			// Non-structured failure (network blip, decode error, empty body).
-			// Keep polling within the valid window up to a small budget instead
-			// of aborting a login the user may still be completing.
-			transientErrors++
-			if transientErrors > consoleDeviceCodeMaxTransientErrors {
-				return nil, trErrorf("polling device authorization token: %w", err)
-			}
-			continue
-		}
-		switch code {
-		case "authorization_pending":
-			transientErrors = 0
-			continue
-		case "slow_down":
-			transientErrors = 0
-			interval += consoleDeviceCodeSlowDownIncrement
-			continue
-		case "access_denied":
-			return nil, trErrorf("device authorization was denied")
-		case "expired_token", "invalid_device_code":
-			return nil, trErrorf("device code is invalid or expired; please run 've login --use-device-code' again")
-		case "server_error", "temporarily_unavailable":
-			// Documented transient upstream failures (500 / 503); retry within
-			// the budget rather than aborting the whole device login.
-			transientErrors++
-			if transientErrors > consoleDeviceCodeMaxTransientErrors {
-				return nil, trErrorf("polling device authorization token: %w", err)
-			}
-			continue
-		default:
-			return nil, trErrorf("polling device authorization token: %w", err)
+		if pollErr := poll.handleTokenError(err); pollErr != nil {
+			return nil, pollErr
 		}
 	}
-}
-
-func consoleOAuthErrorCode(err error) (string, bool) {
-	var apiErr *ConsoleOAuthAPIError
-	if !errors.As(err, &apiErr) {
-		return "", false
-	}
-	return apiErr.Response.Error, apiErr.Response.Error != ""
 }
 
 func confirmLoginSessionReplacement(input io.Reader, output io.Writer, profileName, currentLoginSession, newLoginSession string) (bool, error) {
