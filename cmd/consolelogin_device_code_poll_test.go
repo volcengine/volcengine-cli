@@ -9,12 +9,13 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
 func TestDeviceCodeAuthorizeDoublesIntervalAfterHTTPTimeout(t *testing.T) {
-	var tokenAttempts int
+	var tokenAttempts int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case consoleDeviceAuthorizationPath:
@@ -26,8 +27,8 @@ func TestDeviceCodeAuthorizeDoublesIntervalAfterHTTPTimeout(t *testing.T) {
 				Interval:        5,
 			})
 		case consoleTokenPath:
-			tokenAttempts++
-			if tokenAttempts == 1 {
+			attempt := atomic.AddInt32(&tokenAttempts, 1)
+			if attempt == 1 {
 				// Sleep longer than the injected client timeout so Do()
 				// fails as a timeout. Do not block on r.Context(): some
 				// Client.Timeout paths leave that context open, and
@@ -73,8 +74,8 @@ func TestDeviceCodeAuthorizeDoublesIntervalAfterHTTPTimeout(t *testing.T) {
 	if resp.RefreshToken != "refresh-token" {
 		t.Fatalf("response = %+v", resp)
 	}
-	if tokenAttempts != 2 {
-		t.Fatalf("token attempts = %d, want 2", tokenAttempts)
+	if attempts := atomic.LoadInt32(&tokenAttempts); attempts != 2 {
+		t.Fatalf("token attempts = %d, want 2", attempts)
 	}
 	if len(waits) != 2 || waits[0] != 5*time.Second || waits[1] != 10*time.Second {
 		t.Fatalf("waits = %v, want [5s 10s]", waits)
