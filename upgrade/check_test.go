@@ -585,9 +585,8 @@ func TestSameLocalCalendarDay(t *testing.T) {
 
 func TestNoticeAlreadyClaimedToday(t *testing.T) {
 	now := time.Now()
-	y, m, d := now.In(time.Local).Date()
-	today := time.Date(y, m, d, 10, 0, 0, 0, time.Local).Unix()
-	yesterday := time.Date(y, m, d-1, 10, 0, 0, 0, time.Local).Unix()
+	today := now.Unix()
+	yesterday := now.AddDate(0, 0, -1).Unix()
 
 	if !noticeAlreadyClaimedToday(versionCheckCache{NoticedAt: today, NoticedCurrent: "1.0.50"}, "1.0.50", now) {
 		t.Fatal("same current same day should claim")
