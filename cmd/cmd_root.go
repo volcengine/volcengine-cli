@@ -73,21 +73,29 @@ func initRootCmd() {
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Fprintln(cmd.OutOrStdout(), clientVersion)
 		},
-	}, &cobra.Command{
-		Use: "enable-color",
-		Run: func(cmd *cobra.Command, args []string) {
-			config.EnableColor = true
-			WriteConfigToFile(config)
-		},
+	}, newColorCommand("enable-color", true), newColorCommand("disable-color", false))
+}
+
+func newColorCommand(use string, enabled bool) *cobra.Command {
+	return &cobra.Command{
+		Use:    use,
 		Hidden: true,
-	}, &cobra.Command{
-		Use: "disable-color",
-		Run: func(cmd *cobra.Command, args []string) {
-			config.EnableColor = false
-			WriteConfigToFile(config)
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg := runtimeConfig()
+			if cfg == nil {
+				cfg = &Configure{
+					Profiles:   make(map[string]*Profile),
+					SsoSession: make(map[string]*SsoSession),
+				}
+			}
+			cfg.EnableColor = enabled
+			if err := WriteConfigToFile(cfg); err != nil {
+				return err
+			}
+			setRuntimeConfig(cfg)
+			return nil
 		},
-		Hidden: true,
-	})
+	}
 }
 
 func Execute() {

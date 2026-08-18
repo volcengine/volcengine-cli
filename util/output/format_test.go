@@ -2,6 +2,7 @@ package output
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"strings"
@@ -254,6 +255,44 @@ func TestApplyQuery(t *testing.T) {
 func TestApplyQueryInvalid(t *testing.T) {
 	if _, err := ApplyQuery(map[string]interface{}{}, "[[["); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestApplyQuerySupportsJSONNumberOperationsWithoutLosingLargeIntegers(t *testing.T) {
+	data := map[string]interface{}{
+		"Small":     json.Number("42"),
+		"Large":     json.Number("9223372036854775807"),
+		"VeryLarge": json.Number("18446744073709551615"),
+		"Decimal":   json.Number("0.123456789012345678901"),
+		"Items":     []interface{}{json.Number("2"), json.Number("1")},
+	}
+	decimal, err := ApplyQuery(data, "Decimal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exact, ok := decimal.(json.Number); !ok || exact.String() != "0.123456789012345678901" {
+		t.Fatalf("Decimal = %#v, want exact json.Number", decimal)
+	}
+
+	got, err := ApplyQuery(data, "{Small:Small > `40`,Max:max(Items),Large:Large,VeryLarge:VeryLarge}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, ok := got.(map[string]interface{})
+	if !ok {
+		t.Fatalf("query result = %#v, want map", got)
+	}
+	if result["Small"] != true {
+		t.Fatalf("Small comparison = %#v, want true", result["Small"])
+	}
+	if result["Max"] != float64(2) {
+		t.Fatalf("Max = %#v, want 2", result["Max"])
+	}
+	if large, ok := result["Large"].(json.Number); !ok || large.String() != "9223372036854775807" {
+		t.Fatalf("Large = %#v, want exact json.Number", result["Large"])
+	}
+	if veryLarge, ok := result["VeryLarge"].(json.Number); !ok || veryLarge.String() != "18446744073709551615" {
+		t.Fatalf("VeryLarge = %#v, want exact json.Number", result["VeryLarge"])
 	}
 }
 

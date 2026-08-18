@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"github.com/volcengine/volcengine-go-sdk/volcengine/client/metadata"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/credentials"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/credentials/clicreds"
+	"github.com/volcengine/volcengine-go-sdk/volcengine/custom"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/defaults"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/endpoints"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/request"
@@ -273,7 +275,10 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 	config := volcengine.NewConfig().
 		WithRegion(region).
 		WithCredentials(creds).
-		WithDisableSSL(disableSSl)
+		WithDisableSSL(disableSSl).
+		WithForceJsonNumberDecode(func(context.Context, custom.RequestInfo) bool {
+			return true
+		})
 
 	// endpoint 应用规则与 classifyEndpoint / hasEffectiveFixedEndpoint 共用同一解释。
 	switch mode {
