@@ -57,8 +57,7 @@ func resolveAPIOutputPlan(c *Context) (apiOutputPlan, error) {
 // renderAPIOutput applies optional JMESPath --query then formats with --output.
 //
 // Pipeline: data → [--query] → [--output] → writer.
-// Colored JSON keeps the historical util.ShowJson(stdout) path when enableColor
-// is on and the destination is the process stdout (not an injected test writer).
+// Colored JSON uses the same writer and error handling as other formats.
 func renderAPIOutput(c *Context, cfg *Configure, data interface{}) error {
 	plan, err := resolveAPIOutputPlan(c)
 	if err != nil {
@@ -68,12 +67,16 @@ func renderAPIOutput(c *Context, cfg *Configure, data interface{}) error {
 }
 
 func (p apiOutputPlan) render(cfg *Configure, data interface{}) error {
+	if p.format == output.FormatOff {
+		return nil
+	}
+
 	result := data
 	if p.query != nil {
 		var err error
 		result, err = p.query.Search(data)
 		if err != nil {
-			return fmt.Errorf("--query evaluation failed: %v", err)
+			return fmt.Errorf("--query evaluation failed: %w", err)
 		}
 	}
 
@@ -82,9 +85,15 @@ func (p apiOutputPlan) render(cfg *Configure, data interface{}) error {
 		w = os.Stdout
 	}
 
-	if p.format == output.FormatJSON && cfg != nil && cfg.EnableColor && w == os.Stdout {
-		util.ShowJson(result, true)
-		return nil
+	if p.format == output.FormatJSON && cfg != nil && cfg.EnableColor {
+		return util.WriteJson(w, result, true)
 	}
 	return output.Write(w, p.format, result)
+}
+
+func renderSuccessfulAPIOutput(plan apiOutputPlan, cfg *Configure, data interface{}) error {
+	if err := plan.render(cfg, data); err != nil {
+		return fmt.Errorf("API call succeeded but response output failed: %w", err)
+	}
+	return nil
 }

@@ -38,25 +38,47 @@ func supportedFormatsMessage() string {
 	return "json, table, text, yaml, yaml-stream, off"
 }
 
+type checkedWriter struct {
+	io.Writer
+	err error
+}
+
+func (w *checkedWriter) Write(p []byte) (int, error) {
+	n, err := w.Writer.Write(p)
+	if n < len(p) && err == nil {
+		err = io.ErrShortWrite
+	}
+	if err != nil && w.err == nil {
+		w.err = err
+	}
+	return n, err
+}
+
 // Write formats data to w according to format.
 func Write(w io.Writer, format Format, data interface{}) error {
 	if w == nil {
 		return fmt.Errorf("output writer is nil")
 	}
+	writer := &checkedWriter{Writer: w}
+	var err error
 	switch format {
 	case FormatJSON:
-		return writeJSON(w, data)
+		err = writeJSON(writer, data)
 	case FormatTable:
-		return writeTable(w, data)
+		err = writeTable(writer, data)
 	case FormatText:
-		return writeText(w, data)
+		err = writeText(writer, data)
 	case FormatYAML:
-		return writeYAML(w, data)
+		err = writeYAML(writer, data)
 	case FormatYAMLStream:
-		return writeYAMLStream(w, data)
+		err = writeYAMLStream(writer, data)
 	case FormatOff:
 		return nil
 	default:
 		return fmt.Errorf("unsupported output format %q, supported: %s", format, supportedFormatsMessage())
 	}
+	if writer.err != nil {
+		return writer.err
+	}
+	return err
 }

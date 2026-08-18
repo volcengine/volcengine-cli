@@ -27,7 +27,7 @@ func CompileQuery(expr string) (*Query, error) {
 
 // Search evaluates a previously validated query.
 func (q *Query) Search(data interface{}) (interface{}, error) {
-	if q == nil {
+	if q == nil || q.compiled == nil {
 		return data, nil
 	}
 	return q.compiled.Search(data)

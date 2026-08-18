@@ -11,7 +11,7 @@ func writeJSON(w io.Writer, data interface{}) error {
 	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "    ")
 	if err := encoder.Encode(data); err != nil {
-		return fmt.Errorf("json encode: %v", err)
+		return fmt.Errorf("json encode: %w", err)
 	}
 	return nil
 }

@@ -262,7 +262,7 @@ func executeInvocation(ctx *Context, p invocationParams, buildInput func() (invo
 	}
 	debugLogSdkEnd(debugLog, start, nil)
 
-	return outputPlan.render(config, *out)
+	return renderSuccessfulAPIOutput(outputPlan, config, *out)
 }
 
 // resolveActionHTTPMethod 决定 HTTP 方法（正常路径与 force 共用）：元数据优先，显式 ---method 可覆盖。

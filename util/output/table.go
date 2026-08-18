@@ -129,24 +129,29 @@ func renderTable(w io.Writer, headers []string, rows [][]string) error {
 	}
 
 	border := tableBorder(widths)
-	var b strings.Builder
-	b.WriteString(border)
-	b.WriteByte('\n')
+	if err := writeTableLine(w, border); err != nil {
+		return err
+	}
 	if len(headers) > 0 {
 		h := make([]string, cols)
 		copy(h, headers)
-		b.WriteString(tableRow(h, widths))
-		b.WriteByte('\n')
-		b.WriteString(border)
-		b.WriteByte('\n')
+		if err := writeTableLine(w, tableRow(h, widths)); err != nil {
+			return err
+		}
+		if err := writeTableLine(w, border); err != nil {
+			return err
+		}
 	}
 	for _, r := range norm {
-		b.WriteString(tableRow(r, widths))
-		b.WriteByte('\n')
+		if err := writeTableLine(w, tableRow(r, widths)); err != nil {
+			return err
+		}
 	}
-	b.WriteString(border)
-	b.WriteByte('\n')
-	_, err := io.WriteString(w, b.String())
+	return writeTableLine(w, border)
+}
+
+func writeTableLine(w io.Writer, line string) error {
+	_, err := io.WriteString(w, line+"\n")
 	return err
 }
 

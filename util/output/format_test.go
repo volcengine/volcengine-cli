@@ -2,9 +2,26 @@ package output
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 )
+
+type shortWriter struct{}
+
+func (shortWriter) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	return 1, nil
+}
+
+type errorWriter struct{}
+
+func (errorWriter) Write([]byte) (int, error) {
+	return 0, errors.New("write failed")
+}
 
 func sampleEnvelope() map[string]interface{} {
 	return map[string]interface{}{
@@ -68,6 +85,24 @@ func TestWriteOff(t *testing.T) {
 	}
 	if buf.Len() != 0 {
 		t.Fatalf("off should write nothing, got %q", buf.String())
+	}
+}
+
+func TestWriteDetectsShortWrites(t *testing.T) {
+	for _, format := range []Format{FormatJSON, FormatTable, FormatText, FormatYAML, FormatYAMLStream} {
+		err := Write(shortWriter{}, format, map[string]interface{}{"A": "long value"})
+		if !errors.Is(err, io.ErrShortWrite) {
+			t.Fatalf("%s error = %v, want io.ErrShortWrite", format, err)
+		}
+	}
+}
+
+func TestWritePropagatesWriterErrors(t *testing.T) {
+	for _, format := range []Format{FormatJSON, FormatTable, FormatText, FormatYAML, FormatYAMLStream} {
+		err := Write(errorWriter{}, format, map[string]interface{}{"A": "long value"})
+		if err == nil || !strings.Contains(err.Error(), "write failed") {
+			t.Fatalf("%s error = %v, want write failure", format, err)
+		}
 	}
 }
 

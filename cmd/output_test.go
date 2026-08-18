@@ -2,13 +2,15 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 
 	"github.com/volcengine/volcengine-cli/util/output"
 )
 
-func withAPIOutputWriter(t *testing.T, w *bytes.Buffer) {
+func withAPIOutputWriter(t *testing.T, w io.Writer) {
 	t.Helper()
 	prev := apiOutputWriter
 	apiOutputWriter = w
@@ -141,6 +143,24 @@ func TestRenderAPIOutputOff(t *testing.T) {
 	}
 }
 
+func TestRenderAPIOutputOffSkipsQueryEvaluation(t *testing.T) {
+	var buf bytes.Buffer
+	withAPIOutputWriter(t, &buf)
+
+	c := &Context{fixedFlags: NewFlagSet(), dynamicFlags: NewFlagSet()}
+	outFlag, _ := c.fixedFlags.AddByName("output")
+	outFlag.SetValue("off")
+	qFlag, _ := c.fixedFlags.AddByName("query")
+	qFlag.SetValue("max(A)")
+	data := map[string]interface{}{"A": []interface{}{"not", "numbers"}}
+	if err := renderAPIOutput(c, nil, data); err != nil {
+		t.Fatalf("off output should skip query evaluation, got %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("off should be empty, got %q", buf.String())
+	}
+}
+
 func TestRenderAPIOutputInvalidQuery(t *testing.T) {
 	var buf bytes.Buffer
 	withAPIOutputWriter(t, &buf)
@@ -155,6 +175,40 @@ func TestRenderAPIOutputInvalidQuery(t *testing.T) {
 	if buf.Len() != 0 {
 		t.Fatalf("failed render must not write body: %q", buf.String())
 	}
+}
+
+func TestRenderAPIOutputColoredJSONUsesInjectedWriter(t *testing.T) {
+	var buf bytes.Buffer
+	withAPIOutputWriter(t, &buf)
+
+	c := &Context{fixedFlags: NewFlagSet(), dynamicFlags: NewFlagSet()}
+	if err := renderAPIOutput(c, &Configure{EnableColor: true}, map[string]interface{}{"A": "b"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "\x1b[") {
+		t.Fatalf("colored output missing ANSI sequence: %q", buf.String())
+	}
+}
+
+func TestRenderSuccessfulAPIOutputExplainsPostCallFailure(t *testing.T) {
+	writerErr := errors.New("write failed")
+	withAPIOutputWriter(t, writerFunc(func([]byte) (int, error) {
+		return 0, writerErr
+	}))
+
+	err := renderSuccessfulAPIOutput(apiOutputPlan{format: output.FormatJSON}, nil, map[string]interface{}{"A": "b"})
+	if !errors.Is(err, writerErr) {
+		t.Fatalf("error = %v, want wrapped writer error", err)
+	}
+	if !strings.Contains(err.Error(), "API call succeeded") {
+		t.Fatalf("error does not explain API success: %v", err)
+	}
+}
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) {
+	return f(p)
 }
 
 func TestOutputAndQueryAsSystemFlags(t *testing.T) {
