@@ -3,6 +3,7 @@ package cmd
 // Copyright 2022 Beijing Volcanoengine Technology Ltd.  All Rights Reserved.
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -102,6 +103,64 @@ func LoadConfig() *Configure {
 	return cfg
 }
 
+// readConfigFile loads config.json without creating or rewriting it.
+// Missing file returns (nil, nil). Existing invalid JSON returns an error so
+// callers cannot overwrite a corrupt-but-nonempty file with an empty config.
+func readConfigFile() (*Configure, error) {
+	configFileDir, err := configFileDirFunc()
+	if err != nil {
+		return nil, err
+	}
+	configFilePath := filepath.Join(configFileDir, ConfigFile)
+	fileContent, err := ioutil.ReadFile(configFilePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if len(bytes.TrimSpace(fileContent)) == 0 {
+		return &Configure{
+			Profiles:   make(map[string]*Profile),
+			SsoSession: make(map[string]*SsoSession),
+		}, nil
+	}
+	cfg := &Configure{}
+	if err := json.Unmarshal(fileContent, cfg); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", configFilePath, err)
+	}
+	return cfg, nil
+}
+
+func configForWrite() (*Configure, error) {
+	if cfg := runtimeConfig(); cfg != nil {
+		if cfg.Profiles == nil {
+			cfg.Profiles = make(map[string]*Profile)
+		}
+		if cfg.SsoSession == nil {
+			cfg.SsoSession = make(map[string]*SsoSession)
+		}
+		return cfg, nil
+	}
+	loaded, err := readConfigFile()
+	if err != nil {
+		return nil, err
+	}
+	if loaded == nil {
+		loaded = &Configure{
+			Profiles:   make(map[string]*Profile),
+			SsoSession: make(map[string]*SsoSession),
+		}
+	}
+	if loaded.Profiles == nil {
+		loaded.Profiles = make(map[string]*Profile)
+	}
+	if loaded.SsoSession == nil {
+		loaded.SsoSession = make(map[string]*SsoSession)
+	}
+	return loaded, nil
+}
+
 // runtimeConfig returns the in-memory config used by the current CLI process.
 // Prefer this over reloading from disk so command handlers operate on a single
 // config object during one invocation.
@@ -156,15 +215,15 @@ func WriteConfigToFile(config *Configure) error {
 	if _, err := tempFile.Write(data); err != nil {
 		return err
 	}
+	if err := tempFile.Sync(); err != nil {
+		return err
+	}
 	if err := tempFile.Close(); err != nil {
 		return err
 	}
 
 	if err := os.Rename(tempName, targetPath); err != nil {
-		_ = os.Remove(targetPath)
-		if err2 := os.Rename(tempName, targetPath); err2 != nil {
-			return err2
-		}
+		return err
 	}
 	_ = os.Chmod(targetPath, 0600)
 	return nil
@@ -201,14 +260,11 @@ func setConfigProfile(profile *Profile) error {
 	var (
 		exist          bool
 		currentProfile *Profile
-		cfg            *Configure
 	)
 
-	// 若配置为空则初始化基础结构。
-	if cfg = ctx.config; cfg == nil {
-		cfg = &Configure{
-			Profiles: make(map[string]*Profile),
-		}
+	cfg, err := configForWrite()
+	if err != nil {
+		return err
 	}
 	if cfg.Profiles == nil {
 		cfg.Profiles = make(map[string]*Profile)
@@ -353,11 +409,7 @@ func getConfigProfile(profileName string) error {
 		currentProfile = &Profile{}
 	}
 
-	if config == nil || !config.EnableColor {
-		util.ShowJson(currentProfile.ToMap(), false)
-	} else {
-		util.ShowJson(currentProfile.ToMap(), true)
-	}
+	util.ShowJson(currentProfile.ToMap(), shouldColorJSON(cfg, os.Stdout))
 	return nil
 }
 
@@ -374,7 +426,7 @@ func listConfigProfiles() error {
 
 	fmt.Printf(tr("*** current profile: %v ***\n"), ctx.config.Current)
 	for _, profile := range ctx.config.Profiles {
-		util.ShowJson(profile.ToMap(), config.EnableColor)
+		util.ShowJson(profile.ToMap(), shouldColorJSON(cfg, os.Stdout))
 	}
 	return nil
 }
@@ -457,12 +509,9 @@ func setSsoSession(session *SsoSession) error {
 		return err
 	}
 
-	// 若配置为空则初始化基础结构。
-	if cfg = ctx.config; cfg == nil {
-		cfg = &Configure{
-			Profiles:   make(map[string]*Profile),
-			SsoSession: make(map[string]*SsoSession),
-		}
+	cfg, err = configForWrite()
+	if err != nil {
+		return err
 	}
 
 	// 确保 SsoSession 映射已初始化。

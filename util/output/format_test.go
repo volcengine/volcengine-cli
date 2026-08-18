@@ -296,6 +296,152 @@ func TestApplyQuerySupportsJSONNumberOperationsWithoutLosingLargeIntegers(t *tes
 	}
 }
 
+func TestApplyQueryJSONNumberEqualityAndFilters(t *testing.T) {
+	account := json.Number("2106494982")
+	data := map[string]interface{}{
+		"Result": map[string]interface{}{
+			"AccountId": account,
+			"Items": []interface{}{
+				map[string]interface{}{"Id": "a", "Cpu": json.Number("8")},
+				map[string]interface{}{"Id": "b", "Cpu": json.Number("4")},
+			},
+		},
+	}
+
+	equal, err := ApplyQuery(data, "Result.AccountId == `2106494982`")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if equal != true {
+		t.Fatalf("AccountId == 2106494982 = %#v, want true", equal)
+	}
+
+	notEqual, err := ApplyQuery(data, "Result.AccountId != `2106494982`")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if notEqual != false {
+		t.Fatalf("AccountId != 2106494982 = %#v, want false", notEqual)
+	}
+
+	matched, err := ApplyQuery(data, "Result.Items[?Cpu == `8`].Id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, ok := matched.([]interface{})
+	if !ok || len(ids) != 1 || ids[0] != "a" {
+		t.Fatalf("Cpu == 8 filter = %#v, want [a]", matched)
+	}
+
+	others, err := ApplyQuery(data, "Result.Items[?Cpu != `8`].Id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherIDs, ok := others.([]interface{})
+	if !ok || len(otherIDs) != 1 || otherIDs[0] != "b" {
+		t.Fatalf("Cpu != 8 filter = %#v, want [b]", others)
+	}
+
+	gt, err := ApplyQuery(data, "Result.Items[?Cpu > `4`].Id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gtIDs, ok := gt.([]interface{})
+	if !ok || len(gtIDs) != 1 || gtIDs[0] != "a" {
+		t.Fatalf("Cpu > 4 filter = %#v, want [a]", gt)
+	}
+
+	projected, err := ApplyQuery(data, "Result.AccountId")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := projected.(float64); !ok || got != 2106494982 {
+		t.Fatalf("AccountId projection = %#v, want 2106494982", projected)
+	}
+}
+
+func TestApplyQueryLargeIntegerRelationalCompare(t *testing.T) {
+	data := map[string]interface{}{
+		"N":     json.Number("9223372036854775807"),
+		"Left":  json.Number("9007199254740993"),
+		"Right": json.Number("9007199254740992"),
+	}
+	gt, err := ApplyQuery(data, "N > `0`")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gt != true {
+		t.Fatalf("N > 0 = %#v, want true", gt)
+	}
+	// Distinct integers above 2^53 collapse to the same IEEE float.
+	collapsed, err := ApplyQuery(data, "Left == Right")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if collapsed != true {
+		t.Fatalf("IEEE collision Left == Right = %#v, want true", collapsed)
+	}
+}
+
+func TestRestoreExactNumbersRejectsDifferentFloat(t *testing.T) {
+	data := map[string]interface{}{"N": json.Number("2")}
+	got := restoreExactNumbersFromData(data, float64(1))
+	if got != float64(1) {
+		t.Fatalf("restore mismatched float = %#v, want 1", got)
+	}
+	got = restoreExactNumbersFromData(data, float64(2))
+	if got != float64(2) {
+		t.Fatalf("small int should stay float64, got %#v", got)
+	}
+	large := map[string]interface{}{"N": json.Number("9223372036854775807")}
+	got = restoreExactNumbersFromData(large, float64(9223372036854775807))
+	if number, ok := got.(json.Number); !ok || number.String() != "9223372036854775807" {
+		t.Fatalf("large int restore = %#v", got)
+	}
+}
+
+func TestApplyQueryDoesNotRewriteNumericLookingStrings(t *testing.T) {
+	data := map[string]interface{}{
+		"Code": json.Number("1"),
+		"Id":   "01",
+	}
+	got, err := ApplyQuery(data, "Id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "01" {
+		t.Fatalf("string Id rewritten: %#v", got)
+	}
+}
+
+func TestApplyQueryDoesNotRestoreComputedLengthOntoNumberDigits(t *testing.T) {
+	data := map[string]interface{}{
+		"Cpu":   json.Number("2.0"),
+		"Items": []interface{}{"a", "b"},
+	}
+	got, err := ApplyQuery(data, "length(Items)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != float64(2) {
+		t.Fatalf("length restored onto Cpu digits: %#v", got)
+	}
+}
+
+func TestWriteYAMLKeepsUint64MaxDigits(t *testing.T) {
+	data := map[string]interface{}{"N": json.Number("18446744073709551615")}
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatYAML, data); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "18446744073709551615") {
+		t.Fatalf("yaml lost uint64 digits: %s", buf.String())
+	}
+	if strings.Contains(buf.String(), "1.844") {
+		t.Fatalf("yaml used scientific float: %s", buf.String())
+	}
+}
+
 func TestQueryNullPath(t *testing.T) {
 	got, err := ApplyQuery(sampleEnvelope(), "Result.Missing")
 	if err != nil {

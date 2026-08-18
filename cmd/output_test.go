@@ -81,6 +81,30 @@ func TestExecuteInvocationRejectsInvalidOutputBeforeClientSetup(t *testing.T) {
 	}
 }
 
+func TestExecuteInvocationRejectsInvalidQueryWithOffBeforeClientSetup(t *testing.T) {
+	c := NewContext()
+	outFlag, _ := c.fixedFlags.AddByName("output")
+	outFlag.SetValue("off")
+	qFlag, _ := c.fixedFlags.AddByName("query")
+	qFlag.SetValue("[[[")
+	buildCalled := false
+	err := executeInvocation(c, invocationParams{
+		serviceName: "ecs",
+		action:      "DescribeInstances",
+		version:     "2020-04-01",
+		method:      "GET",
+	}, func() (invocationInput, error) {
+		buildCalled = true
+		return invocationInput{value: map[string]interface{}{}}, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "--query") {
+		t.Fatalf("expected query validation error, got %v", err)
+	}
+	if buildCalled {
+		t.Fatal("request input must not be built when output is off and query is invalid")
+	}
+}
+
 func TestExecuteInvocationRejectsInvalidQueryBeforeClientSetup(t *testing.T) {
 	c := NewContext()
 	qFlag, _ := c.fixedFlags.AddByName("query")
@@ -177,7 +201,55 @@ func TestRenderAPIOutputInvalidQuery(t *testing.T) {
 	}
 }
 
+func TestRenderAPIOutputColoredJSONAppliesQuery(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	var buf bytes.Buffer
+	withAPIOutputWriter(t, &buf)
+
+	c := &Context{fixedFlags: NewFlagSet(), dynamicFlags: NewFlagSet()}
+	qFlag, _ := c.fixedFlags.AddByName("query")
+	qFlag.SetValue("Result.Id")
+	data := map[string]interface{}{
+		"Result": map[string]interface{}{"Id": "i-1", "Extra": "nope"},
+	}
+	if err := renderAPIOutput(c, &Configure{EnableColor: true}, data); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "\x1b[") {
+		t.Fatalf("colored query output missing ANSI: %q", out)
+	}
+	if !strings.Contains(out, "i-1") || strings.Contains(out, "Extra") {
+		t.Fatalf("colored query did not project: %q", out)
+	}
+}
+
+func TestRenderAPIOutputQueryEvaluationFailure(t *testing.T) {
+	var buf bytes.Buffer
+	withAPIOutputWriter(t, &buf)
+	c := &Context{fixedFlags: NewFlagSet(), dynamicFlags: NewFlagSet()}
+	qFlag, _ := c.fixedFlags.AddByName("query")
+	qFlag.SetValue("max(Result)")
+	err := renderSuccessfulAPIOutput(mustPlan(t, c), nil, map[string]interface{}{"Result": map[string]interface{}{"A": 1}})
+	if err == nil || !strings.Contains(err.Error(), "API call succeeded") || !strings.Contains(err.Error(), "--query evaluation failed") {
+		t.Fatalf("expected post-call query error, got %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("failed query must not write body: %q", buf.String())
+	}
+}
+
+func mustPlan(t *testing.T, c *Context) apiOutputPlan {
+	t.Helper()
+	plan, err := resolveAPIOutputPlan(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return plan
+}
+
 func TestRenderAPIOutputColoredJSONUsesInjectedWriter(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
 	var buf bytes.Buffer
 	withAPIOutputWriter(t, &buf)
 

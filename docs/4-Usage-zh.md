@@ -330,7 +330,8 @@ ve ecs DescribeInstances \
 # 文本（Tab 分隔，便于 awk/grep）
 ve sts GetCallerIdentity --query 'Result.AccountId' --output text
 
-# 无 query 时 table/text 按顶层结构展示（map→Key/Value；不会自动展开 Result 内嵌列表）
+# 无 query 时 table/text 按顶层结构展示（不会自动展开 Result 内嵌列表）。
+# table 是 Key/Value；text 是一行按 key 排序后的值，不是 Key/Value。
 ve sts GetCallerIdentity --output table
 
 # YAML
@@ -343,11 +344,15 @@ ve ecs DescribeInstances --output off
 说明：
 
 - `enableColor` **仅**影响 `json`；`table` / `text` / `yaml` / `yaml-stream` / `off` 不着色。
-- **不要**依赖无 `--query` 的 table/text 去“猜”嵌套列表；嵌套资源请显式 `--query 'Result....'`。
+- **不要**依赖无 `--query` 的 `--output table` 或 `--output text` 去“猜”嵌套列表；嵌套资源请显式 `--query 'Result....'`。
 - `table` / `text` 会把换行、Tab 和终端控制字符显示为可见转义，避免响应内容破坏行列结构或触发终端控制序列。
 - 业务参数名与系统 flag 冲突时（如 `insight AgentChat` 的 `--query`），双横线优先业务参数；系统语义用 `---output` / `---query`。
 - `yaml-stream` 当前对单次响应流式写出一个 YAML document（尚无客户端分页多 document）。
-- 空列表：`table` 输出 `(empty)`；`text` 不输出行（便于脚本判断为空）。
+- 空列表：`table` 输出 `(empty)`；`text` 不输出行（便于脚本判断为空）。`--query` 命中缺失/null 时，table/text 输出 `None`。空对象 `{}` 不是空列表：table 只打 Key/Value 表头，text 同样没有数据行。
+- `--output off` 仍会发起 API 请求，但**不会**执行 `--query`，也不写 stdout；非法 JMESPath **语法**仍会在发请求前被拒绝。
+- 合法 `--query` 在求值阶段失败（例如对非数组做 `max()`）发生在 API 调用成功之后。进程退出 1，并提示 `API call succeeded but response output failed`。
+- API 失败（例如 HTTP 403）把错误打到 stderr，不走 `--output` / `--query`。
+- JMESPath 按 IEEE-754 浮点比较数字。字段投影保持精确位数。绝对值超过 `2^53` 的整数若落到同一个浮点值上，比较会视为相等。`--output yaml` / `yaml-stream` 把能放入 `int64`/`uint64` 的整数写成 YAML 数字；其余 JSON 数字（包括 `1.5`）写成精确数字字符串。
 
 ---
 

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -74,5 +75,36 @@ func TestColorCommandsInitializeEmptyConfig(t *testing.T) {
 	loaded = LoadConfig()
 	if loaded == nil || loaded.EnableColor {
 		t.Fatalf("persisted config = %#v, want enableColor=false", loaded)
+	}
+}
+
+func TestColorCommandsDoNotOverwriteCorruptConfig(t *testing.T) {
+	configDir := t.TempDir()
+	previousConfigDirFunc := configFileDirFunc
+	previousConfig := config
+	previousContextConfig := ctx.config
+	configFileDirFunc = func() (string, error) { return configDir, nil }
+	config = nil
+	ctx.config = nil
+	t.Cleanup(func() {
+		configFileDirFunc = previousConfigDirFunc
+		config = previousConfig
+		ctx.config = previousContextConfig
+	})
+
+	corrupt := []byte(`{"current":"default","profiles":{"default":{"secret-key":"REALSK"}`)
+	if err := os.WriteFile(filepath.Join(configDir, ConfigFile), corrupt, 0600); err != nil {
+		t.Fatal(err)
+	}
+	enable := newColorCommand("enable-color", true)
+	if err := enable.RunE(enable, nil); err == nil {
+		t.Fatal("expected parse error for corrupt config")
+	}
+	got, err := os.ReadFile(filepath.Join(configDir, ConfigFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(corrupt) {
+		t.Fatalf("corrupt config was rewritten: %s", got)
 	}
 }

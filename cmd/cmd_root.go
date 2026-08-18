@@ -81,12 +81,9 @@ func newColorCommand(use string, enabled bool) *cobra.Command {
 		Use:    use,
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg := runtimeConfig()
-			if cfg == nil {
-				cfg = &Configure{
-					Profiles:   make(map[string]*Profile),
-					SsoSession: make(map[string]*SsoSession),
-				}
+			cfg, err := configForWrite()
+			if err != nil {
+				return err
 			}
 			cfg.EnableColor = enabled
 			if err := WriteConfigToFile(cfg); err != nil {

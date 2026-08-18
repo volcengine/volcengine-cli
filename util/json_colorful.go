@@ -28,7 +28,7 @@ func WriteJson(w io.Writer, data interface{}, color bool) error {
 	}
 	content := buf.Bytes()
 	if color {
-		content = colorizeJSON(content)
+		content = ColorizeJSON(content)
 	}
 	n, err := w.Write(content)
 	if n < len(content) && err == nil {
@@ -37,7 +37,8 @@ func WriteJson(w io.Writer, data interface{}, color bool) error {
 	return err
 }
 
-func colorizeJSON(content []byte) []byte {
+// ColorizeJSON adds ANSI colors to already-encoded JSON tokens.
+func ColorizeJSON(content []byte) []byte {
 	var colored bytes.Buffer
 	for i := 0; i < len(content); {
 		switch {

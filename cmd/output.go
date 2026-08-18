@@ -57,6 +57,7 @@ func resolveAPIOutputPlan(c *Context) (apiOutputPlan, error) {
 // renderAPIOutput applies optional JMESPath --query then formats with --output.
 //
 // Pipeline: data → [--query] → [--output] → writer.
+// --output off skips query evaluation and writes nothing.
 // Colored JSON uses the same writer and error handling as other formats.
 func renderAPIOutput(c *Context, cfg *Configure, data interface{}) error {
 	plan, err := resolveAPIOutputPlan(c)
@@ -67,6 +68,7 @@ func renderAPIOutput(c *Context, cfg *Configure, data interface{}) error {
 }
 
 func (p apiOutputPlan) render(cfg *Configure, data interface{}) error {
+	// off: request already ran; skip query evaluation and stdout.
 	if p.format == output.FormatOff {
 		return nil
 	}
@@ -85,10 +87,36 @@ func (p apiOutputPlan) render(cfg *Configure, data interface{}) error {
 		w = os.Stdout
 	}
 
-	if p.format == output.FormatJSON && cfg != nil && cfg.EnableColor {
-		return util.WriteJson(w, result, true)
+	if p.format == output.FormatJSON && shouldColorJSON(cfg, w) {
+		content, err := output.EncodeJSON(result)
+		if err != nil {
+			return err
+		}
+		content = util.ColorizeJSON(content)
+		n, writeErr := w.Write(content)
+		if n < len(content) && writeErr == nil {
+			return io.ErrShortWrite
+		}
+		return writeErr
 	}
 	return output.Write(w, p.format, result)
+}
+
+func shouldColorJSON(cfg *Configure, w io.Writer) bool {
+	if cfg == nil || !cfg.EnableColor {
+		return false
+	}
+	if strings.TrimSpace(os.Getenv("NO_COLOR")) != "" {
+		return false
+	}
+	if w != os.Stdout {
+		return true
+	}
+	info, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
 }
 
 func renderSuccessfulAPIOutput(plan apiOutputPlan, cfg *Configure, data interface{}) error {

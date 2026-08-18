@@ -799,11 +799,9 @@ func (s *Sso) SetProfile() error {
 		s.Profile.Name = fmt.Sprintf("%s-%s", roleName, accountId)
 	}
 
-	cfg := ctx.config
-	if cfg == nil {
-		cfg = &Configure{
-			Profiles: make(map[string]*Profile),
-		}
+	cfg, err := configForWrite()
+	if err != nil {
+		return err
 	}
 
 	cfg.Profiles[s.Profile.Name] = s.Profile

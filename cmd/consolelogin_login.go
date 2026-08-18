@@ -58,13 +58,11 @@ func (cl *ConsoleLogin) Login() error {
 	}
 
 	// Load existing profile values from the in-memory runtime config first.
-	cfg := runtimeConfig()
-	if cfg == nil {
-		cfg = &Configure{
-			Profiles: make(map[string]*Profile),
-		}
-		setRuntimeConfig(cfg)
+	cfg, err := configForWrite()
+	if err != nil {
+		return err
 	}
+	setRuntimeConfig(cfg)
 	if cfg.Profiles == nil {
 		cfg.Profiles = make(map[string]*Profile)
 	}

@@ -255,17 +255,11 @@ func newConfigureSsoSessionCmd() *cobra.Command {
 		Use: "sso-session",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// 初始化配置对象与会话映射，保证后续读写安全。
-			cfg := ctx.config
-			if cfg == nil {
-				cfg = &Configure{
-					Profiles:   make(map[string]*Profile),
-					SsoSession: make(map[string]*SsoSession),
-				}
-				ctx.config = cfg
+			cfg, err := configForWrite()
+			if err != nil {
+				return err
 			}
-			if cfg.SsoSession == nil {
-				cfg.SsoSession = make(map[string]*SsoSession)
-			}
+			setRuntimeConfig(cfg)
 
 			// 确定要操作的会话名称；若未传参则进入交互式选择/创建流程。
 			var existingSession *SsoSession
@@ -300,7 +294,6 @@ func newConfigureSsoSessionCmd() *cobra.Command {
 			}
 			// 采集并规范化 scopes：支持参数输入或交互式输入，并去重校验。
 			var scopes []string
-			var err error
 			if len(ssoSessionFlags.RegistrationScopes) == 0 {
 				showDefault := existingSession == nil
 				scopes, err = promptForRegistrationScopesWithDefault(defaultScopes, showDefault)
@@ -456,20 +449,11 @@ func newConfigureSsoCmd() *cobra.Command {
 		Use: "sso",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// 加载并初始化配置，保证 profiles 与 sso-session 映射存在。
-			cfg := ctx.config
-			if cfg == nil {
-				cfg = &Configure{
-					Profiles:   make(map[string]*Profile),
-					SsoSession: make(map[string]*SsoSession),
-				}
-				ctx.config = cfg
+			cfg, err := configForWrite()
+			if err != nil {
+				return err
 			}
-			if cfg.Profiles == nil {
-				cfg.Profiles = make(map[string]*Profile)
-			}
-			if cfg.SsoSession == nil {
-				cfg.SsoSession = make(map[string]*SsoSession)
-			}
+			setRuntimeConfig(cfg)
 
 			// 读取 CLI 标志位，控制设备码流程与浏览器自动打开行为。
 			noBrowser, err := cmd.Flags().GetBool("no-browser")

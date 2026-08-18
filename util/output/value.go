@@ -1,6 +1,9 @@
 package output
 
+// Shared table/text helpers: scalar/cell rendering, key order, and list shape.
+
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -89,11 +92,13 @@ func compactJSON(v interface{}) string {
 	if v == nil {
 		return "null"
 	}
-	b, err := json.Marshal(v)
-	if err != nil {
+	buf := bytes.NewBuffer(nil)
+	encoder := json.NewEncoder(buf)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(v); err != nil {
 		return fmt.Sprint(v)
 	}
-	return string(b)
+	return strings.TrimSuffix(buf.String(), "\n")
 }
 
 func allMaps(rows []interface{}) bool {

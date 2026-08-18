@@ -214,8 +214,8 @@ func executeInvocation(ctx *Context, p invocationParams, buildInput func() (invo
 		return err
 	}
 	defer func() {
-		if closeErr := closeDebugLog(); err == nil && closeErr != nil {
-			err = closeErr
+		if closeErr := closeDebugLog(); closeErr != nil && err == nil {
+			err = fmt.Errorf("API call succeeded but debug log close failed: %w", closeErr)
 		}
 	}()
 
