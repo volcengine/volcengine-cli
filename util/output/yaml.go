@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 
 	"gopkg.in/yaml.v2"
@@ -36,10 +37,14 @@ func writeYAMLStream(w io.Writer, data interface{}) error {
 
 // yamlExactNumbers replaces json.Number with int64/uint64 when they fit, and
 // otherwise keeps the exact digit string so yaml.v2 cannot round via float64.
+// Exact integer float64 values (typical JMESPath projections) become int64 so
+// yaml.v2 does not emit scientific notation such as 2.106494982e+09.
 func yamlExactNumbers(data interface{}) interface{} {
 	switch value := data.(type) {
 	case json.Number:
 		return yamlNumberScalar(value)
+	case float64:
+		return yamlFloatScalar(value)
 	case map[string]interface{}:
 		normalized := make(map[string]interface{}, len(value))
 		for key, item := range value {
@@ -55,6 +60,23 @@ func yamlExactNumbers(data interface{}) interface{} {
 	default:
 		return data
 	}
+}
+
+func yamlFloatScalar(value float64) interface{} {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return value
+	}
+	integer := int64(value)
+	if float64(integer) == value {
+		return integer
+	}
+	if value >= 0 {
+		unsigned := uint64(value)
+		if float64(unsigned) == value {
+			return unsigned
+		}
+	}
+	return value
 }
 
 func yamlNumberScalar(number json.Number) interface{} {

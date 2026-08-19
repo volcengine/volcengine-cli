@@ -222,10 +222,25 @@ func WriteConfigToFile(config *Configure) error {
 		return err
 	}
 
-	if err := os.Rename(tempName, targetPath); err != nil {
+	if err := replaceFile(tempName, targetPath); err != nil {
 		return err
 	}
 	_ = os.Chmod(targetPath, 0600)
+	return nil
+}
+
+// replaceFile moves src onto dst. On Windows, os.Rename fails when dst already
+// exists, so delete dst and retry — same pattern as writeJSONFileAtomic.
+func replaceFile(src, dst string) error {
+	if err := os.Rename(src, dst); err != nil {
+		removeErr := os.Remove(dst)
+		if removeErr == nil || os.IsNotExist(removeErr) {
+			if err2 := os.Rename(src, dst); err2 == nil {
+				return nil
+			}
+		}
+		return err
+	}
 	return nil
 }
 

@@ -1282,6 +1282,34 @@ func TestConfigureSetHelpIncludesCredentialExamples(t *testing.T) {
 	}
 }
 
+func TestWriteConfigToFileOverwritesExisting(t *testing.T) {
+	_, cleanup := withTestConfigDir(t)
+	defer cleanup()
+
+	first := &Configure{
+		Current:     "one",
+		Profiles:    map[string]*Profile{},
+		SsoSession:  map[string]*SsoSession{},
+		EnableColor: true,
+	}
+	if err := WriteConfigToFile(first); err != nil {
+		t.Fatalf("first WriteConfigToFile: %v", err)
+	}
+	second := &Configure{
+		Current:     "two",
+		Profiles:    map[string]*Profile{},
+		SsoSession:  map[string]*SsoSession{},
+		EnableColor: false,
+	}
+	if err := WriteConfigToFile(second); err != nil {
+		t.Fatalf("overwrite WriteConfigToFile: %v", err)
+	}
+	loaded := LoadConfig()
+	if loaded == nil || loaded.Current != "two" || loaded.EnableColor {
+		t.Fatalf("loaded after overwrite = %#v, want current=two enableColor=false", loaded)
+	}
+}
+
 func TestConfigureSsoSessionHelpIncludesExample(t *testing.T) {
 	cmd := newConfigureSsoSessionCmd()
 	var b strings.Builder

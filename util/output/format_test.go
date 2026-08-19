@@ -428,6 +428,37 @@ func TestApplyQueryDoesNotRestoreComputedLengthOntoNumberDigits(t *testing.T) {
 	}
 }
 
+func TestWriteYAMLKeepsQueriedIntegerDigits(t *testing.T) {
+	data := map[string]interface{}{"AccountId": json.Number("2106494982")}
+	got, err := ApplyQuery(data, "AccountId")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, format := range []Format{FormatYAML, FormatYAMLStream} {
+		var buf bytes.Buffer
+		if err := Write(&buf, format, got); err != nil {
+			t.Fatalf("%s: %v", format, err)
+		}
+		out := buf.String()
+		if !strings.Contains(out, "2106494982") {
+			t.Fatalf("%s lost queried integer digits: %q", format, out)
+		}
+		if strings.Contains(out, "e+") || strings.Contains(out, "E+") {
+			t.Fatalf("%s used scientific notation: %q", format, out)
+		}
+	}
+}
+
+func TestWriteYAMLKeepsNonIntegerFloat(t *testing.T) {
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatYAML, map[string]interface{}{"Ratio": 1.5}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "1.5") {
+		t.Fatalf("yaml dropped non-integer float: %s", buf.String())
+	}
+}
+
 func TestWriteYAMLKeepsUint64MaxDigits(t *testing.T) {
 	data := map[string]interface{}{"N": json.Number("18446744073709551615")}
 	var buf bytes.Buffer
