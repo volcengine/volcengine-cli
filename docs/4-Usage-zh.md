@@ -10,7 +10,7 @@ CLI 的基本调用格式：
 ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
                       [--profile name] [--region region] [--endpoint endpoint] [--lang language]
                       [--version api-version] [--method GET|POST] [--force]
-                      [--output json|table|text|yaml|yaml-stream|off] [--query jmespath]
+                      [--output json|table|text|yaml|off] [--query jmespath]
 ```
 
 参数分几类：
@@ -99,7 +99,7 @@ ve rds_mysql ListDBInstanceIPLists --InstanceId mysql-xxxxxx --GroupName default
 | `--version` | 指定本次调用的 **API 版本**；未指定时使用内置元数据中的 service 版本（与根命令 `ve -v` / `ve --version` / `ve version` 的 CLI 二进制版本无关） |
 | `--force` | 跳过 service/action 元数据校验，强制调用未收录或新发布的接口；**未收录 service** 须提供 `--version` 与固定 endpoint（`--endpoint` 或非 standard 下的 profile/`VOLCENGINE_ENDPOINT`）；已收录 service 可回落元数据。纯开关：只写 `--force`，不要写 `--force true` |
 | `--method` | 指定 HTTP 方法（`GET`/`POST`）；正常路径与 `--force` 路径规则一致：显式值优先，否则用 action 元数据，均无则默认 `GET` |
-| `--output` | 设置 API 响应输出格式：`json`（默认）、`table`、`text`、`yaml`、`yaml-stream`、`off` |
+| `--output` | 设置 API 响应输出格式：`json`（默认）、`table`、`text`、`yaml`、`off` |
 | `--query` | JMESPath 表达式，在格式化前过滤/投影完整响应 JSON（含 `ResponseMetadata` 与 `Result`） |
 
 Action 后如果当前 Action 暴露了大小写完全相同的参数，双横线形式优先按 API 业务参数解析；没有同名冲突时按系统参数解析。
@@ -316,10 +316,10 @@ API 调用成功后，CLI 默认将**完整响应 JSON**（通常含 `ResponseMe
 
 | 参数 | 说明 |
 |------|------|
-| `--output` | 输出格式：`json`（默认）、`table`、`text`、`yaml`、`yaml-stream`、`off` |
+| `--output` | 输出格式：`json`（默认）、`table`、`text`、`yaml`、`off` |
 | `--query` | JMESPath 表达式，在格式化**之前**过滤/投影；路径相对完整响应，列表字段多在 `Result.*` 下 |
 
-处理顺序：`原始响应 → [--query] → [--output] → stdout`（管道顺序参考 AWS CLI；字段路径按火山引擎响应 envelope）。
+处理顺序：`原始响应 → [--query] → [--output] → stdout`（先过滤再格式化；字段路径按火山引擎响应 envelope）。
 
 ```shell
 # 先投影再表格（推荐；列由 query 决定，适合列表接口）
@@ -343,16 +343,15 @@ ve ecs DescribeInstances --output off
 
 说明：
 
-- `enableColor` **仅**影响 `json`；`table` / `text` / `yaml` / `yaml-stream` / `off` 不着色。
+- `enableColor` **仅**影响 `json`；`table` / `text` / `yaml` / `off` 不着色。
 - **不要**依赖无 `--query` 的 `--output table` 或 `--output text` 去“猜”嵌套列表；嵌套资源请显式 `--query 'Result....'`。
 - `table` / `text` 会把换行、Tab 和终端控制字符显示为可见转义，避免响应内容破坏行列结构或触发终端控制序列。
 - 业务参数名与系统 flag 冲突时（如 `insight AgentChat` 的 `--query`），双横线优先业务参数；系统语义用 `---output` / `---query`。
-- `yaml-stream` 当前对单次响应流式写出一个 YAML document（尚无客户端分页多 document）。
 - 空列表：`table` 输出 `(empty)`；`text` 不输出行（便于脚本判断为空）。`--query` 命中缺失/null 时，table/text 输出 `None`。空对象 `{}` 不是空列表：table 只打 Key/Value 表头，text 同样没有数据行。
 - `--output off` 仍会发起 API 请求，但**不会**执行 `--query`，也不写 stdout；非法 JMESPath **语法**仍会在发请求前被拒绝。
 - 合法 `--query` 在求值阶段失败（例如对非数组做 `max()`）发生在 API 调用成功之后。进程退出 1，并提示 `API call succeeded but response output failed`。
 - API 失败（例如 HTTP 403）把错误打到 stderr，不走 `--output` / `--query`。
-- JMESPath 按 IEEE-754 浮点比较数字。字段投影保持精确位数。绝对值超过 `2^53` 的整数若落到同一个浮点值上，比较会视为相等。`--output yaml` / `yaml-stream` 把能放入 `int64`/`uint64` 的整数写成 YAML 数字；其余 JSON 数字（包括 `1.5`）写成精确数字字符串。
+- JMESPath 按 IEEE-754 浮点比较数字。字段投影保持精确位数。绝对值超过 `2^53` 的整数若落到同一个浮点值上，比较会视为相等。`--output yaml` 把能放入 `int64`/`uint64` 的整数写成 YAML 数字；其余 JSON 数字（包括 `1.5`）写成精确数字字符串。YAML 对象的 key 按字母序输出（与 json/table 一致）。
 
 ---
 

@@ -122,7 +122,7 @@ ve enable-color
 ve disable-color
 ```
 
-这两个命令会修改配置文件中的 `enableColor`。彩色输出影响 `ve configure get`、`ve configure list` 以及 API 在 **`--output json`（默认）** 时的响应展示，不改变响应内容。`table` / `text` / `yaml` / `yaml-stream` / `off` 均不着色。过滤与多格式输出见 [使用指南](4-Usage-zh.md#过滤与输出格式)（列表类接口请用 `--query 'Result....'`，不会自动展开嵌套列表）。
+这两个命令会修改配置文件中的 `enableColor`。彩色输出影响 `ve configure get`、`ve configure list` 以及 API 在 **`--output json`（默认）** 时的响应展示，不改变响应内容。`table` / `text` / `yaml` / `off` 均不着色。过滤与多格式输出见 [使用指南](4-Usage-zh.md#过滤与输出格式)（列表类接口请用 `--query 'Result....'`，不会自动展开嵌套列表）。
 
 ## Debug 日志
 

@@ -119,7 +119,7 @@ func localizedSystemFlagsHelp() string {
   --version string     ` + tr("API version; uses metadata when omitted (required with --force for unlisted services).") + `
   --method string      ` + tr("HTTP method GET or POST; explicit value overrides metadata, else metadata, else GET.") + `
   --force              ` + tr("Skip service/action metadata validation and force the call (presence-only; write --force alone, not --force true).") + `
-  --output string      ` + tr("Set response output format (json|table|text|yaml|yaml-stream|off). Default: json. off still calls the API but skips --query evaluation.") + `
+  --output string      ` + tr("Set response output format (json|table|text|yaml|off). Default: json. off still calls the API but skips --query evaluation.") + `
   --query string       ` + tr("JMESPath expression to filter/project the full response (paths usually start at Result.*) before formatting.") + `
 
 ` + tr("Reserved double-dash controls (not API parameters):") + `

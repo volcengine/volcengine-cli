@@ -1,4 +1,4 @@
-// Package output formats API responses for the CLI (AWS-inspired).
+// Package output formats API responses for the CLI.
 package output
 
 import (
@@ -11,12 +11,11 @@ import (
 type Format string
 
 const (
-	FormatJSON       Format = "json"
-	FormatTable      Format = "table"
-	FormatText       Format = "text"
-	FormatYAML       Format = "yaml"
-	FormatYAMLStream Format = "yaml-stream"
-	FormatOff        Format = "off"
+	FormatJSON  Format = "json"
+	FormatTable Format = "table"
+	FormatText  Format = "text"
+	FormatYAML  Format = "yaml"
+	FormatOff   Format = "off"
 )
 
 // ParseFormat normalizes and validates an --output value.
@@ -27,7 +26,7 @@ func ParseFormat(s string) (Format, error) {
 		return FormatJSON, nil
 	}
 	switch Format(s) {
-	case FormatJSON, FormatTable, FormatText, FormatYAML, FormatYAMLStream, FormatOff:
+	case FormatJSON, FormatTable, FormatText, FormatYAML, FormatOff:
 		return Format(s), nil
 	default:
 		return "", fmt.Errorf("unsupported output format %q, supported: %s", s, supportedFormatsMessage())
@@ -35,7 +34,7 @@ func ParseFormat(s string) (Format, error) {
 }
 
 func supportedFormatsMessage() string {
-	return "json, table, text, yaml, yaml-stream, off"
+	return "json, table, text, yaml, off"
 }
 
 type checkedWriter struct {
@@ -70,8 +69,6 @@ func Write(w io.Writer, format Format, data interface{}) error {
 		err = writeText(writer, data)
 	case FormatYAML:
 		err = writeYAML(writer, data)
-	case FormatYAMLStream:
-		err = writeYAMLStream(writer, data)
 	case FormatOff:
 		return nil
 	default:

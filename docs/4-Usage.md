@@ -10,7 +10,7 @@ Basic command format:
 ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
                       [--profile name] [--region region] [--endpoint endpoint] [--lang language]
                       [--version api-version] [--method GET|POST] [--force]
-                      [--output json|table|text|yaml|yaml-stream|off] [--query jmespath]
+                      [--output json|table|text|yaml|off] [--query jmespath]
 ```
 
 Argument kinds:
@@ -99,7 +99,7 @@ Public system flags use the standard double-hyphen form:
 | `--version` | Set the **API version** for this call; if omitted, uses the bundled service version (not the CLI binary version from root `ve -v` / `ve --version` / `ve version`) |
 | `--force` | Skip service/action metadata validation and force-call unlisted or newly released APIs; **unlisted services** require `--version` and a fixed endpoint (`--endpoint` or profile/`VOLCENGINE_ENDPOINT` when resolver is not `standard`); bundled services can fall back to metadata. Presence-only: write `--force` alone, not `--force true` |
 | `--method` | HTTP method (`GET`/`POST`); same rules on normal and `--force` paths: explicit value wins, else action metadata, else `GET` |
-| `--output` | API response format: `json` (default), `table`, `text`, `yaml`, `yaml-stream`, `off` |
+| `--output` | API response format: `json` (default), `table`, `text`, `yaml`, `off` |
 | `--query` | JMESPath expression to filter/project the full response JSON (including `ResponseMetadata` and `Result`) before formatting |
 
 After the action, a double-dash flag whose exact case-sensitive name is exposed by that action is parsed as an API parameter. Without such a conflict, it is parsed as a system flag.
@@ -317,10 +317,10 @@ After a successful API call, the CLI prints the **full response JSON** (typicall
 
 | Flag | Description |
 |------|-------------|
-| `--output` | Format: `json` (default), `table`, `text`, `yaml`, `yaml-stream`, `off` |
+| `--output` | Format: `json` (default), `table`, `text`, `yaml`, `off` |
 | `--query` | JMESPath applied **before** formatting; paths are relative to the full response (list data is usually under `Result.*`) |
 
-Pipeline: `raw response → [--query] → [--output] → stdout` (AWS-like ordering; Volcengine envelope field paths).
+Pipeline: `raw response → [--query] → [--output] → stdout` (query before format; Volcengine envelope field paths).
 
 ```shell
 # Project then table (recommended for list APIs; columns come from --query)
@@ -344,16 +344,15 @@ ve ecs DescribeInstances --output off
 
 Notes:
 
-- `enableColor` affects **json** only; `table` / `text` / `yaml` / `yaml-stream` / `off` are uncolored.
+- `enableColor` affects **json** only; `table` / `text` / `yaml` / `off` are uncolored.
 - Do **not** rely on bare `--output table` or `--output text` to guess nested lists; use explicit `--query 'Result....'`.
 - `table` / `text` render newlines, tabs, and terminal control characters as visible escapes so response data cannot break row/column boundaries or inject terminal controls.
 - On name conflicts (e.g. `insight AgentChat` `--query`), double-dash prefers the API parameter; use `---output` / `---query` for system routing.
-- `yaml-stream` currently streams a single YAML document per response (no client multi-page documents yet).
 - Empty lists: `table` prints `(empty)`; `text` prints no lines (easy empty check in scripts). A missing/null `--query` path prints `None` in table/text. An empty object `{}` is not an empty list: table prints Key/Value headers only; text prints no lines.
 - `--output off` still sends the API request. It does not evaluate `--query` and does not write stdout; invalid JMESPath syntax is still rejected before the call.
 - A valid `--query` that fails at evaluation time (for example `max()` on a non-array) runs after the API call. The process exits 1 with `API call succeeded but response output failed`.
 - API failures (for example HTTP 403) print the error on stderr and do not go through `--output` / `--query`.
-- JMESPath compares numbers as IEEE-754 floats. Integers stay exact when projected. Values with magnitude above `2^53` can compare equal to a neighbor if they share the same float. `--output yaml` / `yaml-stream` emit `int64`/`uint64` as YAML numbers; any other JSON number (including `1.5`) is the exact digit string.
+- JMESPath compares numbers as IEEE-754 floats. Integers stay exact when projected. Values with magnitude above `2^53` can compare equal to a neighbor if they share the same float. `--output yaml` emits `int64`/`uint64` as YAML numbers; any other JSON number (including `1.5`) is the exact digit string. YAML object keys are sorted (same as json/table).
 
 ---
 

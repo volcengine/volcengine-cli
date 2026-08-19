@@ -11,7 +11,7 @@ import (
 )
 
 func writeYAML(w io.Writer, data interface{}) error {
-	b, err := yaml.Marshal(yamlExactNumbers(data))
+	b, err := yaml.Marshal(prepareYAML(data))
 	if err != nil {
 		return fmt.Errorf("yaml encode: %w", err)
 	}
@@ -21,45 +21,45 @@ func writeYAML(w io.Writer, data interface{}) error {
 	return nil
 }
 
-// writeYAMLStream encodes with a streaming YAML encoder (single document today).
-// Encoder is always closed so the stream is fully flushed.
-func writeYAMLStream(w io.Writer, data interface{}) error {
-	enc := yaml.NewEncoder(w)
-	if err := enc.Encode(yamlExactNumbers(data)); err != nil {
-		_ = enc.Close()
-		return fmt.Errorf("yaml-stream encode: %w", err)
-	}
-	if err := enc.Close(); err != nil {
-		return fmt.Errorf("yaml-stream close: %w", err)
-	}
-	return nil
-}
-
-// yamlExactNumbers replaces json.Number with int64/uint64 when they fit, and
-// otherwise keeps the exact digit string so yaml.v2 cannot round via float64.
-// Exact integer float64 values (typical JMESPath projections) become int64 so
-// yaml.v2 does not emit scientific notation such as 2.106494982e+09.
-func yamlExactNumbers(data interface{}) interface{} {
+// prepareYAML converts data for yaml.v2:
+//   - json.Number / exact integer float64 become int64/uint64 when they fit,
+//     otherwise the exact digit string, so yaml.v2 cannot round via float64
+//     or emit scientific notation such as 2.106494982e+09
+//   - maps become yaml.MapSlice with sorted keys so object key order is
+//     stable; list order is unchanged
+//   - typed nil maps/slices stay nil (YAML null), distinct from {} and []
+func prepareYAML(data interface{}) interface{} {
 	switch value := data.(type) {
 	case json.Number:
 		return yamlNumberScalar(value)
 	case float64:
 		return yamlFloatScalar(value)
 	case map[string]interface{}:
-		normalized := make(map[string]interface{}, len(value))
-		for key, item := range value {
-			normalized[key] = yamlExactNumbers(item)
+		if value == nil {
+			return nil
 		}
-		return normalized
+		return yamlSortedMapping(value)
 	case []interface{}:
+		if value == nil {
+			return nil
+		}
 		normalized := make([]interface{}, len(value))
 		for index, item := range value {
-			normalized[index] = yamlExactNumbers(item)
+			normalized[index] = prepareYAML(item)
 		}
 		return normalized
 	default:
 		return data
 	}
+}
+
+func yamlSortedMapping(value map[string]interface{}) yaml.MapSlice {
+	keys := sortedMapKeys(value)
+	items := make(yaml.MapSlice, len(keys))
+	for i, key := range keys {
+		items[i] = yaml.MapItem{Key: key, Value: prepareYAML(value[key])}
+	}
+	return items
 }
 
 func yamlFloatScalar(value float64) interface{} {

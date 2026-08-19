@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// writeText emits tab-separated values (AWS-inspired).
+// writeText emits tab-separated values.
 //
 // Shape rules match table (no nested auto-unwrap — use --query for nested lists):
 //   - []map           → one TSV row per object (sorted columns; missing → None)

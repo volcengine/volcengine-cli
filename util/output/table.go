@@ -7,7 +7,7 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
-// writeTable emits an ASCII table (AWS-inspired, practical subset).
+// writeTable emits an ASCII table (practical subset).
 //
 // Shape rules (no nested auto-unwrap — use --query for Result.Instances etc.):
 //   - []map           → multi-column object table

@@ -48,7 +48,7 @@ func TestParseFormat(t *testing.T) {
 		{"table", FormatTable, false},
 		{"text", FormatText, false},
 		{"yaml", FormatYAML, false},
-		{"yaml-stream", FormatYAMLStream, false},
+		{"yaml-stream", "", true},
 		{"off", FormatOff, false},
 		{"xml", "", true},
 	}
@@ -90,7 +90,7 @@ func TestWriteOff(t *testing.T) {
 }
 
 func TestWriteDetectsShortWrites(t *testing.T) {
-	for _, format := range []Format{FormatJSON, FormatTable, FormatText, FormatYAML, FormatYAMLStream} {
+	for _, format := range []Format{FormatJSON, FormatTable, FormatText, FormatYAML} {
 		err := Write(shortWriter{}, format, map[string]interface{}{"A": "long value"})
 		if !errors.Is(err, io.ErrShortWrite) {
 			t.Fatalf("%s error = %v, want io.ErrShortWrite", format, err)
@@ -99,7 +99,7 @@ func TestWriteDetectsShortWrites(t *testing.T) {
 }
 
 func TestWritePropagatesWriterErrors(t *testing.T) {
-	for _, format := range []Format{FormatJSON, FormatTable, FormatText, FormatYAML, FormatYAMLStream} {
+	for _, format := range []Format{FormatJSON, FormatTable, FormatText, FormatYAML} {
 		err := Write(errorWriter{}, format, map[string]interface{}{"A": "long value"})
 		if err == nil || !strings.Contains(err.Error(), "write failed") {
 			t.Fatalf("%s error = %v, want write failure", format, err)
@@ -228,16 +228,117 @@ func TestTableAlignsWideCharacters(t *testing.T) {
 	}
 }
 
-func TestWriteYAMLAndStream(t *testing.T) {
+func TestWriteYAML(t *testing.T) {
 	data := map[string]interface{}{"AccountId": "123"}
-	for _, f := range []Format{FormatYAML, FormatYAMLStream} {
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatYAML, data); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "AccountId:") {
+		t.Fatalf("yaml unexpected: %s", buf.String())
+	}
+}
+
+func TestWriteYAMLSortsObjectKeys(t *testing.T) {
+	data := map[string]interface{}{
+		"Zed":   "z",
+		"Alpha": "a",
+		"Nested": map[string]interface{}{
+			"b": json.Number("1"),
+			"a": json.Number("2"),
+		},
+		"List": []interface{}{
+			map[string]interface{}{"Id": "i-2", "Arn": "arn-2"},
+			map[string]interface{}{"Id": "i-1", "Arn": "arn-1"},
+		},
+	}
+	want := `Alpha: a
+List:
+- Arn: arn-2
+  Id: i-2
+- Arn: arn-1
+  Id: i-1
+Nested:
+  a: 2
+  b: 1
+Zed: z
+`
+
+	for i := 0; i < 32; i++ {
 		var buf bytes.Buffer
-		if err := Write(&buf, f, data); err != nil {
-			t.Fatalf("%s: %v", f, err)
+		if err := Write(&buf, FormatYAML, data); err != nil {
+			t.Fatal(err)
 		}
-		if !strings.Contains(buf.String(), "AccountId:") {
-			t.Fatalf("%s unexpected: %s", f, buf.String())
+		if got := buf.String(); got != want {
+			t.Fatalf("run %d yaml =\n%q\nwant\n%q", i+1, got, want)
 		}
+	}
+}
+
+func TestWriteYAMLEmptyObject(t *testing.T) {
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatYAML, map[string]interface{}{}); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != "{}\n" {
+		t.Fatalf("empty object yaml = %q, want {}\\n", buf.String())
+	}
+}
+
+func TestWriteYAMLEmptySlice(t *testing.T) {
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatYAML, []interface{}{}); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != "[]\n" {
+		t.Fatalf("empty slice yaml = %q, want []\\n", buf.String())
+	}
+}
+
+func TestWriteYAMLNull(t *testing.T) {
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatYAML, nil); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != "null\n" {
+		t.Fatalf("nil yaml = %q, want null\\n", buf.String())
+	}
+}
+
+func TestWriteYAMLNilMapIsNull(t *testing.T) {
+	var m map[string]interface{}
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatYAML, m); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != "null\n" {
+		t.Fatalf("nil map yaml = %q, want null\\n", buf.String())
+	}
+}
+
+func TestWriteYAMLNilSliceIsNull(t *testing.T) {
+	var s []interface{}
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatYAML, s); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != "null\n" {
+		t.Fatalf("nil slice yaml = %q, want null\\n", buf.String())
+	}
+}
+
+func TestWriteYAMLSortsQueriedObjectKeys(t *testing.T) {
+	data := map[string]interface{}{"Z": "z", "A": "a"}
+	got, err := ApplyQuery(data, "{Zed:Z,Alpha:A}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatYAML, got); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != "Alpha: a\nZed: z\n" {
+		t.Fatalf("queried yaml = %q", buf.String())
 	}
 }
 
@@ -434,18 +535,16 @@ func TestWriteYAMLKeepsQueriedIntegerDigits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, format := range []Format{FormatYAML, FormatYAMLStream} {
-		var buf bytes.Buffer
-		if err := Write(&buf, format, got); err != nil {
-			t.Fatalf("%s: %v", format, err)
-		}
-		out := buf.String()
-		if !strings.Contains(out, "2106494982") {
-			t.Fatalf("%s lost queried integer digits: %q", format, out)
-		}
-		if strings.Contains(out, "e+") || strings.Contains(out, "E+") {
-			t.Fatalf("%s used scientific notation: %q", format, out)
-		}
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatYAML, got); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "2106494982") {
+		t.Fatalf("yaml lost queried integer digits: %q", out)
+	}
+	if strings.Contains(out, "e+") || strings.Contains(out, "E+") {
+		t.Fatalf("yaml used scientific notation: %q", out)
 	}
 }
 
