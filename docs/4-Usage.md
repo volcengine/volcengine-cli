@@ -323,9 +323,13 @@ After a successful API call, the CLI prints the **full response JSON** (typicall
 Pipeline: `raw response → [--query] → [--output] → stdout` (query before format; Volcengine envelope field paths).
 
 ```shell
-# Project then table (recommended for list APIs; columns come from --query)
+# Project then table (recommended for list APIs; use --query to pick the fields)
+# Note: table/text columns are sorted alphabetically by field name, not by the
+# order written in the multi-select hash. The hash below is Name, Id, Status;
+# actual columns are Id, Name, Status. Scripts should address columns by name,
+# not by position.
 ve ecs DescribeInstances \
-  --query 'Result.Instances[*].{Id:InstanceId,Status:Status}' \
+  --query 'Result.Instances[*].{Name:InstanceName,Id:InstanceId,Status:Status}' \
   --output table
 
 # Tab-separated text for awk/grep
@@ -349,10 +353,11 @@ Notes:
 - `table` / `text` render newlines, tabs, and terminal control characters as visible escapes so response data cannot break row/column boundaries or inject terminal controls.
 - On name conflicts (e.g. `insight AgentChat` `--query`), double-dash prefers the API parameter; use `---output` / `---query` for system routing.
 - Empty lists: `table` prints `(empty)`; `text` prints no lines (easy empty check in scripts). A missing/null `--query` path prints `None` in table/text. An empty object `{}` is not an empty list: table prints Key/Value headers only; text prints no lines.
+- `text` output is not type-distinguishing: an empty list `[]` and an empty object `{}` both print no lines; a missing/null `--query` path prints `None`; the literal string `None` is also rendered as `None`. Use `--output json` when you need unambiguous type or emptiness checks.
 - `--output off` still sends the API request. It does not evaluate `--query` and does not write stdout; invalid JMESPath syntax is still rejected before the call.
 - A valid `--query` that fails at evaluation time (for example `max()` on a non-array) runs after the API call. The process exits 1 with `API call succeeded but response output failed`.
 - API failures (for example HTTP 403) print the error on stderr and do not go through `--output` / `--query`.
-- JMESPath compares numbers as IEEE-754 floats. Integers stay exact when projected. Values with magnitude above `2^53` can compare equal to a neighbor if they share the same float. `--output yaml` emits `int64`/`uint64` as YAML numbers; any other JSON number (including `1.5`) is the exact digit string. YAML object keys are sorted (same as json/table).
+- JMESPath compares and computes numbers as IEEE-754 floats. Without `--query`, original response numbers are printed exactly. With `--query`, integers with magnitude above `2^53` may collapse to a neighbor when two distinct integers share the same float, and integers beyond `int64`/`uint64` range may lose low-order digits. Do not apply `--query` to fields that must stay bit-exact. `--output yaml` emits `int64`/`uint64` and decimals whose shortest `float64` representation exactly matches the response spelling as YAML numbers; other non-integer JSON numbers keep the original spelling as strings to avoid silently rounding digits. YAML object keys are sorted (same as json/table).
 
 ---
 

@@ -558,6 +558,45 @@ func TestWriteYAMLKeepsNonIntegerFloat(t *testing.T) {
 	}
 }
 
+// TestWriteYAMLJSONNumberDecimalsAreNumbers covers the production path:
+// cmd/sdk_client.go enables WithForceJsonNumberDecode, so every response
+// number is a json.Number. Non-integer json.Number values must still render
+// as real YAML numbers, not quoted strings, or downstream YAML consumers
+// (yq, k8s, etc.) lose numeric typing.
+func TestWriteYAMLJSONNumberDecimalsAreNumbers(t *testing.T) {
+	data := map[string]interface{}{
+		"Ratio": json.Number("0.1"),
+		"Half":  json.Number("1.5"),
+	}
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatYAML, data); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	// Production json.Number decimals must remain real YAML numbers rather than
+	// quoted strings. Compare deterministic output to catch quoting or key loss.
+	want := "Half: 1.5\nRatio: 0.1\n"
+	if out != want {
+		t.Fatalf("json.Number decimal yaml = %q, want %q", out, want)
+	}
+}
+
+// TestWriteYAMLJSONNumberLongDecimalStaysQuoted is the other half of the
+// yamlNumberScalar contract: digits that cannot round-trip through float64
+// must stay a quoted string, not a rounded YAML number.
+func TestWriteYAMLJSONNumberLongDecimalStaysQuoted(t *testing.T) {
+	const raw = "0.123456789012345678901"
+	data := map[string]interface{}{"Decimal": json.Number(raw)}
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatYAML, data); err != nil {
+		t.Fatal(err)
+	}
+	want := "Decimal: \"" + raw + "\"\n"
+	if buf.String() != want {
+		t.Fatalf("long decimal yaml = %q, want %q", buf.String(), want)
+	}
+}
+
 func TestWriteYAMLKeepsUint64MaxDigits(t *testing.T) {
 	data := map[string]interface{}{"N": json.Number("18446744073709551615")}
 	var buf bytes.Buffer

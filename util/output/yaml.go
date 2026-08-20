@@ -22,9 +22,11 @@ func writeYAML(w io.Writer, data interface{}) error {
 }
 
 // prepareYAML converts data for yaml.v2:
-//   - json.Number / exact integer float64 become int64/uint64 when they fit,
-//     otherwise the exact digit string, so yaml.v2 cannot round via float64
-//     or emit scientific notation such as 2.106494982e+09
+//   - json.Number / exact integer float64 become int64/uint64 when they fit
+//   - non-integer json.Number becomes float64 when that float's shortest
+//     decimal form matches the original digits (so 0.1 / 1.5 stay YAML
+//     numbers); otherwise the exact digit string, so yaml.v2 cannot silently
+//     round or emit scientific notation such as 2.106494982e+09
 //   - maps become yaml.MapSlice with sorted keys so object key order is
 //     stable; list order is unchanged
 //   - typed nil maps/slices stay nil (YAML null), distinct from {} and []
@@ -86,6 +88,16 @@ func yamlNumberScalar(number json.Number) interface{} {
 	}
 	if unsigned, err := strconv.ParseUint(raw, 10, 64); err == nil {
 		return unsigned
+	}
+	// Non-integer: emit a real YAML number when float64 has the same shortest
+	// decimal representation. Otherwise keep the raw JSON number string to avoid
+	// silently rounding digits. Production responses decode numbers as
+	// json.Number (WithForceJsonNumberDecode), so this branch is the common path
+	// for decimals such as 0.1 / 1.5 and must not quote them.
+	if f, err := strconv.ParseFloat(raw, 64); err == nil {
+		if strconv.FormatFloat(f, 'g', -1, 64) == raw {
+			return f
+		}
 	}
 	return raw
 }

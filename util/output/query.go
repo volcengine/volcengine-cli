@@ -194,5 +194,3 @@ func queryCompatibleNumber(value json.Number) interface{} {
 	}
 	return value
 }
-
-

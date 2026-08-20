@@ -322,9 +322,12 @@ API 调用成功后，CLI 默认将**完整响应 JSON**（通常含 `ResponseMe
 处理顺序：`原始响应 → [--query] → [--output] → stdout`（先过滤再格式化；字段路径按火山引擎响应 envelope）。
 
 ```shell
-# 先投影再表格（推荐；列由 query 决定，适合列表接口）
+# 先投影再表格（推荐；用 query 选择要展示的字段）
+# 注意：table/text 的列按字段名字母序排列，不是按多选哈希里的书写顺序。
+# 下面哈希的书写顺序是 Name、Id、Status，实际列序是 Id、Name、Status。
+# 脚本请按列名取值，不要按列位置取值。
 ve ecs DescribeInstances \
-  --query 'Result.Instances[*].{Id:InstanceId,Status:Status}' \
+  --query 'Result.Instances[*].{Name:InstanceName,Id:InstanceId,Status:Status}' \
   --output table
 
 # 文本（Tab 分隔，便于 awk/grep）
@@ -348,10 +351,11 @@ ve ecs DescribeInstances --output off
 - `table` / `text` 会把换行、Tab 和终端控制字符显示为可见转义，避免响应内容破坏行列结构或触发终端控制序列。
 - 业务参数名与系统 flag 冲突时（如 `insight AgentChat` 的 `--query`），双横线优先业务参数；系统语义用 `---output` / `---query`。
 - 空列表：`table` 输出 `(empty)`；`text` 不输出行（便于脚本判断为空）。`--query` 命中缺失/null 时，table/text 输出 `None`。空对象 `{}` 不是空列表：table 只打 Key/Value 表头，text 同样没有数据行。
+- `text` 输出不区分类型：空列表 `[]` 和空对象 `{}` 都是无行；缺失/null 的 `--query` 路径输出 `None`；字面量字符串 `None` 同样输出为 `None`。需要无歧义的类型或空值判断时请使用 `--output json`。
 - `--output off` 仍会发起 API 请求，但**不会**执行 `--query`，也不写 stdout；非法 JMESPath **语法**仍会在发请求前被拒绝。
 - 合法 `--query` 在求值阶段失败（例如对非数组做 `max()`）发生在 API 调用成功之后。进程退出 1，并提示 `API call succeeded but response output failed`。
 - API 失败（例如 HTTP 403）把错误打到 stderr，不走 `--output` / `--query`。
-- JMESPath 按 IEEE-754 浮点比较数字。字段投影保持精确位数。绝对值超过 `2^53` 的整数若落到同一个浮点值上，比较会视为相等。`--output yaml` 把能放入 `int64`/`uint64` 的整数写成 YAML 数字；其余 JSON 数字（包括 `1.5`）写成精确数字字符串。YAML 对象的 key 按字母序输出（与 json/table 一致）。
+- JMESPath 按 IEEE-754 浮点比较和计算数字。不使用 `--query` 时，原始响应数字精确输出；使用 `--query` 后，绝对值超过 `2^53` 的整数可能与相邻值折叠到同一浮点，超出 `int64`/`uint64` 范围的整数可能丢失低位。需要逐位精确的字段不要对其使用 `--query`。`--output yaml` 把能放入 `int64`/`uint64` 的整数，以及最短 `float64` 表示与响应原始写法完全一致的小数写成 YAML 数字；其他非整数 JSON 数字保留原始写法并输出为字符串，避免静默舍入数字。YAML 对象的 key 按字母序输出（与 json/table 一致）。
 
 ---
 
