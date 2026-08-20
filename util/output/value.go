@@ -146,8 +146,9 @@ func unionMapKeys(rows []interface{}) []string {
 
 // objectListMatrix builds headers/rows for a list of maps.
 // Missing fields and nulls both use noneValue so table and text match.
-func objectListMatrix(list []interface{}) (headers []string, rows [][]string) {
-	keys := unionMapKeys(list)
+// opts.Columns may reorder columns; see applyColumnOrder for the safety rules.
+func objectListMatrix(list []interface{}, opts Options) (headers []string, rows [][]string) {
+	keys := applyColumnOrder(unionMapKeys(list), opts.Columns)
 	headers = make([]string, len(keys))
 	for i, key := range keys {
 		headers[i] = escapeCellString(key)

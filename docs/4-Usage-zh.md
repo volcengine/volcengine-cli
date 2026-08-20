@@ -10,7 +10,7 @@ CLI 的基本调用格式：
 ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
                       [--profile name] [--region region] [--endpoint endpoint] [--lang language]
                       [--version api-version] [--method GET|POST] [--force]
-                      [--output json|table|text|yaml|off] [--query jmespath]
+                      [--output json|table|table-num|text|yaml|off] [--query jmespath]
 ```
 
 参数分几类：
@@ -20,6 +20,14 @@ ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json
 - **双横线保留控制参数**：`--header`（HTTP 头）、`--body`（JSON 请求体）；**不是**业务参数
 
 API 调用中的系统参数统一使用双横线并放在 Action 后。若当前 Action 暴露了大小写完全相同的业务参数，双横线优先按 API 参数解析。
+
+### 参数前缀规范
+
+CLI 对外只有一种参数前缀：**双横线 `--name`**。系统参数、API 业务参数、保留控制参数（`--header` / `--body`）一律使用双横线。
+
+- 帮助信息、命令补全、报错文案和文档示例只出现 `--name` 一种写法。
+- 冲突判定区分大小写，并以当前 Action 实际暴露的参数为准：`--Region`、`--Lang` 等不同大小写始终是业务参数。
+- 当某个 Action 暴露了与系统参数**完全同名**的业务参数时，该 Action 后的双横线归业务参数解析，此时请改用等价的非参数途径传递系统语义（见下方「已知同名冲突」）。
 
 ## 查看服务和接口
 
@@ -99,7 +107,7 @@ ve rds_mysql ListDBInstanceIPLists --InstanceId mysql-xxxxxx --GroupName default
 | `--version` | 指定本次调用的 **API 版本**；未指定时使用内置元数据中的 service 版本（与根命令 `ve -v` / `ve --version` / `ve version` 的 CLI 二进制版本无关） |
 | `--force` | 跳过 service/action 元数据校验，强制调用未收录或新发布的接口；**未收录 service** 须提供 `--version` 与固定 endpoint（`--endpoint` 或非 standard 下的 profile/`VOLCENGINE_ENDPOINT`）；已收录 service 可回落元数据。纯开关：只写 `--force`，不要写 `--force true` |
 | `--method` | 指定 HTTP 方法（`GET`/`POST`）；正常路径与 `--force` 路径规则一致：显式值优先，否则用 action 元数据，均无则默认 `GET` |
-| `--output` | 设置 API 响应输出格式：`json`（默认）、`table`、`text`、`yaml`、`off` |
+| `--output` | 设置 API 响应输出格式：`json`（默认）、`table`、`table-num`、`text`、`yaml`、`off` |
 | `--query` | JMESPath 表达式，在格式化前过滤/投影完整响应 JSON（含 `ResponseMetadata` 与 `Result`） |
 
 Action 后如果当前 Action 暴露了大小写完全相同的参数，双横线形式优先按 API 业务参数解析；没有同名冲突时按系统参数解析。
@@ -147,12 +155,14 @@ ve sts GetCallerIdentity --region cn-beijing --endpoint sts.volcengineapi.com
 
 如果 `--profile` 指向不存在的 profile，会直接报错。
 
+### 已知同名冲突
+
 当前已知的精确同名冲突包括：
 
-- `i18nopenapi VideoProjectSuppressionStart` 的业务参数 `--lang`：双横线 `--lang` 按业务参数解析
-- `insight AgentChat` 的业务参数 `--query`：双横线 `--query` 按业务参数解析；系统 JMESPath 请用 `---query`
+- `i18nopenapi VideoProjectSuppressionStart` 的业务参数 `--lang`：该 Action 后的 `--lang` 按业务参数解析；需要切换 CLI 显示语言时，请改用环境变量（`LC_ALL` / `LC_MESSAGES` / `LANG`），见「显示语言」
+- `insight AgentChat` 的业务参数 `--query`：该 Action 后的 `--query` 按业务参数解析；需要过滤响应时，请保留默认 JSON 输出并在下游处理
 
-其他 Action 若未来暴露同名业务参数，同样适用“双横线优先业务参数；系统语义使用 `---output` / `---query` 等形式”的规则。
+其他 Action 若未来暴露同名业务参数，同样遵循「双横线优先业务参数」规则。
 
 ### 显示语言
 
@@ -316,25 +326,29 @@ API 调用成功后，CLI 默认将**完整响应 JSON**（通常含 `ResponseMe
 
 | 参数 | 说明 |
 |------|------|
-| `--output` | 输出格式：`json`（默认）、`table`、`text`、`yaml`、`off` |
+| `--output` | 输出格式：`json`（默认）、`table`、`table-num`、`text`、`yaml`、`off` |
 | `--query` | JMESPath 表达式，在格式化**之前**过滤/投影；路径相对完整响应，列表字段多在 `Result.*` 下 |
 
 处理顺序：`原始响应 → [--query] → [--output] → stdout`（先过滤再格式化；字段路径按火山引擎响应 envelope）。
 
 ```shell
 # 先投影再表格（推荐；用 query 选择要展示的字段）
-# 注意：table/text 的列按字段名字母序排列，不是按多选哈希里的书写顺序。
-# 下面哈希的书写顺序是 Name、Id、Status，实际列序是 Id、Name、Status。
-# 脚本请按列名取值，不要按列位置取值。
+# table/text 的列序跟随多选哈希的书写顺序：下面写的是 Name、Id、Status，
+# 列序就是 Name、Id、Status。
 ve ecs DescribeInstances \
   --query 'Result.Instances[*].{Name:InstanceName,Id:InstanceId,Status:Status}' \
   --output table
 
-# 文本（Tab 分隔，便于 awk/grep）
-ve sts GetCallerIdentity --query 'Result.AccountId' --output text
+# 需要行号时用 table-num（在表格最左侧加 # 列，从 1 开始）
+ve ecs DescribeInstances \
+  --query 'Result.Instances[*].{Name:InstanceName,Id:InstanceId}' \
+  --output table-num
 
-# 无 query 时 table/text 按顶层结构展示（不会自动展开 Result 内嵌列表）。
-# table 是 Key/Value；text 是一行按 key 排序后的值，不是 Key/Value。
+# 文本（Tab 分隔，便于 awk/grep；一行一条数据，可直接接 nl 加行号）
+ve sts GetCallerIdentity --query 'Result.AccountId' --output text
+ve ecs DescribeInstances --query 'Result.Instances[*].{Id:InstanceId}' --output text | nl
+
+# 无 query 时 table 会剥离 ResponseMetadata，并把嵌套结构拆成带标题的分区。
 ve sts GetCallerIdentity --output table
 
 # YAML
@@ -346,16 +360,23 @@ ve ecs DescribeInstances --output off
 
 说明：
 
-- `enableColor` **仅**影响 `json`；`table` / `text` / `yaml` / `off` 不着色。
-- **不要**依赖无 `--query` 的 `--output table` 或 `--output text` 去“猜”嵌套列表；嵌套资源请显式 `--query 'Result....'`。
-- `table` / `text` 会把换行、Tab 和终端控制字符显示为可见转义，避免响应内容破坏行列结构或触发终端控制序列。
-- 业务参数名与系统 flag 冲突时（如 `insight AgentChat` 的 `--query`），双横线优先业务参数；系统语义用 `---output` / `---query`。
-- 空列表：`table` 输出 `(empty)`；`text` 不输出行（便于脚本判断为空）。`--query` 命中缺失/null 时，table/text 输出 `None`。空对象 `{}` 不是空列表：table 只打 Key/Value 表头，text 同样没有数据行。
+- **`ResponseMetadata` 剥离（展示层）**：**不带 `--query` 时**，`table` / `table-num` / `text` 在渲染前会去掉顶层 `ResponseMetadata`，让输出直接展示业务数据。**显式写了 `--query` 时不剥离**——查询结果就是你选中的内容，渲染层不再从中删字段，所以 `--query 'ResponseMetadata.RequestId'` 能正常取到值，`--query '@'` 也会如实展示完整响应。`json` / `yaml` **始终保持完整响应**（含 `RequestId`），脚本消费不受影响。仅有 `ResponseMetadata` 的响应（常见于写操作）在两种情况下都不剥离，避免看起来像空结果。嵌套字段中同名的 `ResponseMetadata` 属于业务数据，不会被删。
+- **嵌套结构分区展示**：`table` 会把嵌套的对象/记录列表拆成带标题的独立分区（标题为字段路径，如 `Result.Instances.Tags[1]`），而不是把一坨 JSON 塞进单元格。嵌套字段**同时保留在主表列中**，单元格显示 `(see section)` 指向对应分区；若同一字段在部分记录里是标量、`null` 或空列表，这些值会照常显示在主表，不会因为别的记录是嵌套结构而丢失。分区编号从 1 开始，与 `table-num` 的 `#` 列对应，便于回溯是哪条记录。父列表只有一条记录时不加编号。纯标量列表（如 `["sg-1","sg-2"]`）仍保留在单元格内。
+- **单行结果自动转竖表**：**已知终端宽度且**单条记录横向排布超出该宽度时，自动转成 `Field | Value` 两列竖表，避免横向滚屏。多行结果、`table-num`、以及宽度未知时（重定向、管道、探测失败）保持横表。
+- **终端宽度自适应**：输出到终端时自动探测宽度，超宽时优先压缩最宽的列，被截断的单元格以 `...` 结尾；每列保留最小可读宽度。输出重定向到文件或管道时不做压缩，保留完整内容。
+- **列序规则**：使用 `--query` 多选哈希（`{Key:Path,...}`）时，`table` / `table-num` / `text` 的列序与你的书写顺序一致——**对记录列表和单个对象都生效**（单个对象在 `table` 下体现为 Key 列的行序）。其余情况（无 `--query`、只做路径投影、`merge()` 等无法静态确定列序的表达式、哈希内出现重复 key）按字段名字母序排列。提示与实际字段不完全匹配时整体回落字母序，不会部分生效或丢列。需要固定列序时请显式写多选哈希。
+- **行号**：`table-num` 只对列表结果加 `#` 列；单个对象渲染成 Key/Value 表（每行是字段而非记录），不会加行号。行号从 1 开始，仅用于人眼定位，不参与数据本身。脚本取值请用 `--output json` / `text`，不要依赖 `#` 列。
+- **着色**：`enableColor` 开启且输出到终端时，`table` / `table-num` 的表头和单元格会着色；重定向、管道或设置 `NO_COLOR` 时不着色。着色**不影响**列宽与对齐。
+- 不要对 `--output table` 使用 `nl`：`nl` 会把边框和表头一起编号，序号与数据行错位。需要行号请用 `--output table-num`（表格）或 `--output text | nl`（TSV）。
+- `table` / `table-num` / `text` 会把换行、Tab 和终端控制字符显示为可见转义，避免响应内容破坏行列结构或触发终端控制序列。
+- 业务参数名与系统 flag 冲突时（如 `insight AgentChat` 的 `--query`），该 Action 后的双横线按业务参数解析，此时无法对该接口使用同名系统参数；详见「已知同名冲突」。
+- 空列表：`table` / `table-num` 输出 `(empty)`；`text` 不输出行（便于脚本判断为空）。`--query` 命中缺失/null 时，table/text 输出 `None`。空对象 `{}` 不是空列表：table 只打 Key/Value 表头，text 同样没有数据行。
 - `text` 输出不区分类型：空列表 `[]` 和空对象 `{}` 都是无行；缺失/null 的 `--query` 路径输出 `None`；字面量字符串 `None` 同样输出为 `None`。需要无歧义的类型或空值判断时请使用 `--output json`。
 - `--output off` 仍会发起 API 请求，但**不会**执行 `--query`，也不写 stdout；非法 JMESPath **语法**仍会在发请求前被拒绝。
+- **`--query` 错误在发请求前拦截**：除语法错误外，未知函数名（如 `lenght(@)`）、参数个数错误（如 `length(@, @)`）、表达式不完整（如 `a | [0`）也会在 API 调用之前报错，不会白花一次请求。错误信息包含原始表达式、指向出错位置的 `^` 标记，以及可操作的修复提示；函数名拼错时会提示最接近的内置函数。非 ASCII 字段名需要用双引号包裹，如 `--query '"实例列表"."数据"'`。
 - 合法 `--query` 在求值阶段失败（例如对非数组做 `max()`）发生在 API 调用成功之后。进程退出 1，并提示 `API call succeeded but response output failed`。
 - API 失败（例如 HTTP 403）把错误打到 stderr，不走 `--output` / `--query`。
-- JMESPath 按 IEEE-754 浮点比较和计算数字。不使用 `--query` 时，原始响应数字精确输出；使用 `--query` 后，绝对值超过 `2^53` 的整数可能与相邻值折叠到同一浮点，超出 `int64`/`uint64` 范围的整数可能丢失低位。需要逐位精确的字段不要对其使用 `--query`。`--output yaml` 把能放入 `int64`/`uint64` 的整数，以及最短 `float64` 表示与响应原始写法完全一致的小数写成 YAML 数字；其他非整数 JSON 数字保留原始写法并输出为字符串，避免静默舍入数字。YAML 对象的 key 按字母序输出（与 json/table 一致）。
+- JMESPath 按 IEEE-754 浮点比较和计算数字。不使用 `--query` 时，原始响应数字精确输出；使用 `--query` 后，绝对值超过 `2^53` 的整数可能与相邻值折叠到同一浮点，超出 `int64`/`uint64` 范围的整数可能丢失低位。需要逐位精确的字段不要对其使用 `--query`。`--output yaml` 把能放入 `int64`/`uint64` 的整数，以及最短 `float64` 表示与响应原始写法完全一致的小数写成 YAML 数字；其他非整数 JSON 数字保留原始写法并输出为字符串，避免静默舍入数字。YAML 对象的 key 始终按字母序输出（不受 `--query` 书写顺序影响），保证下游 `yq` 等消费方看到稳定顺序；书写顺序只影响 `table` / `table-num` / `text` 的列序。
 
 ---
 

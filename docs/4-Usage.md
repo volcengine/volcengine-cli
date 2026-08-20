@@ -10,7 +10,7 @@ Basic command format:
 ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
                       [--profile name] [--region region] [--endpoint endpoint] [--lang language]
                       [--version api-version] [--method GET|POST] [--force]
-                      [--output json|table|text|yaml|off] [--query jmespath]
+                      [--output json|table|table-num|text|yaml|off] [--query jmespath]
 ```
 
 Argument kinds:
@@ -20,6 +20,14 @@ Argument kinds:
 - **Reserved double-dash controls**: `--header` (HTTP headers), `--body` (JSON body); **not** API parameters
 
 System flags in API calls use double hyphens and are placed after the action. If an action exposes an exact-name API parameter (case-sensitive), the double-dash form is parsed as the API parameter.
+
+### Flag Prefix Contract
+
+The CLI has exactly one public flag prefix: **double dash `--name`**. System flags, API parameters and the reserved controls (`--header` / `--body`) all use double dashes.
+
+- Help output, shell completion, error messages and documentation examples show the `--name` form only.
+- Conflicts are case-sensitive and resolved against the parameters the current action actually exposes: `--Region` and `--Lang` are always API parameters.
+- When an action exposes an API parameter with the **exact** name of a system flag, the double-dash form after that action is parsed as the API parameter; use an equivalent non-flag route for the system behaviour (see Known Name Conflicts).
 
 ## Discover Services and Actions
 
@@ -99,7 +107,7 @@ Public system flags use the standard double-hyphen form:
 | `--version` | Set the **API version** for this call; if omitted, uses the bundled service version (not the CLI binary version from root `ve -v` / `ve --version` / `ve version`) |
 | `--force` | Skip service/action metadata validation and force-call unlisted or newly released APIs; **unlisted services** require `--version` and a fixed endpoint (`--endpoint` or profile/`VOLCENGINE_ENDPOINT` when resolver is not `standard`); bundled services can fall back to metadata. Presence-only: write `--force` alone, not `--force true` |
 | `--method` | HTTP method (`GET`/`POST`); same rules on normal and `--force` paths: explicit value wins, else action metadata, else `GET` |
-| `--output` | API response format: `json` (default), `table`, `text`, `yaml`, `off` |
+| `--output` | API response format: `json` (default), `table`, `table-num`, `text`, `yaml`, `off` |
 | `--query` | JMESPath expression to filter/project the full response JSON (including `ResponseMetadata` and `Result`) before formatting |
 
 After the action, a double-dash flag whose exact case-sensitive name is exposed by that action is parsed as an API parameter. Without such a conflict, it is parsed as a system flag.
@@ -150,10 +158,14 @@ If `--profile` references a profile that does not exist, the command returns an 
 
 Known exact-name conflicts include:
 
-- `--lang` on `i18nopenapi VideoProjectSuppressionStart`: double-dash `--lang` is the API parameter
-- `--query` on `insight AgentChat`: double-dash `--query` is the API parameter; use `---query` for system JMESPath
+### Known Name Conflicts
 
-The same rule applies if other actions later expose colliding names: double-dash prefers the API parameter; system routing uses forms such as `---output` / `---query`.
+Known exact-name conflicts include:
+
+- `--lang` on `i18nopenapi VideoProjectSuppressionStart`: after that action `--lang` is the API parameter; switch the CLI display language through the `LC_ALL` / `LC_MESSAGES` / `LANG` environment variables instead (see Display Language)
+- `--query` on `insight AgentChat`: after that action `--query` is the API parameter; keep the default JSON output and filter it downstream
+
+The same rule applies if other actions later expose colliding names: the double-dash form after that action is the API parameter.
 
 ### Display Language
 
@@ -317,26 +329,29 @@ After a successful API call, the CLI prints the **full response JSON** (typicall
 
 | Flag | Description |
 |------|-------------|
-| `--output` | Format: `json` (default), `table`, `text`, `yaml`, `off` |
+| `--output` | Format: `json` (default), `table`, `table-num`, `text`, `yaml`, `off` |
 | `--query` | JMESPath applied **before** formatting; paths are relative to the full response (list data is usually under `Result.*`) |
 
 Pipeline: `raw response → [--query] → [--output] → stdout` (query before format; Volcengine envelope field paths).
 
 ```shell
 # Project then table (recommended for list APIs; use --query to pick the fields)
-# Note: table/text columns are sorted alphabetically by field name, not by the
-# order written in the multi-select hash. The hash below is Name, Id, Status;
-# actual columns are Id, Name, Status. Scripts should address columns by name,
-# not by position.
+# Column order follows the multi-select hash you wrote: the hash below is
+# Name, Id, Status, so the columns are Name, Id, Status.
 ve ecs DescribeInstances \
   --query 'Result.Instances[*].{Name:InstanceName,Id:InstanceId,Status:Status}' \
   --output table
 
-# Tab-separated text for awk/grep
-ve sts GetCallerIdentity --query 'Result.AccountId' --output text
+# Row numbers: table-num adds a leading # column starting at 1
+ve ecs DescribeInstances \
+  --query 'Result.Instances[*].{Name:InstanceName,Id:InstanceId}' \
+  --output table-num
 
-# Without --query, table/text show the top-level shape only (no nested Result list auto-unwrap).
-# table is Key/Value; text is one TSV row of sorted values, not Key/Value.
+# Tab-separated text for awk/grep (one record per line, so `nl` numbers records)
+ve sts GetCallerIdentity --query 'Result.AccountId' --output text
+ve ecs DescribeInstances --query 'Result.Instances[*].{Id:InstanceId}' --output text | nl
+
+# Without --query, table strips ResponseMetadata and splits nested data into titled sections.
 ve sts GetCallerIdentity --output table
 
 # YAML
@@ -348,16 +363,23 @@ ve ecs DescribeInstances --output off
 
 Notes:
 
-- `enableColor` affects **json** only; `table` / `text` / `yaml` / `off` are uncolored.
-- Do **not** rely on bare `--output table` or `--output text` to guess nested lists; use explicit `--query 'Result....'`.
-- `table` / `text` render newlines, tabs, and terminal control characters as visible escapes so response data cannot break row/column boundaries or inject terminal controls.
-- On name conflicts (e.g. `insight AgentChat` `--query`), double-dash prefers the API parameter; use `---output` / `---query` for system routing.
-- Empty lists: `table` prints `(empty)`; `text` prints no lines (easy empty check in scripts). A missing/null `--query` path prints `None` in table/text. An empty object `{}` is not an empty list: table prints Key/Value headers only; text prints no lines.
+- **`ResponseMetadata` stripping (display layer)**: **without `--query`**, `table` / `table-num` / `text` drop the top-level `ResponseMetadata` before rendering so the output shows the payload directly. **With an explicit `--query`, nothing is stripped** — the query result is exactly what you selected, so `--query 'ResponseMetadata.RequestId'` returns its value and `--query '@'` shows the full response verbatim. `json` / `yaml` **always keep the full response** (including `RequestId`), so scripted consumers are unaffected. A response containing only `ResponseMetadata` (common for write APIs) is left intact in both cases so it does not look empty. A nested field that happens to be named `ResponseMetadata` is payload and is never removed.
+- **Nested sections**: `table` splits nested objects and record lists into separate titled sections (the title is the field path, e.g. `Result.Instances.Tags[1]`) instead of dumping JSON into a cell. A nested field **also stays as a main-table column**, where the cell reads `(see section)` and points at the matching section; when the same field is a scalar, `null` or an empty list on some records, those values are still shown in the main table rather than being dropped because another record nests it. Section numbering starts at 1 and matches the `#` column of `table-num`, so a section can be traced back to its record. No number is added when the parent list holds a single record. Lists of plain scalars (e.g. `["sg-1","sg-2"]`) stay inline in the cell.
+- **Single-row verticalization**: when the terminal width **is known** and a single record is wider than it, the record is transposed into a two-column `Field | Value` table to avoid horizontal scrolling. Multi-row results, `table-num`, and any case where the width is unknown (redirected output, pipes, failed probe) keep the horizontal layout.
+- **Terminal width fitting**: when writing to a terminal the width is detected automatically; over-wide grids shrink the widest column first and truncated cells end with `...`, while every column keeps a minimum readable width. Redirected or piped output is never shrunk, so full values are preserved.
+- **Column order**: with a `--query` multi-select hash (`{Key:Path,...}`), `table` / `table-num` / `text` follow the order you wrote — **for both record lists and a single object** (for a single object under `table` this is the row order of the Key column). Everything else (no `--query`, plain path projection, expressions such as `merge()` where the order cannot be determined statically, or duplicate keys in the hash) falls back to alphabetical field order. A hint that does not match the actual fields is discarded as a whole, so ordering is never applied partially and no column is lost. Write an explicit multi-select hash when you need a fixed column order.
+- **Row numbers**: `table-num` adds the `#` column to list results only. A single object renders as a Key/Value table (its rows are fields, not records) and is never numbered. Numbering starts at 1 and exists for human reference; scripts should read values via `--output json` / `text` rather than the `#` column.
+- **Color**: when `enableColor` is on and output goes to a terminal, `table` / `table-num` style headers and cells; redirected output, pipes and `NO_COLOR` disable it. Styling never affects column widths or alignment.
+- Do not pipe `--output table` through `nl`: `nl` numbers borders and the header too, so the numbers no longer line up with data rows. Use `--output table-num` for tables, or `--output text | nl` for TSV.
+- `table` / `table-num` / `text` render newlines, tabs, and terminal control characters as visible escapes so response data cannot break row/column boundaries or inject terminal controls.
+- On name conflicts (e.g. `insight AgentChat` `--query`), the double-dash form after that action is the API parameter, so the same-named system flag is unavailable for that call; see Known Name Conflicts.
+- Empty lists: `table` / `table-num` print `(empty)`; `text` prints no lines (easy empty check in scripts). A missing/null `--query` path prints `None` in table/text. An empty object `{}` is not an empty list: table prints Key/Value headers only; text prints no lines.
 - `text` output is not type-distinguishing: an empty list `[]` and an empty object `{}` both print no lines; a missing/null `--query` path prints `None`; the literal string `None` is also rendered as `None`. Use `--output json` when you need unambiguous type or emptiness checks.
 - `--output off` still sends the API request. It does not evaluate `--query` and does not write stdout; invalid JMESPath syntax is still rejected before the call.
+- **`--query` errors are caught before the request**: besides syntax errors, unknown function names (`lenght(@)`), wrong argument counts (`length(@, @)`) and incomplete expressions (`a | [0`) are reported before the API is called, so a typo never costs a live request. The message includes the original expression, a `^` marker under the failure, and an actionable hint; a misspelled function name suggests the closest builtin. Non-ASCII field names must be double-quoted, as in `--query '"实例列表"."数据"'`.
 - A valid `--query` that fails at evaluation time (for example `max()` on a non-array) runs after the API call. The process exits 1 with `API call succeeded but response output failed`.
 - API failures (for example HTTP 403) print the error on stderr and do not go through `--output` / `--query`.
-- JMESPath compares and computes numbers as IEEE-754 floats. Without `--query`, original response numbers are printed exactly. With `--query`, integers with magnitude above `2^53` may collapse to a neighbor when two distinct integers share the same float, and integers beyond `int64`/`uint64` range may lose low-order digits. Do not apply `--query` to fields that must stay bit-exact. `--output yaml` emits `int64`/`uint64` and decimals whose shortest `float64` representation exactly matches the response spelling as YAML numbers; other non-integer JSON numbers keep the original spelling as strings to avoid silently rounding digits. YAML object keys are sorted (same as json/table).
+- JMESPath compares and computes numbers as IEEE-754 floats. Without `--query`, original response numbers are printed exactly. With `--query`, integers with magnitude above `2^53` may collapse to a neighbor when two distinct integers share the same float, and integers beyond `int64`/`uint64` range may lose low-order digits. Do not apply `--query` to fields that must stay bit-exact. `--output yaml` emits `int64`/`uint64` and decimals whose shortest `float64` representation exactly matches the response spelling as YAML numbers; other non-integer JSON numbers keep the original spelling as strings to avoid silently rounding digits. YAML object keys are always sorted alphabetically (independent of `--query` write order) so downstream consumers such as `yq` see a stable order; write order only affects `table` / `table-num` / `text` columns.
 
 ---
 

@@ -107,19 +107,40 @@ func TestWritePropagatesWriterErrors(t *testing.T) {
 	}
 }
 
-func TestTableNoAutoUnwrapEnvelope(t *testing.T) {
-	// Without --query, nested Result.Instances must NOT be auto-picked.
+// Without --query, the envelope's ResponseMetadata is dropped and nested
+// payload is split into titled sections (aligned with AWS CLI). The section
+// title keeps the origin path visible so users still know where data came from.
+func TestTableStripsMetadataAndSplitsNestedPayload(t *testing.T) {
 	var buf bytes.Buffer
 	if err := Write(&buf, FormatTable, sampleEnvelope()); err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "Key") || !strings.Contains(out, "ResponseMetadata") {
-		t.Fatalf("expected Key/Value envelope table, got:\n%s", out)
+	if strings.Contains(out, "ResponseMetadata") || strings.Contains(out, "req-1") {
+		t.Fatalf("ResponseMetadata must not reach table output:\n%s", out)
 	}
-	// Should not look like an Instances multi-column table alone.
-	if strings.Contains(out, "InstanceId") && !strings.Contains(out, "Result") {
-		t.Fatalf("unexpected auto-unwrap of Instances:\n%s", out)
+	if !strings.Contains(out, "Result.Instances") {
+		t.Fatalf("expected a titled section for the nested list:\n%s", out)
+	}
+	// The nested list must render as a real record table, not one JSON cell.
+	if !strings.Contains(out, "InstanceId") || !strings.Contains(out, "i-1") {
+		t.Fatalf("nested list should render as columns:\n%s", out)
+	}
+	if strings.Contains(out, `{"InstanceId"`) {
+		t.Fatalf("nested list should not be dumped as JSON:\n%s", out)
+	}
+}
+
+// json keeps the full envelope: scripts still need RequestId.
+func TestJSONKeepsResponseMetadata(t *testing.T) {
+	for _, format := range []Format{FormatJSON, FormatYAML} {
+		var buf bytes.Buffer
+		if err := Write(&buf, format, sampleEnvelope()); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(buf.String(), "ResponseMetadata") {
+			t.Fatalf("%s must keep ResponseMetadata:\n%s", format, buf.String())
+		}
 	}
 }
 

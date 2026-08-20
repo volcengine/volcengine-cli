@@ -152,6 +152,66 @@ func TestRenderAPIOutputQueryAndTable(t *testing.T) {
 	}
 }
 
+// The renderer strips ResponseMetadata only when no --query was given. These
+// two cases must agree about whether the field exists: before Options.Queried
+// was wired up, a bare table hid RequestId while an explicit query for it still
+// printed a value.
+func TestRenderAPIOutputMetadataVisibilityIsConsistent(t *testing.T) {
+	data := func() map[string]interface{} {
+		return map[string]interface{}{
+			"ResponseMetadata": map[string]interface{}{"RequestId": "req-1"},
+			"Result": map[string]interface{}{
+				"Instances": []interface{}{
+					map[string]interface{}{"InstanceId": "i-1"},
+				},
+			},
+		}
+	}
+
+	// No --query: the envelope is display noise.
+	var bare bytes.Buffer
+	withAPIOutputWriter(t, &bare)
+	c := &Context{fixedFlags: NewFlagSet(), dynamicFlags: NewFlagSet()}
+	outFlag, _ := c.fixedFlags.AddByName("output")
+	outFlag.SetValue("table")
+	if err := renderAPIOutput(c, nil, data()); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(bare.String(), "req-1") {
+		t.Fatalf("bare table must not show RequestId:\n%s", bare.String())
+	}
+
+	// Explicit --query for that same field: the user asked for it, so it prints.
+	var queried bytes.Buffer
+	withAPIOutputWriter(t, &queried)
+	c2 := &Context{fixedFlags: NewFlagSet(), dynamicFlags: NewFlagSet()}
+	outFlag2, _ := c2.fixedFlags.AddByName("output")
+	outFlag2.SetValue("table")
+	qFlag, _ := c2.fixedFlags.AddByName("query")
+	qFlag.SetValue("ResponseMetadata.RequestId")
+	if err := renderAPIOutput(c2, nil, data()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(queried.String(), "req-1") {
+		t.Fatalf("explicit query must return the value:\n%s", queried.String())
+	}
+
+	// --query '@' asks for the whole response verbatim.
+	var identity bytes.Buffer
+	withAPIOutputWriter(t, &identity)
+	c3 := &Context{fixedFlags: NewFlagSet(), dynamicFlags: NewFlagSet()}
+	outFlag3, _ := c3.fixedFlags.AddByName("output")
+	outFlag3.SetValue("table")
+	qFlag3, _ := c3.fixedFlags.AddByName("query")
+	qFlag3.SetValue("@")
+	if err := renderAPIOutput(c3, nil, data()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(identity.String(), "req-1") {
+		t.Fatalf("--query '@' must keep the whole response:\n%s", identity.String())
+	}
+}
+
 func TestRenderAPIOutputOff(t *testing.T) {
 	var buf bytes.Buffer
 	withAPIOutputWriter(t, &buf)

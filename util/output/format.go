@@ -11,11 +11,12 @@ import (
 type Format string
 
 const (
-	FormatJSON  Format = "json"
-	FormatTable Format = "table"
-	FormatText  Format = "text"
-	FormatYAML  Format = "yaml"
-	FormatOff   Format = "off"
+	FormatJSON     Format = "json"
+	FormatTable    Format = "table"
+	FormatTableNum Format = "table-num"
+	FormatText     Format = "text"
+	FormatYAML     Format = "yaml"
+	FormatOff      Format = "off"
 )
 
 // ParseFormat normalizes and validates an --output value.
@@ -26,7 +27,7 @@ func ParseFormat(s string) (Format, error) {
 		return FormatJSON, nil
 	}
 	switch Format(s) {
-	case FormatJSON, FormatTable, FormatText, FormatYAML, FormatOff:
+	case FormatJSON, FormatTable, FormatTableNum, FormatText, FormatYAML, FormatOff:
 		return Format(s), nil
 	default:
 		return "", fmt.Errorf("unsupported output format %q, supported: %s", s, supportedFormatsMessage())
@@ -34,7 +35,35 @@ func ParseFormat(s string) (Format, error) {
 }
 
 func supportedFormatsMessage() string {
-	return "json, table, text, yaml, off"
+	return "json, table, table-num, text, yaml, off"
+}
+
+// Options carries rendering hints that do not change the data itself.
+type Options struct {
+	// Columns is the preferred column order for table/text. It is applied only
+	// when it exactly matches the keys present in the data; otherwise renderers
+	// keep alphabetical order. See column_order.go.
+	Columns []string
+
+	// TerminalWidth caps table width. 0 means "detect from stdout"; a negative
+	// value disables fitting entirely (useful for tests and for piped output
+	// that should keep full-width columns).
+	TerminalWidth int
+
+	// Color enables ANSI styling for table headers and cells. Styling never
+	// affects column widths; see style.go.
+	Color bool
+
+	// Queried tells the renderer that the data is already the result of an
+	// explicit --query.
+	//
+	// Without it, table/text strip the top-level ResponseMetadata envelope so a
+	// bare `--output table` shows the payload. That must not happen to a query
+	// result: the user selected exactly what they wanted, and dropping a key
+	// from their selection would mean `--query 'ResponseMetadata.RequestId'`
+	// prints a value that a bare table claims does not exist. Set this whenever
+	// a query was applied, even if its result happens to look like an envelope.
+	Queried bool
 }
 
 type checkedWriter struct {
@@ -53,8 +82,18 @@ func (w *checkedWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// Write formats data to w according to format.
+// Unwrap exposes the wrapped writer so terminal-width detection can still reach
+// the underlying *os.File. Without this, wrapping stdout here would make every
+// width probe fail and silently disable column fitting.
+func (w *checkedWriter) Unwrap() io.Writer { return w.Writer }
+
+// Write formats data to w according to format, using default options.
 func Write(w io.Writer, format Format, data interface{}) error {
+	return WriteWithOptions(w, format, data, Options{})
+}
+
+// WriteWithOptions formats data to w according to format and opts.
+func WriteWithOptions(w io.Writer, format Format, data interface{}, opts Options) error {
 	if w == nil {
 		return fmt.Errorf("output writer is nil")
 	}
@@ -64,9 +103,11 @@ func Write(w io.Writer, format Format, data interface{}) error {
 	case FormatJSON:
 		err = writeJSON(writer, data)
 	case FormatTable:
-		err = writeTable(writer, data)
+		err = writeTable(writer, data, opts, false)
+	case FormatTableNum:
+		err = writeTable(writer, data, opts, true)
 	case FormatText:
-		err = writeText(writer, data)
+		err = writeText(writer, data, opts)
 	case FormatYAML:
 		err = writeYAML(writer, data)
 	case FormatOff:

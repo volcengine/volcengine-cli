@@ -381,14 +381,14 @@ func TestSystemFlagsAreExposedToCompletionWithoutLegacyAliases(t *testing.T) {
 		t.Fatalf("GenBashCompletion returned error: %v", err)
 	}
 	completion := output.String()
-	for _, name := range []string{"--profile", "--region", "--endpoint", "--lang", "--force", "--version", "--method", "--output", "--query"} {
-		if !strings.Contains(completion, name) {
-			t.Fatalf("completion missing %q", name)
+	// Derive both lists from systemFlagDefs so a newly added system flag is
+	// checked automatically: --name must be completable, ---name must not leak.
+	for _, name := range publicSystemFlagNames() {
+		if !strings.Contains(completion, "--"+name) {
+			t.Fatalf("completion missing --%s", name)
 		}
-	}
-	for _, name := range []string{"---profile", "---region", "---endpoint", "---lang", "---force", "---version", "---method", "---output", "---query"} {
-		if strings.Contains(completion, name) {
-			t.Fatalf("completion exposes historical alias %q", name)
+		if strings.Contains(completion, "---"+name) {
+			t.Fatalf("completion exposes conflict-escape alias ---%s", name)
 		}
 	}
 }
@@ -411,6 +411,47 @@ func TestRegisterActionSystemFlagsSkipsExactAPIConflicts(t *testing.T) {
 	}
 }
 
+// TestEverySystemFlagHasConflictEscapeRoute enforces clause (4) of the flag
+// prefix contract in system_flag_defs.go: every public system flag must keep a
+// reachable ---name escape, either via the Parser (legacyEscape) or via
+// resolveSystemFlags preprocessing. Adding a public flag with neither route
+// would leave it unreachable once metadata publishes a colliding API parameter.
+func TestEverySystemFlagHasConflictEscapeRoute(t *testing.T) {
+	for _, d := range systemFlagDefs {
+		if !d.public {
+			continue
+		}
+		if !d.legacyEscape && !d.preprocess {
+			t.Fatalf("public system flag --%s has no ---%s escape route: set legacyEscape or preprocess", d.name, d.name)
+		}
+	}
+}
+
+// TestTripleDashRejectsNonSystemNames keeps the escape hatch narrow: ---name is
+// only meaningful for registered system flags, never a generic prefix.
+func TestTripleDashRejectsNonSystemNames(t *testing.T) {
+	c := NewContext()
+	parser := NewParser([]string{"---cols", "InstanceId,Status"}, map[string]struct{}{})
+	_, err := parser.ReadArgs(c)
+	if err == nil || !strings.Contains(err.Error(), "---cols is not supported") {
+		t.Fatalf("unregistered triple-dash error = %v", err)
+	}
+	// The advertised remedy must list double-dash forms only.
+	if strings.Contains(systemFlags.supportedMessage, "---") {
+		t.Fatalf("supported list must advertise double-dash only: %q", systemFlags.supportedMessage)
+	}
+}
+
+// TestSupportedMessageAdvertisesDoubleDashOnly guards clause (1): the public
+// supported-flag list derived from systemFlagDefs uses --name for every entry.
+func TestSupportedMessageAdvertisesDoubleDashOnly(t *testing.T) {
+	for _, name := range publicSystemFlagNames() {
+		if !strings.Contains(systemFlags.supportedMessage, "--"+name) {
+			t.Fatalf("supported list missing --%s: %q", name, systemFlags.supportedMessage)
+		}
+	}
+}
+
 func TestSystemFlagHelpMatchesDefs(t *testing.T) {
 	help := localizedSystemFlagsHelp()
 	for _, name := range publicSystemFlagNames() {
@@ -418,9 +459,11 @@ func TestSystemFlagHelpMatchesDefs(t *testing.T) {
 			t.Fatalf("localizedSystemFlagsHelp missing public system flag --%s", name)
 		}
 	}
-	for _, alias := range []string{"---profile", "---region", "---endpoint", "---lang", "---force", "---version", "---method", "---output", "---query"} {
-		if strings.Contains(help, alias) {
-			t.Fatalf("localizedSystemFlagsHelp exposes historical alias %q", alias)
+	// Clause (3): triple-dash aliases are never advertised. Derive the alias list
+	// from systemFlagDefs so a newly added flag cannot escape this check.
+	for _, name := range publicSystemFlagNames() {
+		if strings.Contains(help, "---"+name) {
+			t.Fatalf("localizedSystemFlagsHelp exposes conflict-escape alias ---%s", name)
 		}
 	}
 	if !strings.Contains(help, systemFlags.supportedMessage) {

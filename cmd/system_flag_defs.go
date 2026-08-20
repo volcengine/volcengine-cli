@@ -4,6 +4,35 @@ import (
 	"strings"
 )
 
+// Flag prefix contract (normative — do not relax without updating docs/4-Usage*.md):
+//
+//  1. Double dash `--name` is the ONLY public form of a system flag. Help,
+//     completion, docs, error messages and examples must use `--name`.
+//  2. Triple dash `---name` is NOT a public form. It exists solely as a
+//     conflict escape: when the current action publishes an API parameter whose
+//     name matches a system flag exactly (case-sensitive), `--name` is routed to
+//     the API parameter and `---name` is the only way to still reach the system
+//     flag. Known collisions: i18nopenapi.VideoProjectSuppressionStart.lang,
+//     insight.AgentChat.query (guarded by
+//     TestSystemFlagConflictScanMatchesPublishedMetadata).
+//  3. `---name` must never be advertised anywhere user-facing: not in
+//     localizedSystemFlagsHelp, not in shell completion, and not in the public
+//     docs (README*, docs/*.md) — those may not even contain the words
+//     "三横线" / "triple-dash". When an action's API parameter shadows a system
+//     flag, public docs describe a non-flag workaround (environment variable,
+//     downstream filtering) rather than the escape syntax. The escape stays an
+//     internal compatibility path, guarded by
+//     TestPublicDocsOnlyAdvertiseDoubleDashSystemFlags.
+//  4. Every public system flag must keep a reachable `---name` escape route, so
+//     the hatch already exists before a future metadata release introduces a
+//     colliding API parameter name. Two routes satisfy this: legacyEscape (the
+//     Parser accepts `---name`) or preprocess (resolveSystemFlags strips
+//     `---name` before Cobra). `lang` uses the preprocess route only.
+//
+// Guards: TestSystemFlagHelpMatchesDefs and
+// TestSystemFlagsAreExposedToCompletionWithoutLegacyAliases assert (1)-(3);
+// TestEverySystemFlagHasConflictEscapeRoute asserts (4).
+//
 // systemFlagDef is the single source of truth for CLI system flags.
 // Parser routing, preprocess stripping, and completion registration derive
 // from this table. Public help strings stay as tr() literals in
@@ -119,7 +148,7 @@ func localizedSystemFlagsHelp() string {
   --version string     ` + tr("API version; uses metadata when omitted (required with --force for unlisted services).") + `
   --method string      ` + tr("HTTP method GET or POST; explicit value overrides metadata, else metadata, else GET.") + `
   --force              ` + tr("Skip service/action metadata validation and force the call (presence-only; write --force alone, not --force true).") + `
-  --output string      ` + tr("Set response output format (json|table|text|yaml|off). Default: json. off still calls the API but skips --query evaluation.") + `
+  --output string      ` + tr("Set response output format (json|table|table-num|text|yaml|off). Default: json. table-num is table plus a row-number column. off still calls the API but skips --query evaluation.") + `
   --query string       ` + tr("JMESPath expression to filter/project the full response (paths usually start at Result.*) before formatting.") + `
 
 ` + tr("Reserved double-dash controls (not API parameters):") + `

@@ -388,9 +388,10 @@ func TestPublicHelpOmitsLegacySystemFlagAliases(t *testing.T) {
 		"service": serviceUsageTemplate(),
 		"action":  actionUsageTemplate("", nil, false),
 	} {
-		for _, alias := range []string{"---profile", "---region", "---endpoint", "---lang", "---force", "---version", "---method", "---output", "---query"} {
-			if strings.Contains(output, alias) {
-				t.Fatalf("%s help exposes historical alias %q:\n%s", name, alias, output)
+		// Derive aliases from systemFlagDefs so new system flags are covered.
+		for _, flag := range publicSystemFlagNames() {
+			if strings.Contains(output, "---"+flag) {
+				t.Fatalf("%s help exposes conflict-escape alias ---%s:\n%s", name, flag, output)
 			}
 		}
 	}
@@ -416,16 +417,16 @@ func TestPublicDocsOnlyAdvertiseDoubleDashSystemFlags(t *testing.T) {
 		"docs/5-Advanced-zh.md",
 		"docs/5-Advanced.md",
 	}
+	// Public docs advertise the double-dash form only. Derive the forbidden alias
+	// list from systemFlagDefs so a newly added system flag is covered
+	// automatically; the previous hand-written list silently missed
+	// ---output / ---query.
 	forbidden := []string{
-		"---profile",
-		"---region",
-		"---endpoint",
-		"---lang",
-		"---version",
-		"---method",
-		"---force",
 		"三横线",
 		"triple-dash",
+	}
+	for _, name := range publicSystemFlagNames() {
+		forbidden = append(forbidden, "---"+name)
 	}
 
 	for _, name := range publicDocs {

@@ -2,6 +2,7 @@ package output
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -12,6 +13,19 @@ import (
 // Query is a validated JMESPath expression.
 type Query struct {
 	compiled *jmespath.JMESPath
+	// columns is the multiselect-hash key order written in the expression, used
+	// as a best-effort column-order hint for table/text. Empty when the
+	// expression has no usable top-level hash. See column_order.go.
+	columns []string
+}
+
+// Columns returns the column-order hint recovered from the expression.
+// Nil means "no hint"; renderers then fall back to alphabetical order.
+func (q *Query) Columns() []string {
+	if q == nil {
+		return nil
+	}
+	return q.columns
 }
 
 // CompileQuery validates expr before an API request is sent.
@@ -23,9 +37,54 @@ func CompileQuery(expr string) (*Query, error) {
 	}
 	compiled, err := jmespath.Compile(expr)
 	if err != nil {
-		return nil, err
+		return nil, newQueryError(expr, err)
 	}
-	return &Query{compiled: compiled}, nil
+	query := &Query{compiled: compiled, columns: columnOrder(expr)}
+	// jmespath.Compile accepts expressions that only fail when evaluated:
+	// unknown function names, wrong arity, and a truncated pipe such as
+	// "a | [0" (which yields "Unknown AST node: ASTEmpty"). Probing with an
+	// empty object surfaces those now — before the API request is sent — so a
+	// typo cannot cost a live call. Data-dependent errors do not occur on an
+	// empty object, so this never rejects a valid expression.
+	if err := query.probe(); err != nil {
+		return nil, newQueryError(expr, err)
+	}
+	return query, nil
+}
+
+// probe evaluates the expression against an empty object to force errors that
+// jmespath defers from compile time to search time.
+//
+// Only expression-level faults are reported. Evaluating against an empty object
+// also produces type errors — max(Items) sees nil instead of an array — but
+// those say nothing about the expression's validity, so they are ignored;
+// otherwise perfectly good queries would be rejected before the call.
+//
+// The probe must never be able to break a command: go-jmespath panics on some
+// inputs (jpfMerge asserts map[string]interface{} on a nil argument, so
+// merge(A, B) crashes when a key is absent), and that is a library defect, not
+// a user error. Recover and treat it as "cannot decide here" so the expression
+// is accepted and evaluated normally against the real response.
+func (q *Query) probe() (err error) {
+	defer func() {
+		if recover() != nil {
+			err = nil
+		}
+	}()
+	_, searchErr := q.compiled.Search(map[string]interface{}{})
+	if searchErr == nil || isDataDependentError(searchErr) {
+		return nil
+	}
+	return searchErr
+}
+
+// isDataDependentError reports whether err is about the probe's empty data
+// rather than the expression itself.
+func isDataDependentError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "Invalid type for") ||
+		strings.Contains(msg, "invalid type for") ||
+		strings.Contains(msg, "cannot be sorted")
 }
 
 // Search evaluates a previously validated query.
@@ -36,18 +95,27 @@ func CompileQuery(expr string) (*Query, error) {
 // integers/floats are native numbers, then put json.Number leaves back when
 // the original tree yields the same shape so large integers and long decimals
 // stay exact.
-func (q *Query) Search(data interface{}) (interface{}, error) {
+func (q *Query) Search(data interface{}) (result interface{}, err error) {
 	if q == nil || q.compiled == nil {
 		return data, nil
 	}
+	// go-jmespath can panic on valid expressions: jpfMerge type-asserts
+	// map[string]interface{} on each argument, so merge(A, B) crashes when a
+	// key is missing from the response. Convert that into an error instead of
+	// taking the whole command down.
+	defer func() {
+		if r := recover(); r != nil {
+			result, err = nil, fmt.Errorf("--query could not be evaluated on this response: %v", r)
+		}
+	}()
 	if !containsJSONNumber(data) {
 		return q.compiled.Search(data)
 	}
-	result, err := q.compiled.Search(queryCompatibleData(data))
+	searched, err := q.compiled.Search(queryCompatibleData(data))
 	if err != nil {
 		return nil, err
 	}
-	return restoreExactNumbersFromData(data, result), nil
+	return restoreExactNumbersFromData(data, searched), nil
 }
 
 // ApplyQuery evaluates a JMESPath expression against data.
