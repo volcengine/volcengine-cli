@@ -8,7 +8,7 @@
 
 ## 环境要求
 
-- Go 版本推荐使用 1.12+。
+- 仅从源码编译时需要 Go 1.17 或更高版本；使用 Release 预编译包或 npm 安装时不需要 Go。
 - 从 v1.0.20 开始，命令前缀由 `volcengine-cli` 更新为 `ve`。低版本不受影响；升级到 v1.0.20 及以后版本后，请同步更新脚本中的命令前缀。
 
 ## 安装
@@ -138,6 +138,14 @@ ve ecs DescribeRegions --help
 ```shell
 ve sts GetCallerIdentity
 ```
+
+选择一个响应字段，并以纯文本输出：
+
+```shell
+ve sts GetCallerIdentity --query 'Result.AccountId' --output text
+```
+
+支持的输出格式和查询安全规则见[过滤与输出格式](4-Usage-zh.md#过滤与输出格式)。
 
 临时指定 region：
 

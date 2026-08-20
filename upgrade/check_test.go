@@ -777,6 +777,269 @@ func TestWriteCheckCache_RejectsSymlink(t *testing.T) {
 	}
 }
 
+func TestWriteCheckCache_AtomicReplaceFailurePreservesOldCache(t *testing.T) {
+	dir := t.TempDir()
+	origConfigDir := ConfigDirFunc
+	ConfigDirFunc = func() (string, error) { return dir, nil }
+	defer func() { ConfigDirFunc = origConfigDir }()
+
+	if err := SaveCheckCache("9.9.9", "1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	path, err := CheckCachePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := ioutil.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	origRename := renameCheckCacheFile
+	renameCheckCacheFile = func(_, _ string) error {
+		return fmt.Errorf("forced atomic replace failure")
+	}
+	defer func() { renameCheckCacheFile = origRename }()
+
+	err = SaveCheckCache("9.9.10", "1.0.0")
+	if err == nil || !strings.Contains(err.Error(), "forced atomic replace failure") {
+		t.Fatalf("SaveCheckCache error=%v, want forced replace failure", err)
+	}
+	got, err := ioutil.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("old cache changed after failed atomic replace: got=%q want=%q", got, want)
+	}
+	matches, err := filepath.Glob(filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("temporary cache files leaked after failed replace: %v", matches)
+	}
+}
+
+func TestSaveCheckCache_BusyLockDoesNotBypassHolder(t *testing.T) {
+	dir := t.TempDir()
+	orig := ConfigDirFunc
+	ConfigDirFunc = func() (string, error) { return dir, nil }
+	defer func() { ConfigDirFunc = orig }()
+
+	if err := SaveCheckCache("9.9.9", "1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	path, err := CheckCachePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := ioutil.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockPath, err := noticeCacheLockPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	holder, err := acquireExclusiveFileLock(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.release()
+
+	started := time.Now()
+	err = SaveCheckCache("9.9.10", "1.0.0")
+	if err == nil || !strings.Contains(err.Error(), "timed out waiting for notice cache lock") {
+		t.Fatalf("SaveCheckCache error=%v, want busy-lock timeout", err)
+	}
+	if elapsed := time.Since(started); elapsed < noticeCacheLockWait {
+		t.Fatalf("lock wait returned after %v, want at least %v", elapsed, noticeCacheLockWait)
+	}
+	got, err := ioutil.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("cache changed while lock was held: got=%q want=%q", got, want)
+	}
+}
+
+func TestTryClaimUpgradeNotice_BusyLockDoesNotWrite(t *testing.T) {
+	dir := t.TempDir()
+	orig := ConfigDirFunc
+	ConfigDirFunc = func() (string, error) { return dir, nil }
+	defer func() { ConfigDirFunc = orig }()
+
+	if err := SaveCheckCache("9.9.9", "1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	path, err := CheckCachePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := ioutil.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockPath, err := noticeCacheLockPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	holder, err := acquireExclusiveFileLock(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.release()
+
+	if !tryClaimUpgradeNotice("9.9.9", "1.0.0") {
+		t.Fatal("busy-lock claim must prefer printing the notice")
+	}
+	got, err := ioutil.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("claim changed cache while lock was held: got=%q want=%q", got, want)
+	}
+}
+
+func TestInvalidateCheckCache_BusyLockDoesNotDelete(t *testing.T) {
+	dir := t.TempDir()
+	orig := ConfigDirFunc
+	ConfigDirFunc = func() (string, error) { return dir, nil }
+	defer func() { ConfigDirFunc = orig }()
+
+	if err := SaveCheckCache("9.9.9", "1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	path, err := CheckCachePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockPath, err := noticeCacheLockPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	holder, err := acquireExclusiveFileLock(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.release()
+
+	InvalidateCheckCache()
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("cache removed while lock was held: %v", err)
+	}
+}
+
+func TestWithNoticeCacheLock_SerializesFallbackInProcess(t *testing.T) {
+	dir := t.TempDir()
+	origConfigDir := ConfigDirFunc
+	ConfigDirFunc = func() (string, error) { return dir, nil }
+	defer func() { ConfigDirFunc = origConfigDir }()
+
+	origAcquire := acquireNoticeCacheFileLock
+	acquireNoticeCacheFileLock = func(string, time.Duration) (*upgradeLock, error) {
+		return nil, fmt.Errorf("locking unsupported")
+	}
+	defer func() { acquireNoticeCacheFileLock = origAcquire }()
+
+	firstEntered := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	secondEntered := make(chan struct{})
+	done := make(chan error, 2)
+	go func() {
+		done <- withNoticeCacheLock(func() error {
+			close(firstEntered)
+			<-releaseFirst
+			return nil
+		})
+	}()
+	<-firstEntered
+	go func() {
+		done <- withNoticeCacheLock(func() error {
+			close(secondEntered)
+			return nil
+		})
+	}()
+
+	select {
+	case <-secondEntered:
+		t.Fatal("second fallback critical section entered before first released")
+	case <-time.After(25 * time.Millisecond):
+	}
+	close(releaseFirst)
+	select {
+	case <-secondEntered:
+	case <-time.After(time.Second):
+		t.Fatal("second fallback critical section did not enter after release")
+	}
+	for i := 0; i < 2; i++ {
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestSaveCheckCache_ConcurrentReaders verifies atomic replacement independently
+// of file-lock behavior: readers do not take the notice lock and must never see
+// a truncated or partially written JSON document.
+func TestSaveCheckCache_ConcurrentReaders(t *testing.T) {
+	dir := t.TempDir()
+	orig := ConfigDirFunc
+	ConfigDirFunc = func() (string, error) { return dir, nil }
+	defer func() { ConfigDirFunc = orig }()
+
+	if err := SaveCheckCache("9.9.9", "1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	path, err := CheckCachePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const iterations = 200
+	start := make(chan struct{})
+	errCh := make(chan error, 2)
+	go func() {
+		<-start
+		for i := 0; i < iterations; i++ {
+			if err := SaveCheckCache(fmt.Sprintf("9.9.%d", i), "1.0.0"); err != nil {
+				errCh <- err
+				return
+			}
+		}
+		errCh <- nil
+	}()
+	go func() {
+		<-start
+		for i := 0; i < iterations*10; i++ {
+			data, err := ioutil.ReadFile(path)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			var c versionCheckCache
+			if err := json.Unmarshal(data, &c); err != nil {
+				errCh <- fmt.Errorf("invalid cache JSON %q: %w", data, err)
+				return
+			}
+			if c.CheckedAt <= 0 || c.Current != "1.0.0" || c.Latest == "" {
+				errCh <- fmt.Errorf("incomplete cache: %+v", c)
+				return
+			}
+		}
+		errCh <- nil
+	}()
+	close(start)
+	for i := 0; i < 2; i++ {
+		if err := <-errCh; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // TestSaveCheckCache_ConcurrentWithClaim ensures SaveCheckCache cannot clobber a
 // same-day Noticed* stamp while concurrent claims race for the slot.
 func TestSaveCheckCache_ConcurrentWithClaim(t *testing.T) {

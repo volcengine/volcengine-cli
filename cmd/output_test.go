@@ -235,8 +235,11 @@ func TestRenderAPIOutputOffSkipsQueryEvaluation(t *testing.T) {
 	outFlag, _ := c.fixedFlags.AddByName("output")
 	outFlag.SetValue("off")
 	qFlag, _ := c.fixedFlags.AddByName("query")
-	qFlag.SetValue("max(A)")
-	data := map[string]interface{}{"A": []interface{}{"not", "numbers"}}
+	// The expression is valid, but evaluating it against a non-string would
+	// fail. Format off still validates the expression before the request, then
+	// deliberately skips data-dependent evaluation after the request.
+	qFlag.SetValue("starts_with(A, 'x')")
+	data := map[string]interface{}{"A": map[string]interface{}{"not": "a string"}}
 	if err := renderAPIOutput(c, nil, data); err != nil {
 		t.Fatalf("off output should skip query evaluation, got %v", err)
 	}
@@ -289,7 +292,7 @@ func TestRenderAPIOutputQueryEvaluationFailure(t *testing.T) {
 	withAPIOutputWriter(t, &buf)
 	c := &Context{fixedFlags: NewFlagSet(), dynamicFlags: NewFlagSet()}
 	qFlag, _ := c.fixedFlags.AddByName("query")
-	qFlag.SetValue("max(Result)")
+	qFlag.SetValue("starts_with(Result, 'x')")
 	err := renderSuccessfulAPIOutput(mustPlan(t, c), nil, map[string]interface{}{"Result": map[string]interface{}{"A": 1}})
 	if err == nil || !strings.Contains(err.Error(), "API call succeeded") || !strings.Contains(err.Error(), "--query evaluation failed") {
 		t.Fatalf("expected post-call query error, got %v", err)

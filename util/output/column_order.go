@@ -19,7 +19,10 @@ package output
 //     in the data (see applyColumnOrder), so a stale or wrong hint can never
 //     drop, invent or reorder real data.
 
-import "strings"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // columnOrder extracts the key order of the multiselect hash that shapes each
 // row. Returns nil when the expression has no usable top-level hash.
@@ -155,8 +158,9 @@ func skipQuoted(s string, i int) (int, bool) {
 }
 
 // unquoteKey accepts a bare identifier or a "quoted key" and returns its literal
-// name. Escapes inside quoted keys are resolved the same way JMESPath does for
-// the common cases (\" and \\); anything else is rejected so the hint stays safe.
+// name. JMESPath quoted identifiers use JSON string escaping, including Unicode
+// escapes and surrogate pairs, so use the JSON decoder instead of maintaining a
+// partial escape implementation here.
 func unquoteKey(raw string) (string, bool) {
 	if raw == "" {
 		return "", false
@@ -177,25 +181,11 @@ func unquoteKey(raw string) (string, bool) {
 	if len(raw) < 2 || raw[len(raw)-1] != '"' {
 		return "", false
 	}
-	var b strings.Builder
-	for i := 1; i < len(raw)-1; i++ {
-		c := raw[i]
-		if c != '\\' {
-			b.WriteByte(c)
-			continue
-		}
-		i++
-		if i >= len(raw)-1 {
-			return "", false
-		}
-		switch raw[i] {
-		case '"', '\\':
-			b.WriteByte(raw[i])
-		default:
-			return "", false
-		}
+	var key string
+	if err := json.Unmarshal([]byte(raw), &key); err != nil {
+		return "", false
 	}
-	return b.String(), true
+	return key, true
 }
 
 // applyColumnOrder reorders keys to match the hint.

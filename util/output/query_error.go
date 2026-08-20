@@ -60,6 +60,8 @@ func newQueryError(expr string, err error) *QueryError {
 	qe := &QueryError{Expression: expr, Offset: -1, Err: err}
 	if se, ok := err.(jmespath.SyntaxError); ok {
 		qe.Offset = se.Offset
+	} else if located, ok := err.(interface{ queryOffset() int }); ok {
+		qe.Offset = located.queryOffset()
 	}
 	return qe
 }
@@ -121,7 +123,8 @@ func humanizeQueryMessage(err error) string {
 	if strings.Contains(msg, "Unknown AST node") {
 		return "the expression is incomplete"
 	}
-	if strings.Contains(msg, "incorrect number of args") {
+	if strings.Contains(msg, "incorrect number of args") ||
+		strings.Contains(msg, " argument(s); expected ") {
 		return "a function was called with the wrong number of arguments"
 	}
 	// The lexer reports a non-ASCII rune as an escape ("Unknown char:
@@ -225,6 +228,8 @@ func queryHint(expr string, err error) string {
 	msg := err.Error()
 
 	switch {
+	case strings.Contains(msg, "exact JSON-number semantics cannot be guaranteed"):
+		return "use field selection, projections, exact equality, and string filters; process numeric ordering or calculations with an exact-number-aware JSON tool"
 	case strings.Contains(msg, "unknown function: "):
 		name := strings.TrimPrefix(msg, "unknown function: ")
 		if suggestion := nearestFunction(name); suggestion != "" {
@@ -314,9 +319,9 @@ func unbalanced(expr string, open, close rune) int {
 // quoteExpr wraps the expression in a delimiter that is not also part of it.
 //
 // %q would escape the single quotes that JMESPath string literals rely on,
-// turning [?S=='R'] into "[?S==\\'R\\']". But wrapping in single quotes fails
-// on exactly the expressions users write most: [?Status=='Running' ends up as
-// '...=='Running'', where the doubled quote hides where the expression stops.
+// turning [?S=='R'] into "[?S==\\'R\\']". Wrapping the whole expression
+// in single quotes also makes a common filter such as [?Status=='Running']
+// ambiguous because the inner and outer delimiters become adjacent.
 // So pick a delimiter the expression does not contain, and fall back to %q only
 // when it contains all of them or is not safely printable.
 func quoteExpr(expr string) string {

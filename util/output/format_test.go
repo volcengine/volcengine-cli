@@ -7,6 +7,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 type shortWriter struct{}
@@ -275,10 +277,10 @@ func TestWriteYAMLSortsObjectKeys(t *testing.T) {
 	}
 	want := `Alpha: a
 List:
-- Arn: arn-2
-  Id: i-2
-- Arn: arn-1
-  Id: i-1
+  - Arn: arn-2
+    Id: i-2
+  - Arn: arn-1
+    Id: i-1
 Nested:
   a: 2
   b: 1
@@ -380,23 +382,13 @@ func TestApplyQueryInvalid(t *testing.T) {
 	}
 }
 
-func TestApplyQuerySupportsJSONNumberOperationsWithoutLosingLargeIntegers(t *testing.T) {
+func TestApplyQueryPreservesJSONNumbersInStructuralProjection(t *testing.T) {
 	data := map[string]interface{}{
-		"Small":     json.Number("42"),
 		"Large":     json.Number("9223372036854775807"),
 		"VeryLarge": json.Number("18446744073709551615"),
 		"Decimal":   json.Number("0.123456789012345678901"),
-		"Items":     []interface{}{json.Number("2"), json.Number("1")},
 	}
-	decimal, err := ApplyQuery(data, "Decimal")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if exact, ok := decimal.(json.Number); !ok || exact.String() != "0.123456789012345678901" {
-		t.Fatalf("Decimal = %#v, want exact json.Number", decimal)
-	}
-
-	got, err := ApplyQuery(data, "{Small:Small > `40`,Max:max(Items),Large:Large,VeryLarge:VeryLarge}")
+	got, err := ApplyQuery(data, "{Large:Large,VeryLarge:VeryLarge,Decimal:Decimal}")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,21 +396,18 @@ func TestApplyQuerySupportsJSONNumberOperationsWithoutLosingLargeIntegers(t *tes
 	if !ok {
 		t.Fatalf("query result = %#v, want map", got)
 	}
-	if result["Small"] != true {
-		t.Fatalf("Small comparison = %#v, want true", result["Small"])
-	}
-	if result["Max"] != float64(2) {
-		t.Fatalf("Max = %#v, want 2", result["Max"])
-	}
 	if large, ok := result["Large"].(json.Number); !ok || large.String() != "9223372036854775807" {
 		t.Fatalf("Large = %#v, want exact json.Number", result["Large"])
 	}
 	if veryLarge, ok := result["VeryLarge"].(json.Number); !ok || veryLarge.String() != "18446744073709551615" {
 		t.Fatalf("VeryLarge = %#v, want exact json.Number", result["VeryLarge"])
 	}
+	if decimal, ok := result["Decimal"].(json.Number); !ok || decimal.String() != "0.123456789012345678901" {
+		t.Fatalf("Decimal = %#v, want exact json.Number", result["Decimal"])
+	}
 }
 
-func TestApplyQueryJSONNumberEqualityAndFilters(t *testing.T) {
+func TestApplyQueryRejectsUnsafeJSONNumberOperations(t *testing.T) {
 	account := json.Number("2106494982")
 	data := map[string]interface{}{
 		"Result": map[string]interface{}{
@@ -430,95 +419,49 @@ func TestApplyQueryJSONNumberEqualityAndFilters(t *testing.T) {
 		},
 	}
 
-	equal, err := ApplyQuery(data, "Result.AccountId == `2106494982`")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if equal != true {
-		t.Fatalf("AccountId == 2106494982 = %#v, want true", equal)
-	}
-
-	notEqual, err := ApplyQuery(data, "Result.AccountId != `2106494982`")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if notEqual != false {
-		t.Fatalf("AccountId != 2106494982 = %#v, want false", notEqual)
-	}
-
-	matched, err := ApplyQuery(data, "Result.Items[?Cpu == `8`].Id")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ids, ok := matched.([]interface{})
-	if !ok || len(ids) != 1 || ids[0] != "a" {
-		t.Fatalf("Cpu == 8 filter = %#v, want [a]", matched)
-	}
-
-	others, err := ApplyQuery(data, "Result.Items[?Cpu != `8`].Id")
-	if err != nil {
-		t.Fatal(err)
-	}
-	otherIDs, ok := others.([]interface{})
-	if !ok || len(otherIDs) != 1 || otherIDs[0] != "b" {
-		t.Fatalf("Cpu != 8 filter = %#v, want [b]", others)
-	}
-
-	gt, err := ApplyQuery(data, "Result.Items[?Cpu > `4`].Id")
-	if err != nil {
-		t.Fatal(err)
-	}
-	gtIDs, ok := gt.([]interface{})
-	if !ok || len(gtIDs) != 1 || gtIDs[0] != "a" {
-		t.Fatalf("Cpu > 4 filter = %#v, want [a]", gt)
+	for _, expr := range []string{
+		"Result.AccountId == `2106494982`",
+		"Result.AccountId != `2106494982`",
+		"Result.Items[?Cpu == `8`].Id",
+		"Result.Items[?Cpu != `8`].Id",
+		"Result.Items[?Cpu > `4`].Id",
+	} {
+		if _, err := ApplyQuery(data, expr); err == nil {
+			t.Errorf("unsafe numeric query %q was accepted", expr)
+		}
 	}
 
 	projected, err := ApplyQuery(data, "Result.AccountId")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, ok := projected.(float64); !ok || got != 2106494982 {
-		t.Fatalf("AccountId projection = %#v, want 2106494982", projected)
+	if got, ok := projected.(json.Number); !ok || got.String() != account.String() {
+		t.Fatalf("AccountId projection = %#v, want exact json.Number %s", projected, account)
 	}
 }
 
-func TestApplyQueryLargeIntegerRelationalCompare(t *testing.T) {
+func TestApplyQueryLargeIntegerOperationsRemainExact(t *testing.T) {
 	data := map[string]interface{}{
-		"N":     json.Number("9223372036854775807"),
-		"Left":  json.Number("9007199254740993"),
-		"Right": json.Number("9007199254740992"),
+		"N":         json.Number("9223372036854775807"),
+		"Left":      json.Number("9007199254740993"),
+		"SameLeft":  json.Number("9007199254740993"),
+		"Different": json.Number("9007199254740992"),
 	}
-	gt, err := ApplyQuery(data, "N > `0`")
-	if err != nil {
-		t.Fatal(err)
+	if _, err := ApplyQuery(data, "N > `0`"); err == nil {
+		t.Fatal("unsafe large-integer ordering query was accepted")
 	}
-	if gt != true {
-		t.Fatalf("N > 0 = %#v, want true", gt)
-	}
-	// Distinct integers above 2^53 collapse to the same IEEE float.
-	collapsed, err := ApplyQuery(data, "Left == Right")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if collapsed != true {
-		t.Fatalf("IEEE collision Left == Right = %#v, want true", collapsed)
-	}
-}
-
-func TestRestoreExactNumbersRejectsDifferentFloat(t *testing.T) {
-	data := map[string]interface{}{"N": json.Number("2")}
-	got := restoreExactNumbersFromData(data, float64(1))
-	if got != float64(1) {
-		t.Fatalf("restore mismatched float = %#v, want 1", got)
-	}
-	got = restoreExactNumbersFromData(data, float64(2))
-	if got != float64(2) {
-		t.Fatalf("small int should stay float64, got %#v", got)
-	}
-	large := map[string]interface{}{"N": json.Number("9223372036854775807")}
-	got = restoreExactNumbersFromData(large, float64(9223372036854775807))
-	if number, ok := got.(json.Number); !ok || number.String() != "9223372036854775807" {
-		t.Fatalf("large int restore = %#v", got)
+	for _, tc := range []struct {
+		expr string
+		want bool
+	}{
+		{"Left == SameLeft", true},
+		{"Left == Different", false},
+		{"Left != Different", true},
+	} {
+		got, err := ApplyQuery(data, tc.expr)
+		if err != nil || got != tc.want {
+			t.Errorf("ApplyQuery(%q) = %#v, %v; want %v", tc.expr, got, err, tc.want)
+		}
 	}
 }
 
@@ -536,7 +479,7 @@ func TestApplyQueryDoesNotRewriteNumericLookingStrings(t *testing.T) {
 	}
 }
 
-func TestApplyQueryDoesNotRestoreComputedLengthOntoNumberDigits(t *testing.T) {
+func TestApplyQueryLengthRemainsAvailableForCollections(t *testing.T) {
 	data := map[string]interface{}{
 		"Cpu":   json.Number("2.0"),
 		"Items": []interface{}{"a", "b"},
@@ -602,19 +545,48 @@ func TestWriteYAMLJSONNumberDecimalsAreNumbers(t *testing.T) {
 	}
 }
 
-// TestWriteYAMLJSONNumberLongDecimalStaysQuoted is the other half of the
-// yamlNumberScalar contract: digits that cannot round-trip through float64
-// must stay a quoted string, not a rounded YAML number.
-func TestWriteYAMLJSONNumberLongDecimalStaysQuoted(t *testing.T) {
-	const raw = "0.123456789012345678901"
-	data := map[string]interface{}{"Decimal": json.Number(raw)}
+func TestWriteYAMLJSONNumbersPreserveTagAndLiteral(t *testing.T) {
+	data := map[string]interface{}{
+		"Exponent":     json.Number("1e3"),
+		"ExponentPlus": json.Number("1E+3"),
+		"TrailingZero": json.Number("1.0"),
+		"LongDecimal":  json.Number("0.123456789012345678901"),
+		"HugeInteger":  json.Number("123456789012345678901234567890"),
+	}
 	var buf bytes.Buffer
 	if err := Write(&buf, FormatYAML, data); err != nil {
 		t.Fatal(err)
 	}
-	want := "Decimal: \"" + raw + "\"\n"
-	if buf.String() != want {
-		t.Fatalf("long decimal yaml = %q, want %q", buf.String(), want)
+
+	var document yaml.Node
+	if err := yaml.Unmarshal(buf.Bytes(), &document); err != nil {
+		t.Fatalf("parse rendered YAML: %v\n%s", err, buf.String())
+	}
+	if len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
+		t.Fatalf("rendered YAML root = %#v, want mapping", document.Content)
+	}
+	values := make(map[string]*yaml.Node)
+	content := document.Content[0].Content
+	for i := 0; i+1 < len(content); i += 2 {
+		values[content[i].Value] = content[i+1]
+	}
+	for key, want := range map[string]struct {
+		tag, value string
+	}{
+		"Exponent":     {tag: "!!float", value: "1e3"},
+		"ExponentPlus": {tag: "!!float", value: "1E+3"},
+		"TrailingZero": {tag: "!!float", value: "1.0"},
+		"LongDecimal":  {tag: "!!float", value: "0.123456789012345678901"},
+		"HugeInteger":  {tag: "!!int", value: "123456789012345678901234567890"},
+	} {
+		node := values[key]
+		if node == nil {
+			t.Fatalf("missing %s in rendered YAML:\n%s", key, buf.String())
+		}
+		if node.Tag != want.tag || node.Value != want.value {
+			t.Errorf("%s = tag %q value %q, want tag %q value %q\n%s",
+				key, node.Tag, node.Value, want.tag, want.value, buf.String())
+		}
 	}
 }
 

@@ -17,7 +17,7 @@ Starting from v1.0.20, the Volcengine CLI command prefix changed from `volcengin
 
 Volcengine CLI is a command-line tool for calling and managing Volcengine OpenAPI. You can use it to configure credentials, switch profiles, discover services and actions, call APIs, and obtain temporary credentials through SSO or Console Login.
 
-Go 1.12+ is recommended.
+Go 1.17 or later is required to build from source. Prebuilt Release and npm installations do not require Go.
 
 ### Quick Install
 
@@ -102,7 +102,7 @@ ve sts GetCallerIdentity
 1. [Getting Started](docs/1-GettingStarted.md): install, build from source, configure PATH, and make the first API call.
 2. [Authentication](docs/2-Authentication.md): AK/SK, default credential chain, OIDC, ECS instance role, SSO, and Console Login.
 3. [Configuration](docs/3-Configuration.md): inspect, list, switch, update, and delete profiles.
-4. [Usage](docs/4-Usage.md): service discovery, API calls, system flags, JSON body, arrays, and nested parameters.
+4. [Usage](docs/4-Usage.md): service discovery, API calls, system flags, JSON body, arrays and nested parameters, plus `--query` filtering and `--output` formats.
 5. [Advanced Usage](docs/5-Advanced.md): shell completion, colored output, debug logs, `--force` invocation, and FAQ.
 
 ### Security and privacy

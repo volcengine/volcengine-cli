@@ -181,6 +181,13 @@ func setRuntimeConfig(cfg *Configure) {
 
 // WriteConfigToFile store config
 func WriteConfigToFile(config *Configure) error {
+	return writeConfigToFile(config, replaceFile)
+}
+
+// writeConfigToFile keeps the replacement operation injectable without
+// changing process-global state. Production always passes replaceFile; tests
+// can exercise a failure after the temporary file has been fully written.
+func writeConfigToFile(config *Configure, replacer func(src, dst string) error) error {
 	configFileMu.Lock()
 	defer configFileMu.Unlock()
 
@@ -192,7 +199,9 @@ func WriteConfigToFile(config *Configure) error {
 	if err := os.MkdirAll(configFileDir, 0700); err != nil {
 		return err
 	}
-	_ = os.Chmod(configFileDir, 0700)
+	if err := os.Chmod(configFileDir, 0700); err != nil {
+		return err
+	}
 
 	targetPath := filepath.Join(configFileDir, ConfigFile)
 
@@ -206,7 +215,9 @@ func WriteConfigToFile(config *Configure) error {
 		_ = tempFile.Close()
 		_ = os.Remove(tempName)
 	}()
-	_ = tempFile.Chmod(0600)
+	if err := tempFile.Chmod(0600); err != nil {
+		return err
+	}
 
 	data, err := marshalConfig(config)
 	if err != nil {
@@ -222,23 +233,7 @@ func WriteConfigToFile(config *Configure) error {
 		return err
 	}
 
-	if err := replaceFile(tempName, targetPath); err != nil {
-		return err
-	}
-	_ = os.Chmod(targetPath, 0600)
-	return nil
-}
-
-// replaceFile moves src onto dst. On Windows, os.Rename fails when dst already
-// exists, so delete dst and retry — same pattern as writeJSONFileAtomic.
-func replaceFile(src, dst string) error {
-	if err := os.Rename(src, dst); err != nil {
-		removeErr := os.Remove(dst)
-		if removeErr == nil || os.IsNotExist(removeErr) {
-			if err2 := os.Rename(src, dst); err2 == nil {
-				return nil
-			}
-		}
+	if err := replacer(tempName, targetPath); err != nil {
 		return err
 	}
 	return nil

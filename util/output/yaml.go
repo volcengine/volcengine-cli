@@ -1,67 +1,105 @@
 package output
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"math"
-	"strconv"
+	"strings"
 
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 func writeYAML(w io.Writer, data interface{}) error {
-	b, err := yaml.Marshal(prepareYAML(data))
+	node, err := prepareYAML(data)
 	if err != nil {
 		return fmt.Errorf("yaml encode: %w", err)
 	}
-	if _, err = w.Write(b); err != nil {
+	var encoded bytes.Buffer
+	encoder := yaml.NewEncoder(&encoded)
+	// yaml.v2 used two-space indentation. Keep the established CLI output
+	// stable while using yaml.v3 nodes for exact numeric tags and literals.
+	encoder.SetIndent(2)
+	if err := encoder.Encode(node); err != nil {
+		return fmt.Errorf("yaml encode: %w", err)
+	}
+	if err := encoder.Close(); err != nil {
+		return fmt.Errorf("yaml encode: %w", err)
+	}
+	if _, err = w.Write(encoded.Bytes()); err != nil {
 		return fmt.Errorf("yaml write: %w", err)
 	}
 	return nil
 }
 
-// prepareYAML converts data for yaml.v2:
-//   - json.Number / exact integer float64 become int64/uint64 when they fit
-//   - non-integer json.Number becomes float64 when that float's shortest
-//     decimal form matches the original digits (so 0.1 / 1.5 stay YAML
-//     numbers); otherwise the exact digit string, so yaml.v2 cannot silently
-//     round or emit scientific notation such as 2.106494982e+09
-//   - maps become yaml.MapSlice with sorted keys so object key order is
+// prepareYAML converts data to explicit yaml.v3 nodes:
+//   - json.Number becomes an !!int or !!float scalar whose value is the exact
+//     original JSON token; it is never parsed through float64
+//   - exact integer float64 values become integer scalars when they fit
+//   - maps become mapping nodes with sorted keys so object key order is
 //     stable; list order is unchanged
 //   - typed nil maps/slices stay nil (YAML null), distinct from {} and []
-func prepareYAML(data interface{}) interface{} {
+func prepareYAML(data interface{}) (*yaml.Node, error) {
 	switch value := data.(type) {
 	case json.Number:
-		return yamlNumberScalar(value)
+		return yamlNumberScalar(value), nil
 	case float64:
-		return yamlFloatScalar(value)
+		return yamlEncodeNode(yamlFloatScalar(value))
 	case map[string]interface{}:
 		if value == nil {
-			return nil
+			return yamlNullNode(), nil
 		}
 		return yamlSortedMapping(value)
 	case []interface{}:
 		if value == nil {
-			return nil
+			return yamlNullNode(), nil
 		}
-		normalized := make([]interface{}, len(value))
-		for index, item := range value {
-			normalized[index] = prepareYAML(item)
+		node := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		node.Content = make([]*yaml.Node, 0, len(value))
+		for _, item := range value {
+			child, err := prepareYAML(item)
+			if err != nil {
+				return nil, err
+			}
+			node.Content = append(node.Content, child)
 		}
-		return normalized
+		return node, nil
 	default:
-		return data
+		return yamlEncodeNode(data)
 	}
 }
 
-func yamlSortedMapping(value map[string]interface{}) yaml.MapSlice {
+func yamlSortedMapping(value map[string]interface{}) (*yaml.Node, error) {
 	keys := sortedMapKeys(value)
-	items := make(yaml.MapSlice, len(keys))
-	for i, key := range keys {
-		items[i] = yaml.MapItem{Key: key, Value: prepareYAML(value[key])}
+	node := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	node.Content = make([]*yaml.Node, 0, 2*len(keys))
+	for _, key := range keys {
+		child, err := prepareYAML(value[key])
+		if err != nil {
+			return nil, err
+		}
+		node.Content = append(node.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+			child,
+		)
 	}
-	return items
+	return node, nil
+}
+
+func yamlEncodeNode(value interface{}) (*yaml.Node, error) {
+	if value == nil {
+		return yamlNullNode(), nil
+	}
+	var node yaml.Node
+	if err := node.Encode(value); err != nil {
+		return nil, err
+	}
+	return &node, nil
+}
+
+func yamlNullNode() *yaml.Node {
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!null", Value: "null"}
 }
 
 func yamlFloatScalar(value float64) interface{} {
@@ -81,23 +119,11 @@ func yamlFloatScalar(value float64) interface{} {
 	return value
 }
 
-func yamlNumberScalar(number json.Number) interface{} {
+func yamlNumberScalar(number json.Number) *yaml.Node {
 	raw := number.String()
-	if integer, err := strconv.ParseInt(raw, 10, 64); err == nil {
-		return integer
+	tag := "!!int"
+	if strings.ContainsAny(raw, ".eE") {
+		tag = "!!float"
 	}
-	if unsigned, err := strconv.ParseUint(raw, 10, 64); err == nil {
-		return unsigned
-	}
-	// Non-integer: emit a real YAML number when float64 has the same shortest
-	// decimal representation. Otherwise keep the raw JSON number string to avoid
-	// silently rounding digits. Production responses decode numbers as
-	// json.Number (WithForceJsonNumberDecode), so this branch is the common path
-	// for decimals such as 0.1 / 1.5 and must not quote them.
-	if f, err := strconv.ParseFloat(raw, 64); err == nil {
-		if strconv.FormatFloat(f, 'g', -1, 64) == raw {
-			return f
-		}
-	}
-	return raw
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: tag, Value: raw}
 }

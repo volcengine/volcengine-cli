@@ -96,7 +96,14 @@ func renderSection(w io.Writer, sec section, opts Options, numbered bool, termWi
 	}
 
 	if sec.title != "" {
-		if _, err := io.WriteString(w, sec.title+"\n"); err != nil {
+		// Section titles contain response keys and query aliases. Treat them as
+		// untrusted terminal text just like cells: controls must be visible, and
+		// a long title must not bypass the configured terminal width.
+		title := escapeCellString(sec.title)
+		if termWidth > 0 {
+			title = truncateToWidth(title, termWidth)
+		}
+		if _, err := io.WriteString(w, title+"\n"); err != nil {
 			return err
 		}
 	}
@@ -121,6 +128,11 @@ func tableFromKeyValue(m map[string]interface{}) (headers []string, rows [][]str
 func withRowNumbers(headers []string, rows [][]string) ([]string, [][]string) {
 	if len(headers) > 0 {
 		headers = append([]string{"#"}, headers...)
+	} else if len(rows) > 0 {
+		// Positional projections (for example a list of lists) have no named
+		// data headers, but table-num still promises a visible leading # column.
+		headers = make([]string, len(rows[0])+1)
+		headers[0] = "#"
 	}
 	numbered := make([][]string, len(rows))
 	for i, r := range rows {

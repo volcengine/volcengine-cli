@@ -1,10 +1,13 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -1283,8 +1286,11 @@ func TestConfigureSetHelpIncludesCredentialExamples(t *testing.T) {
 }
 
 func TestWriteConfigToFileOverwritesExisting(t *testing.T) {
-	_, cleanup := withTestConfigDir(t)
+	configDir, cleanup := withTestConfigDir(t)
 	defer cleanup()
+	if err := os.Chmod(configDir, 0755); err != nil {
+		t.Fatalf("make config directory deliberately permissive: %v", err)
+	}
 
 	first := &Configure{
 		Current:     "one",
@@ -1295,6 +1301,10 @@ func TestWriteConfigToFileOverwritesExisting(t *testing.T) {
 	if err := WriteConfigToFile(first); err != nil {
 		t.Fatalf("first WriteConfigToFile: %v", err)
 	}
+	configPath := filepath.Join(configDir, ConfigFile)
+	if err := os.Chmod(configPath, 0644); err != nil {
+		t.Fatalf("make existing config deliberately permissive: %v", err)
+	}
 	second := &Configure{
 		Current:     "two",
 		Profiles:    map[string]*Profile{},
@@ -1304,9 +1314,150 @@ func TestWriteConfigToFileOverwritesExisting(t *testing.T) {
 	if err := WriteConfigToFile(second); err != nil {
 		t.Fatalf("overwrite WriteConfigToFile: %v", err)
 	}
+	if runtime.GOOS != "windows" {
+		assertFilePerm(t, configDir, 0700)
+		assertFilePerm(t, configPath, 0600)
+	}
+	assertNoConfigTempFiles(t, configDir)
 	loaded := LoadConfig()
 	if loaded == nil || loaded.Current != "two" || loaded.EnableColor {
 		t.Fatalf("loaded after overwrite = %#v, want current=two enableColor=false", loaded)
+	}
+}
+
+func TestWriteConfigToFileReplaceFailurePreservesExistingAndCleansTemp(t *testing.T) {
+	configDir, cleanup := withTestConfigDir(t)
+	defer cleanup()
+
+	configPath := filepath.Join(configDir, ConfigFile)
+	wantOld := []byte("existing config must survive\n")
+	if err := os.WriteFile(configPath, wantOld, 0600); err != nil {
+		t.Fatalf("write existing config: %v", err)
+	}
+	wantNew := &Configure{
+		Current:     "replacement",
+		Profiles:    map[string]*Profile{},
+		SsoSession:  map[string]*SsoSession{},
+		EnableColor: true,
+	}
+	replaceErr := errors.New("injected replace failure")
+	var tempPath string
+	replacer := func(src, dst string) error {
+		tempPath = src
+		if dst != configPath {
+			t.Fatalf("replacement destination = %q, want %q", dst, configPath)
+		}
+		if filepath.Dir(src) != configDir {
+			t.Fatalf("temporary file directory = %q, want %q", filepath.Dir(src), configDir)
+		}
+
+		tempData, err := os.ReadFile(src)
+		if err != nil {
+			t.Fatalf("temporary source must exist when replacement starts: %v", err)
+		}
+		expectedData, err := marshalConfig(wantNew)
+		if err != nil {
+			t.Fatalf("marshal expected config: %v", err)
+		}
+		if !bytes.Equal(tempData, expectedData) {
+			t.Fatalf("temporary source content = %q, want %q", tempData, expectedData)
+		}
+		if runtime.GOOS != "windows" {
+			assertFilePerm(t, src, 0600)
+		}
+
+		oldData, err := os.ReadFile(dst)
+		if err != nil {
+			t.Fatalf("read destination before injected failure: %v", err)
+		}
+		if !bytes.Equal(oldData, wantOld) {
+			t.Fatalf("destination changed before replacement: got %q, want %q", oldData, wantOld)
+		}
+		return replaceErr
+	}
+
+	if err := writeConfigToFile(wantNew, replacer); !errors.Is(err, replaceErr) {
+		t.Fatalf("writeConfigToFile error = %v, want injected error", err)
+	}
+	gotOld, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("existing destination was lost after failed replacement: %v", err)
+	}
+	if !bytes.Equal(gotOld, wantOld) {
+		t.Fatalf("destination changed after failed replacement: got %q, want %q", gotOld, wantOld)
+	}
+	if tempPath == "" {
+		t.Fatal("replacement hook was not called")
+	}
+	if _, err := os.Stat(tempPath); !os.IsNotExist(err) {
+		t.Fatalf("temporary source was not removed after failed replacement: %v", err)
+	}
+	assertNoConfigTempFiles(t, configDir)
+}
+
+func assertFilePerm(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %q: %v", path, err)
+	}
+	if got := info.Mode().Perm(); got != want {
+		t.Fatalf("permissions for %q = %04o, want %04o", path, got, want)
+	}
+}
+
+func assertNoConfigTempFiles(t *testing.T, configDir string) {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(configDir, ".tmp-config-*"))
+	if err != nil {
+		t.Fatalf("glob config temporary files: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("config temporary files were not cleaned up: %v", matches)
+	}
+}
+
+func TestReplaceFileOverwritesExisting(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "replacement")
+	dst := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(src, []byte("new config"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("old config"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := replaceFile(src, dst); err != nil {
+		t.Fatalf("replaceFile: %v", err)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "new config" {
+		t.Fatalf("destination content = %q, want replacement content", got)
+	}
+}
+
+func TestReplaceFileFailurePreservesExisting(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "missing-replacement")
+	dst := filepath.Join(dir, "config.json")
+	want := []byte("existing config must survive")
+	if err := os.WriteFile(dst, want, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := replaceFile(src, dst); err == nil {
+		t.Fatal("replaceFile with a missing source unexpectedly succeeded")
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("existing destination was lost after failed replacement: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("destination changed after failed replacement: got %q, want %q", got, want)
 	}
 }
 

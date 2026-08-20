@@ -22,6 +22,8 @@ func TestColumnOrderExtractsWrittenOrder(t *testing.T) {
 		{`a[].{"with space":x,"with:colon":y}`,
 			[]string{"with space", "with:colon"}},
 		{`a[].{"esc\"quote":x,plain:y}`, []string{`esc"quote`, "plain"}},
+		{`a[].{"\u005A":x,"\u4E2D":y}`, []string{"Z", "中"}},
+		{`a[].{"\uD83D\uDE80":x,plain:y}`, []string{"🚀", "plain"}},
 		// Whitespace around keys and values.
 		{"a[].{ First : b , Second : c }", []string{"First", "Second"}},
 		// Filter before the hash still exposes the shaping hash.
@@ -46,12 +48,12 @@ func TestColumnOrderReturnsNilWhenNoUsableHint(t *testing.T) {
 		"Result.Instances[].[InstanceId,Status]", // multiselect list, not a hash
 		"Result",
 		"merge(a, b)",
-		"{a:x,a:y}",       // duplicate keys collapse in the evaluated map
-		"{}",              // empty hash
-		"{a:x",            // unbalanced brace
-		"a[].{no_colon}",  // key without value
-		"a[].{a b:x}",     // space inside a bare identifier
-		"a[].{'sq':x}",    // raw-string literal is not a valid key form
+		"{a:x,a:y}",      // duplicate keys collapse in the evaluated map
+		"{}",             // empty hash
+		"{a:x",           // unbalanced brace
+		"a[].{no_colon}", // key without value
+		"a[].{a b:x}",    // space inside a bare identifier
+		"a[].{'sq':x}",   // raw-string literal is not a valid key form
 	} {
 		if got := columnOrder(expr); got != nil {
 			t.Errorf("columnOrder(%q) = %v, want nil", expr, got)
@@ -101,6 +103,25 @@ func TestTableFollowsQueryColumnOrder(t *testing.T) {
 		strings.Index(header, "Id"), strings.Index(header, "Status")
 	if nameAt < 0 || idAt < 0 || statusAt < 0 || !(nameAt < idAt && idAt < statusAt) {
 		t.Fatalf("column order Name,Id,Status not preserved:\n%s", buf.String())
+	}
+}
+
+func TestTableFollowsUnicodeEscapedAliasOrder(t *testing.T) {
+	q, err := CompileQuery(`Result.Instances[].{"\u005A":InstanceId,A:Status}`)
+	if err != nil {
+		t.Fatalf("CompileQuery: %v", err)
+	}
+	rows, err := q.Search(sampleEnvelope())
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	var buf bytes.Buffer
+	if err := WriteWithOptions(&buf, FormatTable, rows, Options{Columns: q.Columns()}); err != nil {
+		t.Fatalf("WriteWithOptions: %v", err)
+	}
+	header := firstLineContaining(buf.String(), "Z")
+	if zAt, aAt := strings.Index(header, "Z"), strings.Index(header, "A"); zAt < 0 || aAt < 0 || zAt >= aAt {
+		t.Fatalf("escaped alias order Z,A not preserved:\n%s", buf.String())
 	}
 }
 
@@ -185,6 +206,24 @@ func TestTableNumDoesNotNumberSingleObject(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), "| # ") {
 		t.Fatalf("Key|Value table must not gain a # column:\n%s", buf.String())
+	}
+}
+
+func TestTableNumLabelsRowNumbersForListProjection(t *testing.T) {
+	data := []interface{}{
+		[]interface{}{"i-1", "Running"},
+		[]interface{}{"i-2", "Stopped"},
+	}
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatTableNum, data); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) < 4 || !strings.Contains(lines[1], "| # ") {
+		t.Fatalf("list projection is missing the # header:\n%s", buf.String())
+	}
+	if !strings.Contains(buf.String(), "| 1 ") || !strings.Contains(buf.String(), "| 2 ") {
+		t.Fatalf("list projection row numbers are missing:\n%s", buf.String())
 	}
 }
 

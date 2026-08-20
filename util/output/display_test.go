@@ -266,6 +266,53 @@ func TestDeepNestingTerminates(t *testing.T) {
 	}
 }
 
+func TestNestedSectionTitleEscapesTerminalControls(t *testing.T) {
+	key := "Tags\nnext\t\x1b[31mred\x1b[0m\a\u009b2J"
+	data := map[string]interface{}{
+		key: []interface{}{map[string]interface{}{"K": "v"}},
+	}
+	var buf bytes.Buffer
+	if err := WriteWithOptions(&buf, FormatTable, data,
+		Options{TerminalWidth: -1}); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if strings.ContainsAny(out, "\r\t\x1b\a\u009b") {
+		t.Fatalf("section title leaked terminal controls: %q", out)
+	}
+	if !strings.Contains(out, `Tags\nnext\t\x1B[31mred\x1B[0m\x07\x9B2J`) {
+		t.Fatalf("section title controls were not rendered visibly: %q", out)
+	}
+}
+
+func TestNestedSectionTitleRespectsTerminalWidthWithWideRunes(t *testing.T) {
+	const width = 12
+	key := strings.Repeat("中", 12)
+	data := map[string]interface{}{
+		key: []interface{}{map[string]interface{}{"K": "v"}},
+	}
+	var buf bytes.Buffer
+	if err := WriteWithOptions(&buf, FormatTable, data,
+		Options{TerminalWidth: width}); err != nil {
+		t.Fatal(err)
+	}
+	foundTitle := false
+	for _, line := range strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n") {
+		if strings.Contains(line, "中") {
+			foundTitle = true
+			if got := displayWidth(line); got > width {
+				t.Fatalf("section title width %d exceeds terminal %d: %q", got, width, line)
+			}
+			if !strings.HasSuffix(line, "...") {
+				t.Fatalf("truncated section title should end in ellipsis: %q", line)
+			}
+		}
+	}
+	if !foundTitle {
+		t.Fatalf("nested section title missing: %q", buf.String())
+	}
+}
+
 // --- 5. Color ------------------------------------------------------------
 
 // Color must not change layout: a colored table aligns exactly like a plain one.
@@ -305,9 +352,9 @@ func TestColorOffByDefault(t *testing.T) {
 
 func TestStripANSI(t *testing.T) {
 	cases := map[string]string{
-		"\x1b[1mbold\x1b[0m":    "bold",
-		"\x1b[36mcyan\x1b[0m":   "cyan",
-		"plain":                 "plain",
+		"\x1b[1mbold\x1b[0m":      "bold",
+		"\x1b[36mcyan\x1b[0m":     "cyan",
+		"plain":                   "plain",
 		"\x1b[1m\x1b[36mx\x1b[0m": "x",
 	}
 	for in, want := range cases {

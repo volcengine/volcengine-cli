@@ -155,16 +155,135 @@ func TestValidQueriesStillCompile(t *testing.T) {
 		"Result.Instances[].{Id:InstanceId,Status:Status}",
 		"Result.Instances[?Status=='Running'].InstanceId",
 		"length(Result.Instances)",
+		"Left == Right",
+		"Left != Right",
+		"length(A) == length(B)",
 		"sort_by(Result.Instances, &InstanceId)[].InstanceId",
+		"max_by(Result.Instances, &InstanceId).InstanceId",
+		"min_by(Result.Instances, &InstanceId).InstanceId",
+		"type('web')",
+		"sort(`[\"db\",\"web\"]`)",
+		"max(`[\"db\",\"web\"]`)",
+		"min(`[\"db\",\"web\"]`)",
 		"Result.Instances[0]",
-		"max_by(Result.Instances, &Size).InstanceId",
 		`"odd-name".value`,
 		"Result.Instances | [0].InstanceId",
 		"merge(Result, ResponseMetadata)",
 		"not_null(Result.Missing, Result.TotalCount)",
+		"starts_with(Result.Name, 'web-')",
+		"contains(Result.Name, 'web')",
+		"contains(Result.Tags, 'web')",
+		"length(`[1]`)",
+		"length(`[9007199254740993]`)",
+		"keys(`{\"N\":9007199254740993}`)",
+		"merge(A,B,C)",
+		"not_null(A,B,C)",
+		"merge({A:not_null(Bar, Baz),B:[One,Two]}, {CommaKey:'x,y'})",
 	} {
 		if _, err := CompileQuery(expr); err != nil {
 			t.Errorf("valid expression %q rejected: %v", expr, err)
+		}
+	}
+}
+
+func TestBooleanAndNullEqualityQueriesCompile(t *testing.T) {
+	for _, expr := range []string{
+		"Enabled == `true`",
+		"`false` != Enabled",
+		"DeletedAt == `null`",
+		"`null` != DeletedAt",
+		"Items[?Enabled == `true`].Name",
+		"Items[?DeletedAt != `null`].Name",
+		"Enabled\t==\n( `true` )",
+		"(( `false` )) != Enabled",
+	} {
+		if _, err := CompileQuery(expr); err != nil {
+			t.Errorf("safe boolean/null comparison %q rejected: %v", expr, err)
+		}
+	}
+}
+
+func TestQueryErrorCatchesUnknownFunctionInsideProjection(t *testing.T) {
+	msg := compileErr(t, "Result.Instances[].nosuchfunc(@)")
+	if !strings.Contains(msg, "nosuchfunc") {
+		t.Fatalf("expected projection function name before evaluation:\n%s", msg)
+	}
+	if !strings.Contains(msg, "^") {
+		t.Fatalf("expected a caret at the function call:\n%s", msg)
+	}
+}
+
+func TestQueryErrorCatchesArityInsideFilter(t *testing.T) {
+	msg := compileErr(t, "Result.Instances[?starts_with(Name)].Id")
+	if !strings.Contains(msg, "wrong number of arguments") {
+		t.Fatalf("expected filter arity error before evaluation:\n%s", msg)
+	}
+}
+
+func TestQueryValidationRecursesIntoFunctionArguments(t *testing.T) {
+	for _, expr := range []string{
+		"not_null(A, nosuchfunc(Value))",
+		"map(&nosuchfunc(@), Items)",
+	} {
+		msg := compileErr(t, expr)
+		if !strings.Contains(msg, "nosuchfunc") {
+			t.Errorf("nested unknown function in %q was missed:\n%s", expr, msg)
+		}
+	}
+
+	msg := compileErr(t, "not_null(A, length(B, C))")
+	if !strings.Contains(msg, "wrong number of arguments") {
+		t.Fatalf("nested arity error was missed:\n%s", msg)
+	}
+}
+
+func TestQueryArityHandlesNestedDelimitersAndQuotedCommas(t *testing.T) {
+	for _, expr := range []string{
+		"merge(A, {Nested:not_null(B,C), List:[D,E]}, F)",
+		"not_null('a,b', {X:'c,d'}, [A,B])",
+		"map(&not_null(@, 'fallback,value'), Items)",
+	} {
+		if _, err := CompileQuery(expr); err != nil {
+			t.Errorf("valid nested call %q rejected: %v", expr, err)
+		}
+	}
+}
+
+func TestQueryValidationSkipsQuotedContent(t *testing.T) {
+	for _, expr := range []string{
+		`"nosuchfunc(@)"`,
+		"Result[?Name=='nosuchfunc(@)']",
+		"to_string(`{\"call\":\"nosuchfunc(@)\",\"cmp\":\"1 > 0\"}`)",
+		"'Field == `true` && N == `1`'",
+		"\"field==`true`\"",
+		"to_string(`{\"cmp\":\"Left == Right\",\"enabled\":true}`)",
+		"`\"9007199254740993\"`",
+		"to_string(`{\"digits\":\"9007199254740993\"}`)",
+	} {
+		if _, err := CompileQuery(expr); err != nil {
+			t.Errorf("quoted content in %q was scanned as code: %v", expr, err)
+		}
+	}
+}
+
+func TestUnsafeNumericQueriesAreRejected(t *testing.T) {
+	for _, expr := range []string{
+		"N == `9007199254740993`",
+		"`9007199254740993` == N",
+		"N != (`0.10000000000000001`)",
+		"(`-1`) != N",
+		"`true` == `1`",
+		"`0` != `null`",
+		"'text' == `1`",
+		"N > `0`",
+		"Items[?Cpu != `8`]",
+		"avg(Items)",
+		"contains(Items, `8`)",
+		"contains(not_null(`[9007199254740993]`, 'unused'), '9007199254740992')",
+	} {
+		msg := compileErr(t, expr)
+		if !strings.Contains(msg, "exact JSON-number semantics") {
+			t.Errorf("%q did not explain the exact-number restriction:\n%s", expr, msg)
 		}
 	}
 }
@@ -222,9 +341,8 @@ func TestQuoteExprKeepsStringLiteralsReadable(t *testing.T) {
 	}
 }
 
-// The wrapping delimiter must not also appear inside the expression, otherwise
-// [?Status=='Running' renders as '...=='Running'' and the reader cannot tell
-// where the expression ends.
+// A raw example containing nested single quotes would make the wrapping
+// delimiter ambiguous, so choose a different delimiter for the expression.
 func TestQuoteExprPicksNonConflictingDelimiter(t *testing.T) {
 	cases := []struct {
 		expr string
