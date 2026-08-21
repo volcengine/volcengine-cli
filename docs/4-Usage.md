@@ -8,6 +8,7 @@ Basic command format:
 
 ```shell
 ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
+                      [--api-param Name=Value ...]
                       [--profile name] [--region region] [--endpoint endpoint] [--lang language]
                       [--version api-version] [--method GET|POST] [--force]
                       [--output json|table|table-num|text|yaml|off] [--query jmespath]
@@ -15,15 +16,15 @@ ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json
 
 Argument kinds:
 
-- **API parameters**: double-dash `--Param value` (enter request body/query; reserved names `body` / `header` excluded)
+- **API parameters**: double-dash `--Param value` (enter request body/query; reserved names `body` / `header` / `api-param` excluded)
 - **Public system flags** (after the action): `--profile` / `--region` / `--endpoint` / `--lang` / `--version` / `--method` / `--force` / `--output` / `--query`
-- **Reserved double-dash controls**: `--header` (HTTP headers), `--body` (JSON body); **not** API parameters
+- **Reserved double-dash controls**: `--header` (HTTP headers), `--body` (JSON body), and force-only `--api-param Name=Value` (explicit API parameter); the controls themselves are **not** API parameters
 
 System flags in API calls use double hyphens and are placed after the action. If an action exposes an exact-name API parameter (case-sensitive), the double-dash form is parsed as the API parameter.
 
 ### Flag Prefix Contract
 
-The CLI has exactly one public flag prefix: **double dash `--name`**. System flags, API parameters and the reserved controls (`--header` / `--body`) all use double dashes.
+The CLI has exactly one public flag prefix: **double dash `--name`**. System flags, API parameters and the reserved controls (`--header` / `--body` / `--api-param`) all use double dashes.
 
 - Help output, shell completion, error messages and documentation examples show the `--name` form only.
 - Conflicts are case-sensitive and resolved against the parameters the current action actually exposes: `--Region` and `--Lang` are always API parameters.
@@ -121,6 +122,7 @@ Names with different casing, such as `--Region` or `--Endpoint`, are always API 
 | --- | --- |
 | `--header Name=Value` | Add an HTTP request header; **repeatable**; never enters the request body. `Content-Type` overrides metadata; last value wins for the same name |
 | `--body json` | JSON request body for `application/json` style calls; mutually exclusive with other API parameters |
+| `--api-param Name=Value` | Add an explicit API business parameter; **repeatable and available only with `--force`**. Primarily resolves system-name conflicts such as an unlisted API's business parameters named `query` or `output` |
 
 ```shell
 ve sts GetCallerIdentity --header X-Custom-Trace=abc
@@ -128,6 +130,9 @@ ve newsvc Act --force --version 2024-01-01 --endpoint open.volcengineapi.com \
   --header Content-Type=application/json \
   --header X-Feature=on \
   --body '{"k":1}'
+ve newsvc Search --force --version 2024-01-01 --endpoint open.volcengineapi.com \
+  --query 'Result.Items' --output table \
+  --api-param 'query=server-side-filter' --api-param 'output=compact'
 ```
 
 Notes:
@@ -136,7 +141,9 @@ Notes:
 - With `--body` and no metadata, Content-Type defaults to `application/json`
 - `--header` can be used with `--body`; headers are not flattened API params and do not conflict with `--body`
 - Blocked header names: `Host`, `Authorization`, `Content-Length` (transport/signing)
-- Reserved names: `--header` and `--body` cannot be used as ordinary API parameter names
+- `--api-param` splits on the first `=` only, trims the parameter name while preserving its case, and permits an empty value. Duplicate names or a same-case collision with a direct `--Name value` are errors rather than last-value-wins
+- `--api-param` is expanded before request construction, works for both JSON and query/form calls, and never enters the request itself
+- Reserved names: `--header`, `--body`, and `--api-param` cannot be used as ordinary API parameter names
 
 Examples:
 
@@ -164,6 +171,8 @@ Known exact-name conflicts include:
 - `--query` on `insight AgentChat`: after that action `--query` is the API parameter; keep the default JSON output and filter it downstream
 
 The same rule applies if other actions later expose colliding names: the double-dash form after that action is the API parameter.
+
+For an unlisted action, metadata cannot declare a collision, so `--query` and `--output` retain their public system meanings. With `--force`, pass same-named business parameters explicitly as `--api-param query=<value>` and `--api-param output=<value>`; both system and business values can then be used in one call without ambiguity. This explicit route also works with a bundled action when `--force` is set, but it cannot override a directly supplied same-case API parameter.
 
 ### Display Language
 
@@ -264,6 +273,19 @@ ve newservice DescribeNewResource \
   --force
 ```
 
+For an unlisted query/form API whose business parameters are named `query` and `output`, keep the public flags as response controls and use the explicit force-only business-parameter route:
+
+```shell
+ve newservice Search \
+  --version 2024-01-01 \
+  --endpoint open.volcengineapi.com \
+  --force \
+  --query 'Result.Items' \
+  --output table \
+  --api-param 'query=status=active' \
+  --api-param 'output='
+```
+
 ## Common Scenarios
 
 Use current profile:
@@ -319,7 +341,7 @@ region not set, please set it via profile, --region flag, or VOLCENGINE_REGION e
 ```
 
 Public system flags (double-dash): `--profile`, `--region`, `--endpoint`, `--lang`, `--force`, `--version`, `--method`, `--output`, `--query`.
-Reserved double-dash controls: `--header`, `--body` (see “Reserved Double-Dash Controls” above).
+Reserved double-dash controls: `--header`, `--body`, `--api-param` (see “Reserved Double-Dash Controls” above).
 
 ## Filtering and Output Formats
 
@@ -363,23 +385,23 @@ Notes:
 
 - **`ResponseMetadata` stripping (display layer)**: **without `--query`**, `table` / `table-num` / `text` drop the top-level `ResponseMetadata` before rendering so the output shows the payload directly. **With an explicit `--query`, nothing is stripped** — the query result is exactly what you selected, so `--query 'ResponseMetadata.RequestId'` returns its value and `--query '@'` shows the full response verbatim. `json` / `yaml` **always keep the full response** (including `RequestId`), so scripted consumers are unaffected. A response containing only `ResponseMetadata` (common for write APIs) is left intact in both cases so it does not look empty. A nested field that happens to be named `ResponseMetadata` is payload and is never removed.
 - **Nested sections**: `table` splits nested objects and record lists into separate titled sections (the title is the field path, e.g. `Result.Instances.Tags[1]`) instead of dumping JSON into a cell. A nested field **also stays as a main-table column**, where the cell reads `(see section)` and points at the matching section; when the same field is a scalar, `null` or an empty list on some records, those values are still shown in the main table rather than being dropped because another record nests it. Section numbering starts at 1 and matches the `#` column of `table-num`, so a section can be traced back to its record. No number is added when the parent list holds a single record. Lists of plain scalars (e.g. `["sg-1","sg-2"]`) stay inline in the cell.
-- **Single-row verticalization**: when the terminal width **is known** and a single record is wider than it, the record is transposed into a two-column `Field | Value` table to avoid horizontal scrolling. Multi-row results, `table-num`, and any case where the width is unknown (redirected output, pipes, failed probe) keep the horizontal layout.
+- **Single-record verticalization**: a single object (and any single-row result) renders as one horizontal record — a field-name header row plus a value row, matching the AWS CLI. Only when the terminal width **is known** and that row is wider than it, the record is transposed into a two-column `Field | Value` table to avoid horizontal scrolling. Multi-row results and any case where the width is unknown (redirected output, pipes, failed probe) keep the horizontal layout.
 - **Terminal width fitting**: when writing to a terminal the width is detected automatically; over-wide grids shrink the widest column first and wrap cell content onto additional physical rows without discarding response values. Every column keeps a minimum readable width. Redirected or piped output is not wrapped, so each value stays on one complete line.
-- **Column order**: with a `--query` multi-select hash (`{Key:Path,...}`), `table` / `table-num` / `text` follow the order you wrote — **for both record lists and a single object** (for a single object under `table` this is the row order of the Key column). Everything else (no `--query`, plain path projection, expressions such as `merge()` where the order cannot be determined statically, or duplicate keys in the hash) falls back to alphabetical field order. A hint that does not match the actual fields is discarded as a whole, so ordering is never applied partially and no column is lost. Write an explicit multi-select hash when you need a fixed column order.
-- **Row numbers**: `table-num` adds the `#` column to list results only. A single object renders as a Key/Value table (its rows are fields, not records) and is never numbered. Numbering starts at 1 and exists for human reference; scripts should read values via `--output json` / `text` rather than the `#` column.
+- **Column order**: with a `--query` multi-select hash (`{Key:Path,...}`), `table` / `table-num` / `text` follow the order you wrote — **for both record lists and a single object** (for a single object this is the header-column order). Everything else (no `--query`, plain path projection, expressions such as `merge()` where the order cannot be determined statically, or duplicate keys in the hash) falls back to alphabetical field order. A hint that does not match the actual fields is discarded as a whole, so ordering is never applied partially and no column is lost. Write an explicit multi-select hash when you need a fixed column order.
+- **Row numbers**: `table-num` adds a leading `#` column to record results. A single object is one record, so it is numbered `1`; a list is numbered from 1 in order. Numbering starts at 1 and exists for human reference; scripts should read values via `--output json` / `text` rather than the `#` column.
 - **Color**: when `enableColor` is on and output goes to a terminal, `table` / `table-num` style headers and cells; redirected output, pipes and `NO_COLOR` disable it. Styling never affects column widths or alignment.
 - Do not pipe `--output table` through `nl`: `nl` numbers borders and the header too, so the numbers no longer line up with data rows. Use `--output table-num` for tables, or `--output text | nl` for TSV.
 - `table` / `table-num` / `text` render newlines, tabs, and terminal control characters as visible escapes so response data cannot break row/column boundaries or inject terminal controls.
 - For a stable human-readable output contract, booleans are rendered as `True` / `False` in `table`, `table-num`, and `text`; `json` and `yaml` keep their native lowercase `true` / `false` syntax.
 - On name conflicts (e.g. `insight AgentChat` `--query`), the double-dash form after that action is the API parameter, so the same-named system flag is unavailable for that call; see Known Name Conflicts.
-- Empty lists: `table` / `table-num` print `(empty)`; `text` prints no lines (easy empty check in scripts). A missing/null `--query` path prints `None` in table/text. An empty object `{}` is not an empty list: table prints Key/Value headers only; text prints no lines. A non-empty list made only of empty objects or empty positional records keeps one `{}` or `[]` row per record in table output (and remains numbered by `table-num`), while text has no fields or values to print.
+- Empty lists: `table` / `table-num` print `(empty)`; `text` prints no lines (easy empty check in scripts). A missing/null `--query` path prints `None` in table/text. An empty object `{}` is not an empty list: table prints a header-only record with no value row; text prints no lines. A non-empty list made only of empty objects or empty positional records keeps one `{}` or `[]` row per record in table output (and remains numbered by `table-num`), while text has no fields or values to print.
 - `text` output is not type-distinguishing: an empty list `[]` and an empty object `{}` both print no lines; a missing/null `--query` path prints `None`; the literal string `None` is also rendered as `None`. Use `--output json` when you need unambiguous type or emptiness checks.
-- For `[][]` projections, `text` emits one TSV row per inner list. Deeper positional or object-list projections are expanded recursively, nested empty lists or objects do not create phantom blank rows, and object columns still follow a `--query` multiselect hash. A top-level scalar list remains one item per line for line-oriented tools such as `nl` and `grep`.
+- **`text` recursively flattens any response**: like the AWS CLI text formatter, `text` never prints a JSON blob. A bare `text` (no `--query`) is flattened to TSV: an object's scalar fields become one row, and each nested object/list recurses onto its own line(s) prefixed by the UPPERCASED source key (for example `INSTANCELIST\t...`). A list of objects shares one column set (missing field → `None`) with one row per object. Deeper positional or object-list projections are expanded recursively, nested empty lists or objects do not create phantom blank rows, and object columns still follow a `--query` multiselect hash. A top-level scalar list joins into a single Tab-separated row; use `--query` to project into the exact one-record-per-line shape when piping to `nl`/`grep`.
 - `--output off` still sends the API request and writes nothing to stdout. It skips response-dependent `--query` evaluation, but the expression's syntax, function calls, and exact-number safety rules are still validated before the request.
 - **`--query` errors are caught before the request**: syntax errors, unknown function names (`lenght(@)`), wrong argument counts (`length(@, @)`), incomplete expressions (`a | [0`), and queries rejected by the exact-number safety rules are reported before the API is called. The message includes the original expression, a `^` marker under the failure, and an actionable hint; a misspelled function name suggests the closest builtin. Non-ASCII field names must be double-quoted, as in `--query '"实例列表"."数据"'`.
 - A query that passes preflight can still fail while evaluating the actual response, for example `starts_with(Result, 'x')` when `Result` is an object rather than a string. This happens after the API call; the process exits 1 with `API call succeeded but response output failed`. With `--output off`, this response-dependent evaluation is intentionally skipped.
 - API failures (for example HTTP 403) print the error on stderr and do not go through `--output` / `--query`.
-- **Exact-number query safety**: field selection, indexing, and structural projection run directly on the decoded response, so selected JSON numbers retain their original `json.Number` digits. Equality and inequality compare the preserved Go values directly, so field-to-field comparisons (including exact response numbers) are supported. Backtick JSON literals containing numbers are rejected because the bundled JMESPath parser converts those literal numbers to `float64`; ordering comparisons and numeric calculation/conversion functions are also rejected instead of returning a possibly wrong value. The only numeric-literal exception is a direct sole argument to `length()` or `keys()` (for example, ``length(`[9007199254740993]`)``), because those calls inspect collection shape without reading the numeric value. String and array membership with `contains` remains available (for example, `contains(Result.Name, 'web')` and `contains(Result.Tags, 'web')`); a numeric backtick literal such as ``contains(Result.Numbers, `9007199254740993`)`` is rejected. `sort` / `max` / `min`, string-key `sort_by` / `max_by` / `min_by`, and `type()` remain available; if the selected response value is an exact number rather than a supported string value, evaluation fails explicitly after the API response instead of silently converting it. Other string filters and structural functions such as `starts_with`, `length`, and `not_null` remain available, subject to their normal runtime type requirements. Use an exact-number-aware JSON tool downstream when numeric filtering, ordering, or arithmetic is required.
+- **Exact-number query safety**: field selection, indexing, and structural projection preserve every selected JSON number's original `json.Number` token. Field-to-field response equality and inequality use exact JSON numeric values, so equivalent spellings such as `1` / `1.0`, `1e3` / `1000`, and `-0` / `0` compare equal without changing projected output. Numeric expressions proven not to consume response numbers are also supported, including `abs(length(Items))` and `to_number('42')`; safe-derived numbers may be compared with one another, as in `length(A) > length(B)`. A safe-derived number cannot be compared directly with a response field, because mixing its `float64` result with an exact response number would silently produce the wrong equality result. Ordering or numeric calculation/conversion that may consume a response `json.Number` remains rejected instead of silently rounding it. Backtick JSON literals containing numbers are rejected because the bundled JMESPath parser converts their numbers to `float64`; the only exception is a correctly typed direct sole argument to a shape-only function: `length()` accepts a string, array, or object, while `keys()` accepts only an object (for example, ``length(`[9007199254740993]`)`` or ``keys(`{"N":9007199254740993}`)``). String and array membership with `contains` remains available (for example, `contains(Result.Name, 'web')` and `contains(Result.Tags, 'web')`); a numeric backtick literal such as ``contains(Result.Numbers, `9007199254740993`)`` is rejected. `sort` / `max` / `min`, string-key `sort_by` / `max_by` / `min_by`, and `type()` remain available; if the selected response value is an exact number rather than a supported string value, evaluation fails explicitly after the API response. Use an exact-number-aware JSON tool downstream for operations that directly order or calculate with response numbers.
 - **YAML numbers**: `--output yaml` emits response integers as `!!int` scalars and decimal/exponent numbers as `!!float` scalars while preserving the original JSON numeric token, including very large integers, long decimals, exponent spelling, and trailing zeros. Numbers are not silently rounded and long decimals are not converted to strings. YAML object keys are sorted alphabetically. The yaml.v3 encoder may indent sequences differently from earlier releases; this is a presentation-only change and the parsed YAML data is equivalent. Do not depend on byte-for-byte YAML whitespace. `--query` write order affects `table` / `table-num` / `text` columns, not YAML key order.
 
 ---

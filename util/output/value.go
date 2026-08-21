@@ -79,6 +79,10 @@ func escapeCellString(value string) string {
 		case '\\':
 			escaped.WriteString(`\\`)
 		default:
+			if isDangerousBidiControl(r) {
+				fmt.Fprintf(&escaped, `\u%04X`, r)
+				continue
+			}
 			if unicode.IsControl(r) {
 				if r <= 0xff {
 					fmt.Fprintf(&escaped, `\x%02X`, r)
@@ -93,6 +97,37 @@ func escapeCellString(value string) string {
 	return escaped.String()
 }
 
+func isDangerousBidiControl(r rune) bool {
+	switch r {
+	case '\u061c', '\u200e', '\u200f',
+		'\u202a', '\u202b', '\u202c', '\u202d', '\u202e',
+		'\u2066', '\u2067', '\u2068', '\u2069':
+		// These format controls can visually reorder terminal output but are
+		// not matched by unicode.IsControl (they are category Cf).
+		return true
+	default:
+		return false
+	}
+}
+
+// escapeBidiControls makes only terminal-reordering format controls visible.
+// In particular, it leaves JSON's existing backslash escapes untouched.
+func escapeBidiControls(value string) string {
+	if strings.IndexFunc(value, isDangerousBidiControl) < 0 {
+		return value
+	}
+	var escaped strings.Builder
+	escaped.Grow(len(value))
+	for _, r := range value {
+		if isDangerousBidiControl(r) {
+			fmt.Fprintf(&escaped, `\u%04X`, r)
+			continue
+		}
+		escaped.WriteRune(r)
+	}
+	return escaped.String()
+}
+
 func compactJSON(v interface{}) string {
 	if v == nil {
 		return "null"
@@ -101,9 +136,9 @@ func compactJSON(v interface{}) string {
 	encoder := json.NewEncoder(buf)
 	encoder.SetEscapeHTML(false)
 	if err := encoder.Encode(v); err != nil {
-		return fmt.Sprint(v)
+		return escapeBidiControls(fmt.Sprint(v))
 	}
-	return strings.TrimSuffix(buf.String(), "\n")
+	return escapeBidiControls(strings.TrimSuffix(buf.String(), "\n"))
 }
 
 func allMaps(rows []interface{}) bool {
@@ -147,32 +182,4 @@ func unionMapKeys(rows []interface{}) []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-// objectListMatrix builds headers/rows for a list of maps.
-// Missing fields and nulls both use noneValue so table and text match.
-// opts.Columns may reorder columns; see applyColumnOrder for the safety rules.
-func objectListMatrix(list []interface{}, opts Options) (headers []string, rows [][]string) {
-	keys := applyColumnOrder(unionMapKeys(list), opts.Columns)
-	headers = make([]string, len(keys))
-	for i, key := range keys {
-		headers[i] = escapeCellString(key)
-	}
-	rows = make([][]string, 0, len(list))
-	for _, item := range list {
-		m, ok := item.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		row := make([]string, len(keys))
-		for i, key := range keys {
-			if v, ok := m[key]; ok {
-				row[i] = scalarString(v)
-			} else {
-				row[i] = noneValue
-			}
-		}
-		rows = append(rows, row)
-	}
-	return headers, rows
 }

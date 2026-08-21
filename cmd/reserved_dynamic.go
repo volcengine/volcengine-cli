@@ -24,6 +24,9 @@ var reservedDynamicFlags = map[string]reservedDynamicFlag{
 	"header": {Multi: true, SkipBody: true},
 	// --body: full JSON body for application/json style calls.
 	"body": {Multi: false, SkipBody: true},
+	// --api-param Name=Value: explicit API parameter escape for --force calls.
+	// Values are expanded into ordinary dynamic flags before request assembly.
+	"api-param": {Multi: true, SkipBody: true},
 }
 
 // isMultiValueDynamicFlag reports whether the reserved dynamic flag may repeat.
@@ -36,4 +39,12 @@ func isMultiValueDynamicFlag(name string) bool {
 func isSkipBodyDynamicFlag(name string) bool {
 	spec, ok := reservedDynamicFlags[name]
 	return ok && spec.SkipBody
+}
+
+// isReservedDynamicFlag reports whether name is owned by the CLI rather than
+// being an ordinary OpenAPI request parameter. Matching is intentionally
+// case-sensitive, like all other parameter-name conflict checks.
+func isReservedDynamicFlag(name string) bool {
+	_, ok := reservedDynamicFlags[name]
+	return ok
 }

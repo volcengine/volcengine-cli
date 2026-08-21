@@ -126,6 +126,12 @@ func TestShouldSkipBackgroundCheck_TripleDashFixedFlags(t *testing.T) {
 	if !ShouldSkipBackgroundCheck([]string{"--header", "X-Foo=bar", "upgrade"}) {
 		t.Fatal("expected skip for --header … upgrade")
 	}
+	if !ShouldSkipBackgroundCheck([]string{"--api-param", "query=value", "upgrade"}) {
+		t.Fatal("expected skip for --api-param … upgrade")
+	}
+	if ShouldSkipBackgroundCheck([]string{"--api-param", "upgrade"}) {
+		t.Fatal("--api-param upgrade should treat upgrade as the flag value, not the subcommand")
+	}
 	// ---lang consumes the next token as its value, so "upgrade" is not the subcommand.
 	if ShouldSkipBackgroundCheck([]string{"---lang", "upgrade"}) {
 		t.Fatal("---lang upgrade should treat upgrade as lang value, not skip")

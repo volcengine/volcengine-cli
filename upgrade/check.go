@@ -127,7 +127,7 @@ var rootBoolFlags = map[string]struct{}{
 // treat their values as the root subcommand (e.g. ve --lang ZH upgrade).
 // Keep in sync with:
 //   - cmd/parser publicSystemFlags / allowedLegacyFixedFlags
-//   - cmd/reservedDynamicFlags (double-dash reserved controls: --header, --body)
+//   - cmd/reservedDynamicFlags (double-dash reserved controls: --header, --body, --api-param)
 var rootValueFlags = map[string]struct{}{
 	"--lang":      {},
 	"--profile":   {},
@@ -141,8 +141,9 @@ var rootValueFlags = map[string]struct{}{
 	"---version":  {},
 	"---method":   {},
 	// Double-dash reserved CLI controls (cmd.reservedDynamicFlags).
-	"--header": {},
-	"--body":   {},
+	"--header":    {},
+	"--body":      {},
+	"--api-param": {},
 }
 
 // ShouldSkipBackgroundCheck returns true when the current invocation should not

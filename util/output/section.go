@@ -200,12 +200,16 @@ func objectListSections(list []interface{}, opts Options, title string, depth in
 	return out
 }
 
-// objectSections renders a single object: scalar fields as Key|Value, nested
-// fields as their own sections.
+// objectSections renders a single object as one horizontal record: the scalar
+// field names form the header row and their values form a single data row, so a
+// lone object looks like a one-row table (matching the AWS CLI, which renders a
+// dict as a header row plus a value row). Nested fields become their own titled
+// sections. renderSection transposes this single row to Field | Value only when
+// a known terminal width is exceeded, and table-num numbers it as record 1.
 func objectSections(m map[string]interface{}, opts Options, title string, depth int) []section {
 	// The column-order hint applies to a single object too: `--query
-	// '{Name:A,Id:B}'` on a non-list result lands here, and the Key rows should
-	// follow what was written rather than alphabetical order.
+	// '{Name:A,Id:B}'` on a non-list result lands here, and the header columns
+	// should follow what was written rather than alphabetical order.
 	keys := applyColumnOrder(sortedMapKeys(m), opts.Columns)
 	var scalarKeys, nestedKeys []string
 	for _, k := range keys {
@@ -218,11 +222,15 @@ func objectSections(m map[string]interface{}, opts Options, title string, depth 
 
 	out := make([]section, 0, 1+len(nestedKeys))
 	if len(scalarKeys) > 0 {
-		rows := make([][]string, 0, len(scalarKeys))
-		for _, k := range scalarKeys {
-			rows = append(rows, []string{escapeCellString(k), scalarString(m[k])})
+		headers := make([]string, len(scalarKeys))
+		row := make([]string, len(scalarKeys))
+		for i, k := range scalarKeys {
+			headers[i] = escapeCellString(k)
+			row[i] = scalarString(m[k])
 		}
-		out = append(out, section{title: title, headers: []string{"Key", "Value"}, rows: rows})
+		out = append(out, section{
+			title: title, headers: headers, rows: [][]string{row}, numbered: true,
+		})
 	}
 	for _, k := range nestedKeys {
 		out = append(out, buildSections(m[k], Options{},

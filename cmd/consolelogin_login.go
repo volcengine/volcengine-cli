@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -20,6 +21,8 @@ import (
 const scopeAllAll = "Console:All:All"
 const loginCacheDirectoryEnv = "VOLCENGINE_LOGIN_CACHE_DIRECTORY"
 const defaultConsoleLoginRegion = "cn-beijing"
+
+var writeLoginConfigTransaction = writeConfigTransaction
 
 // ConsoleLogin holds runtime state for the volcengine login flow.
 type ConsoleLogin struct {
@@ -47,7 +50,7 @@ type LoginTokenCache struct {
 // Login orchestrates the full console login flow.
 // ---------------------------------------------------------------------------
 
-func (cl *ConsoleLogin) Login() error {
+func (cl *ConsoleLogin) Login() (returnErr error) {
 	// Apply defaults.
 	if cl.Profile == "" {
 		cl.Profile = "default"
@@ -150,8 +153,11 @@ func (cl *ConsoleLogin) Login() error {
 			return trErrorf("login canceled: existing login_session was not replaced")
 		}
 	}
+	configBefore := normalizedConfigCopy(cfg)
 
-	// 10. Cache the token to disk.
+	// 10. Cache the token and link it from config as one serialized operation.
+	// Logout takes the same cache lock before clearing the config reference, so
+	// a concurrent login/logout pair has one unambiguous completion order.
 	accessTokenRaw := json.RawMessage(tokenResp.AccessToken)
 	cache := &LoginTokenCache{
 		LoginSession: loginSession,
@@ -165,10 +171,6 @@ func (cl *ConsoleLogin) Login() error {
 		ExpiresIn:    tokenResp.ExpiresIn,
 		TokenType:    tokenResp.TokenType,
 	}
-	if err := writeLoginCache(cache); err != nil {
-		return trErrorf("writing login cache: %w", err)
-	}
-
 	// 11. Update the CLI config profile.
 	profile.Mode = ModeConsoleLogin
 	if cl.Region != "" {
@@ -181,10 +183,9 @@ func (cl *ConsoleLogin) Login() error {
 		cfg.Current = cl.Profile
 	}
 
-	if err := WriteConfigToFile(cfg); err != nil {
-		return trErrorf("writing config: %w", err)
+	if err := commitConsoleLogin(cfg, configBefore, cache); err != nil {
+		return err
 	}
-	setRuntimeConfig(cfg)
 
 	// 12. Print success message.
 	fmt.Println("\n" + tr("Successfully logged in!"))
@@ -192,6 +193,48 @@ func (cl *ConsoleLogin) Login() error {
 	issuedAt, _ := time.Parse(time.RFC3339, cache.IssuedAt)
 	expiresAt := issuedAt.Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
 	fmt.Printf(tr("STS credentials expire at: %s\n"), expiresAt.Local().Format("2006-01-02 15:04:05"))
+	return nil
+}
+
+func commitConsoleLogin(cfg, configBefore *Configure, cache *LoginTokenCache) (returnErr error) {
+	cachePath, err := loginCacheFilePath(cache.LoginSession)
+	if err != nil {
+		return err
+	}
+	cacheLock, err := acquireCredentialCacheLock(cachePath)
+	if err != nil {
+		return trErrorf("locking login cache: %w", err)
+	}
+	defer func() {
+		if err := cacheLock.release(); err != nil {
+			returnErr = combineLogoutErrors(returnErr, trErrorf("releasing login cache lock: %w", err))
+		}
+	}()
+
+	previousCache, readErr := os.ReadFile(cachePath)
+	cacheExisted := readErr == nil
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return trErrorf("reading previous login cache: %w", readErr)
+	}
+	if err := writeLoginCacheUnlocked(cachePath, cache); err != nil {
+		return trErrorf("writing login cache: %w", err)
+	}
+
+	configErr := writeLoginConfigTransaction(cfg)
+	if configErr != nil && !configMutationCommitted(configErr) {
+		applyConfigData(cfg, configBefore)
+		var rollbackErr error
+		if cacheExisted {
+			rollbackErr = writeLoginCacheBytesUnlocked(cachePath, previousCache)
+		} else {
+			rollbackErr = removeLoginCacheAtPath(cachePath)
+		}
+		return trErrorf("writing config: %w", combineLogoutErrors(configErr, rollbackErr))
+	}
+	setRuntimeConfig(cfg)
+	if configErr != nil {
+		return trErrorf("writing config: %w", configErr)
+	}
 	return nil
 }
 
@@ -440,16 +483,31 @@ func loginCacheFilePath(loginSession string) (string, error) {
 // writeLoginCache atomically writes the token cache to disk with 0600
 // permissions. It writes to a temporary file first, then renames.
 func writeLoginCache(cache *LoginTokenCache) (retErr error) {
-	data, err := json.MarshalIndent(cache, "", "  ")
-	if err != nil {
-		return trErrorf("marshalling login cache: %w", err)
-	}
-
 	cachePath, err := loginCacheFilePath(cache.LoginSession)
 	if err != nil {
 		return err
 	}
+	cacheLock, err := acquireCredentialCacheLock(cachePath)
+	if err != nil {
+		return trErrorf("locking login cache: %w", err)
+	}
+	defer func() {
+		if err := cacheLock.release(); retErr == nil && err != nil {
+			retErr = trErrorf("releasing login cache lock: %w", err)
+		}
+	}()
+	return writeLoginCacheUnlocked(cachePath, cache)
+}
 
+func writeLoginCacheUnlocked(cachePath string, cache *LoginTokenCache) error {
+	data, err := json.MarshalIndent(cache, "", "  ")
+	if err != nil {
+		return trErrorf("marshalling login cache: %w", err)
+	}
+	return writeLoginCacheBytesUnlocked(cachePath, data)
+}
+
+func writeLoginCacheBytesUnlocked(cachePath string, data []byte) (retErr error) {
 	dir := filepath.Dir(cachePath)
 	tmpFile, err := os.CreateTemp(dir, ".tmp-login-cache-*")
 	if err != nil {
@@ -484,11 +542,24 @@ func writeLoginCache(cache *LoginTokenCache) (retErr error) {
 
 // readLoginCache reads and parses a cached token file identified by
 // loginSession.
-func readLoginCache(loginSession string) (*LoginTokenCache, error) {
+func readLoginCache(loginSession string) (cache *LoginTokenCache, returnErr error) {
 	cachePath, err := loginCacheFilePath(loginSession)
 	if err != nil {
 		return nil, err
 	}
+	cacheLock, err := acquireCredentialCacheLock(cachePath)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err := cacheLock.release(); returnErr == nil && err != nil {
+			returnErr = trErrorf("releasing login cache lock: %w", err)
+		}
+	}()
+	return readLoginCacheUnlocked(cachePath)
+}
+
+func readLoginCacheUnlocked(cachePath string) (*LoginTokenCache, error) {
 
 	data, err := os.ReadFile(cachePath)
 	if err != nil {
@@ -500,6 +571,30 @@ func readLoginCache(loginSession string) (*LoginTokenCache, error) {
 		return nil, trErrorf("parsing cache file %s: %w", cachePath, err)
 	}
 	return &cache, nil
+}
+
+func replaceLoginCacheIfUnchanged(loginSession string, expected, replacement *LoginTokenCache) (returnErr error) {
+	cachePath, err := loginCacheFilePath(loginSession)
+	if err != nil {
+		return err
+	}
+	cacheLock, err := acquireCredentialCacheLock(cachePath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := cacheLock.release(); returnErr == nil && err != nil {
+			returnErr = trErrorf("releasing login cache lock: %w", err)
+		}
+	}()
+	current, err := readLoginCacheUnlocked(cachePath)
+	if err != nil {
+		return err
+	}
+	if current == nil || !reflect.DeepEqual(current, expected) {
+		return trErrorf("login cache changed while refreshing; retry or run 've login' again")
+	}
+	return writeLoginCacheUnlocked(cachePath, replacement)
 }
 
 // extractLoginSession decodes the JWT payload (second segment) and returns the
@@ -628,21 +723,22 @@ func EnsureValidLoginToken(cfg *Configure, profileName string) (*STSCredentials,
 		return nil, trErrorf("parsing refreshed STS credentials: %w", err)
 	}
 
-	// 8. Update the cache on disk.
-	cache.AccessToken = json.RawMessage(tokenResp.AccessToken)
+	// 8. Update the cache only if logout/login did not replace the snapshot used
+	// for this refresh while the remote request was in flight.
+	replacement := *cache
+	replacement.AccessToken = append(json.RawMessage(nil), []byte(tokenResp.AccessToken)...)
 	if tokenResp.RefreshToken != "" {
-		cache.RefreshToken = tokenResp.RefreshToken
+		replacement.RefreshToken = tokenResp.RefreshToken
 	}
 	if tokenResp.IDToken != "" {
-		cache.IDToken = tokenResp.IDToken
+		replacement.IDToken = tokenResp.IDToken
 	}
-	cache.IssuedAt = time.Now().UTC().Format(time.RFC3339)
-	cache.ExpiresIn = tokenResp.ExpiresIn
-	cache.TokenType = tokenResp.TokenType
+	replacement.IssuedAt = time.Now().UTC().Format(time.RFC3339)
+	replacement.ExpiresIn = tokenResp.ExpiresIn
+	replacement.TokenType = tokenResp.TokenType
 
-	if err := writeLoginCache(cache); err != nil {
-		// Non-fatal: credentials are still valid in memory.
-		fmt.Fprintf(os.Stderr, tr("Warning: failed to update login cache: %v\n"), err)
+	if err := replaceLoginCacheIfUnchanged(profile.LoginSession, cache, &replacement); err != nil {
+		return nil, trErrorf("refreshed credentials were discarded because the login session changed: %w", err)
 	}
 
 	return newCreds, nil

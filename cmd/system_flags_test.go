@@ -430,11 +430,13 @@ func TestEverySystemFlagHasConflictEscapeRoute(t *testing.T) {
 // TestTripleDashRejectsNonSystemNames keeps the escape hatch narrow: ---name is
 // only meaningful for registered system flags, never a generic prefix.
 func TestTripleDashRejectsNonSystemNames(t *testing.T) {
-	c := NewContext()
-	parser := NewParser([]string{"---cols", "InstanceId,Status"}, map[string]struct{}{})
-	_, err := parser.ReadArgs(c)
-	if err == nil || !strings.Contains(err.Error(), "---cols is not supported") {
-		t.Fatalf("unregistered triple-dash error = %v", err)
+	for _, name := range []string{"cols", "api-param"} {
+		c := NewContext()
+		parser := NewParser([]string{"---" + name, "value"}, map[string]struct{}{})
+		_, err := parser.ReadArgs(c)
+		if err == nil || !strings.Contains(err.Error(), "---"+name+" is not supported") {
+			t.Fatalf("unregistered triple-dash %s error = %v", name, err)
+		}
 	}
 	// The advertised remedy must list double-dash forms only.
 	if strings.Contains(systemFlags.supportedMessage, "---") {

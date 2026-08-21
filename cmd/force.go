@@ -12,7 +12,7 @@
 // （selectInvocationProfile / resolveClientEndpoint / hasEffectiveFixedEndpoint）。
 //
 // 系统参数：parser.go publicSystemFlags / localizedSystemFlagsHelp（对外双横线；三横线为冲突逃逸）。
-// 双横线保留控制参数：reserved_dynamic.go（--header / --body）。
+// 双横线保留控制参数：reserved_dynamic.go（--header / --body / --api-param）。
 // force 路径额外约定：
 //
 //	--force     纯开关，出现即启用（只放宽 service/action 元数据校验，不改变 endpoint 解析）
@@ -22,6 +22,8 @@
 //	--method    可选；未指定时优先元数据，否则 GET
 //	--header    可重复 HTTP 头 Name=Value（Content-Type 可覆盖元数据；不进请求体）
 //	--body      JSON 请求体；与 flattened 业务参数互斥
+//	--api-param 可重复 Name=Value；仅 force 路径将其显式展开为业务参数，
+//	            用于未知接口的 query/output 等系统同名参数
 package cmd
 
 import (
@@ -65,7 +67,7 @@ func validateForceCall(c *Context, serviceName string) error {
 }
 
 // buildForceInput 将双横线 API 参数（dynamicFlags）组装为请求体/查询参数。
-// 固定参数已在 parser 层归入 fixedFlags；--header/--body 等保留动态 flag 不会进入此处。
+// 固定参数已在 parser 层归入 fixedFlags；--header/--body/--api-param 等保留动态 flag 不会进入此处。
 func buildForceInput(c *Context) map[string]interface{} {
 	input := make(map[string]interface{})
 	if c == nil || c.dynamicFlags == nil {
@@ -85,9 +87,67 @@ func buildForceInput(c *Context) map[string]interface{} {
 	return input
 }
 
+// expandForceAPIParams expands repeatable --api-param Name=Value controls into
+// ordinary dynamic flags. It is deliberately called only from the force path:
+// outside --force, the control is rejected instead of being silently ignored.
+//
+// Names are trimmed (while preserving case), values are preserved verbatim and
+// split only on the first '='. Exact-name duplicates -- including a collision
+// with a directly supplied --Name value -- are rejected so no value wins
+// implicitly. Reserved CLI control names cannot be smuggled into the request.
+func expandForceAPIParams(ctx *Context) error {
+	if ctx == nil || ctx.dynamicFlags == nil {
+		return nil
+	}
+	escape := ctx.dynamicFlags.GetByName("api-param")
+	if escape == nil {
+		return nil
+	}
+
+	type apiParam struct {
+		name  string
+		value string
+	}
+	params := make([]apiParam, 0, len(escape.GetValues()))
+	seen := make(map[string]struct{}, len(escape.GetValues()))
+	for _, raw := range escape.GetValues() {
+		idx := strings.IndexByte(raw, '=')
+		if idx < 0 {
+			return trErrorf("invalid --api-param %q, expected Name=Value", raw)
+		}
+		name := strings.TrimSpace(raw[:idx])
+		if name == "" {
+			return trErrorf("invalid --api-param %q, parameter name must not be empty", raw)
+		}
+		if isReservedDynamicFlag(name) {
+			return trErrorf("--api-param name %q is reserved by the CLI", name)
+		}
+		if _, exists := seen[name]; exists {
+			return trErrorf("--api-param parameter %q cannot be specified more than once", name)
+		}
+		if ctx.dynamicFlags.GetByName(name) != nil {
+			return trErrorf("--api-param parameter %q conflicts with direct --%s", name, name)
+		}
+		seen[name] = struct{}{}
+		params = append(params, apiParam{name: name, value: raw[idx+1:]})
+	}
+
+	for _, param := range params {
+		flag, err := ctx.dynamicFlags.AddByName(param.name)
+		if err != nil {
+			return err
+		}
+		flag.SetValue(param.value)
+	}
+	return nil
+}
+
 // doForceAction 执行强制泛化调用：校验参数后委托 executeInvocation。
 func doForceAction(ctx *Context, serviceName, action string) error {
 	if err := validateForceCall(ctx, serviceName); err != nil {
+		return err
+	}
+	if err := expandForceAPIParams(ctx); err != nil {
 		return err
 	}
 

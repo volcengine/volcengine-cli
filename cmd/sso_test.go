@@ -19,10 +19,12 @@ type fakeOAuthClient struct {
 	refreshErr   error
 	deviceResp   *CreateTokenResponse
 	deviceErr    error
+	revokeErr    error
 
 	registerRequests []RegisterClientRequest
 	createRequests   []CreateTokenRequest
 	startRequests    []StartDeviceAuthorizationRequest
+	revokeRequests   []RevokeTokenRequest
 }
 
 func (f *fakeOAuthClient) RegisterClient(ctx context.Context, req *RegisterClientRequest) (*RegisterClientResponse, error) {
@@ -65,7 +67,8 @@ func (f *fakeOAuthClient) CreateToken(ctx context.Context, req *CreateTokenReque
 }
 
 func (f *fakeOAuthClient) RevokeToken(ctx context.Context, req *RevokeTokenRequest) error {
-	return nil
+	f.revokeRequests = append(f.revokeRequests, *req)
+	return f.revokeErr
 }
 
 func (f *fakeOAuthClient) StartDeviceAuthorization(ctx context.Context, req *StartDeviceAuthorizationRequest) (*StartDeviceAuthorizationResponse, error) {
@@ -187,6 +190,134 @@ func cacheTokenForTest(t *testing.T, sso *Sso, token *SsoTokenCache) {
 
 func validClientSecretExpiry() int64 {
 	return time.Now().Add(time.Hour).UnixMilli()
+}
+
+func TestSsoLogoutConfigConflictDoesNotRevokeOrDeleteCache(t *testing.T) {
+	sso, cleanupSso := setupSsoTokenTest(t)
+	defer cleanupSso()
+	configDir, cleanupConfig := withTestConfigDir(t)
+	defer cleanupConfig()
+	getSsoConfigFileDir = func() (string, error) { return configDir, nil }
+	oldConfig, oldCtx := config, ctx.config
+	defer func() { config, ctx.config = oldConfig, oldCtx }()
+
+	cfg := &Configure{
+		Profiles: map[string]*Profile{"dev": {
+			Name: "dev", Mode: ModeSSO, SsoSessionName: sso.SsoSessionName,
+			AccessKey: "ak", SecretKey: "sk", SessionToken: "sts", StsExpiration: 1,
+		}},
+		SsoSession: map[string]*SsoSession{sso.SsoSessionName: {
+			Name: sso.SsoSessionName, StartURL: sso.StartURL, Region: sso.Region,
+		}},
+	}
+	if err := WriteConfigToFile(cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg = LoadConfig()
+	setRuntimeConfig(cfg)
+	cacheTokenForTest(t, sso, &SsoTokenCache{
+		AccessToken: "access", RefreshToken: "refresh", ExpiresAt: time.Now().Add(time.Hour).Format(time.RFC3339),
+		ClientId: "client", ClientSecret: "secret", ClientSecretExpiresAt: validClientSecretExpiry(),
+	})
+	cachePath, _ := sso.tokenCacheFilePath()
+	// Simulate another process changing the same profile after this process read it.
+	remote := LoadConfig()
+	remote.Profiles["dev"].Region = "remote-change"
+	if err := writeConfigTransaction(remote); err != nil {
+		t.Fatal(err)
+	}
+	fakeOAuth := &fakeOAuthClient{}
+	newOAuthClientForSSO = func(string) OAuthClientAPI { return fakeOAuth }
+
+	err := sso.Logout()
+	if !errors.Is(err, ErrConcurrentConfigModification) {
+		t.Fatalf("logout error = %v, want config conflict", err)
+	}
+	if len(fakeOAuth.revokeRequests) != 0 {
+		t.Fatalf("token revoked before failed config transaction: %#v", fakeOAuth.revokeRequests)
+	}
+	if _, err := os.Stat(cachePath); err != nil {
+		t.Fatalf("cache deleted before failed config transaction: %v", err)
+	}
+	if cfg.Profiles["dev"].AccessKey != "ak" || cfg.Profiles["dev"].SessionToken != "sts" {
+		t.Fatalf("memory credentials not restored: %#v", cfg.Profiles["dev"])
+	}
+}
+
+func TestSsoLogoutRevokeFailureKeepsCacheAfterClearingSts(t *testing.T) {
+	sso, cleanupSso := setupSsoTokenTest(t)
+	defer cleanupSso()
+	configDir, cleanupConfig := withTestConfigDir(t)
+	defer cleanupConfig()
+	getSsoConfigFileDir = func() (string, error) { return configDir, nil }
+	oldConfig, oldCtx := config, ctx.config
+	defer func() { config, ctx.config = oldConfig, oldCtx }()
+
+	cfg := &Configure{
+		Profiles: map[string]*Profile{"dev": {
+			Name: "dev", Mode: ModeSSO, SsoSessionName: sso.SsoSessionName,
+			AccessKey: "ak", SecretKey: "sk", SessionToken: "sts", StsExpiration: 1,
+		}},
+		SsoSession: map[string]*SsoSession{sso.SsoSessionName: {
+			Name: sso.SsoSessionName, StartURL: sso.StartURL, Region: sso.Region,
+		}},
+	}
+	if err := WriteConfigToFile(cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg = LoadConfig()
+	setRuntimeConfig(cfg)
+	cacheTokenForTest(t, sso, &SsoTokenCache{
+		AccessToken: "access", RefreshToken: "refresh", ExpiresAt: time.Now().Add(time.Hour).Format(time.RFC3339),
+		ClientId: "client", ClientSecret: "secret", ClientSecretExpiresAt: validClientSecretExpiry(),
+	})
+	cachePath, _ := sso.tokenCacheFilePath()
+	revokeErr := errors.New("injected revoke failure")
+	fakeOAuth := &fakeOAuthClient{revokeErr: revokeErr}
+	newOAuthClientForSSO = func(string) OAuthClientAPI { return fakeOAuth }
+
+	err := sso.Logout()
+	if !errors.Is(err, revokeErr) {
+		t.Fatalf("logout error = %v, want revoke failure", err)
+	}
+	loaded := LoadConfig()
+	profile := loaded.Profiles["dev"]
+	if profile.AccessKey != "" || profile.SecretKey != "" || profile.SessionToken != "" || profile.StsExpiration != 0 {
+		t.Fatalf("STS credentials survived logout config commit: %#v", profile)
+	}
+	if _, err := os.Stat(cachePath); err != nil {
+		t.Fatalf("cache removed after revoke failure, cannot retry: %v", err)
+	}
+}
+
+func TestRefreshDoesNotRecreateCacheRemovedByLogout(t *testing.T) {
+	sso, cleanupSso := setupSsoTokenTest(t)
+	defer cleanupSso()
+	original := &SsoTokenCache{
+		StartURL: sso.StartURL, SessionName: sso.SsoSessionName, Region: sso.Region,
+		AccessToken: "old-access", RefreshToken: "old-refresh",
+		ExpiresAt: time.Now().Add(-time.Minute).Format(time.RFC3339),
+		ClientId:  "client", ClientSecret: "secret", ClientSecretExpiresAt: validClientSecretExpiry(),
+	}
+	cacheTokenForTest(t, sso, original)
+	cachePath, _ := sso.tokenCacheFilePath()
+	if err := removeLoginCacheAtPath(cachePath); err != nil {
+		t.Fatal(err)
+	}
+
+	fetcher := newDeviceCodeFetcher(sso)
+	fetcher.oauth = &fakeOAuthClient{refreshResp: &CreateTokenResponse{
+		AccessToken: "new-access", RefreshToken: "new-refresh", ExpiresIn: 3600,
+	}}
+	_, err := fetcher.refreshToken(context.Background(), original, &RegisterClientResponse{
+		ClientID: "client", ClientSecret: "secret", ClientSecretExpiresAt: validClientSecretExpiry(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "cache changed") {
+		t.Fatalf("refresh after logout error = %v, want cache-changed rejection", err)
+	}
+	if _, err := os.Stat(cachePath); !os.IsNotExist(err) {
+		t.Fatalf("stale refresh recreated logout cache: %v", err)
+	}
 }
 
 func expiredClientSecretExpiry() int64 {

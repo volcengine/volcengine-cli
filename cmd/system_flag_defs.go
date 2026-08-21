@@ -153,5 +153,6 @@ func localizedSystemFlagsHelp() string {
 
 ` + tr("Reserved double-dash controls (not API parameters):") + `
   --header string      ` + tr("Add a custom HTTP header as Name=Value; repeatable. Content-Type overrides metadata when set. Host/Authorization/Content-Length are blocked.") + `
-  --body string        ` + tr("JSON request body for application/json style calls; mutually exclusive with other API parameters.")
+  --body string        ` + tr("JSON request body for application/json style calls; mutually exclusive with other API parameters.") + `
+  --api-param string   ` + tr("Add an explicit API parameter as Name=Value; repeatable and available only with --force, mainly for system-name conflicts on unlisted APIs.")
 }

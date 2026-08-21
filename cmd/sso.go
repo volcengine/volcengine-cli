@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -31,6 +32,7 @@ var (
 	newPortalClientForSSO = func(region string) PortalClientAPI {
 		return NewPortalClient(&PortalClientConfig{Region: region})
 	}
+	writeSsoLogoutConfigTransaction = writeConfigTransaction
 	// selectSsoAccount/selectSsoRole 是账号与角色交互选择的注入点，生产环境使用 promptui，
 	// 单测替换为确定性选择，避免测试阻塞在真实终端交互上。
 	selectSsoAccount = promptSelectAccount
@@ -128,13 +130,16 @@ func (s *Sso) EnsureValidStsToken(ctx *Context) error {
 	if err != nil {
 		return trErrorf("failed to get role credentials: %w", err)
 	}
+	if err := prepareConfigForMutation(ctx.config); err != nil {
+		return fmt.Errorf("failed to refresh stsToken: failed to prepare config update: %w", err)
+	}
 
 	s.Profile.AccessKey = roleCredentials.AccessKeyID
 	s.Profile.SecretKey = roleCredentials.SecretAccessKey
 	s.Profile.SessionToken = roleCredentials.SessionToken
 	s.Profile.StsExpiration = roleCredentials.Expiration
 	ctx.config.Profiles[s.Profile.Name] = s.Profile
-	return WriteConfigToFile(ctx.config)
+	return writeConfigTransaction(ctx.config)
 }
 
 // SsoTokenCache 保存 SSO 访问令牌及客户端凭据的缓存结构。
@@ -223,11 +228,24 @@ func (s *Sso) tokenCacheFilePath() (string, error) {
 }
 
 // readTokenCache 从磁盘读取 token 缓存；不存在时返回 nil。
-func (s *Sso) readTokenCache() (*SsoTokenCache, error) {
+func (s *Sso) readTokenCache() (token *SsoTokenCache, returnErr error) {
 	filePath, err := s.tokenCacheFilePath()
 	if err != nil {
 		return nil, err
 	}
+	cacheLock, err := acquireCredentialCacheLock(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err := cacheLock.release(); returnErr == nil && err != nil {
+			returnErr = trErrorf("failed to release token cache lock: %w", err)
+		}
+	}()
+	return s.readTokenCacheUnlocked(filePath)
+}
+
+func (s *Sso) readTokenCacheUnlocked(filePath string) (*SsoTokenCache, error) {
 
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -507,6 +525,10 @@ func (f *DeviceCodeFetcher) loadClientForRefresh(cached *SsoTokenCache) (*Regist
 
 // storeToken 将获取的 token 组装为缓存对象并写入磁盘。
 func (f *DeviceCodeFetcher) storeToken(resp *CreateTokenResponse, client *RegisterClientResponse) (*SsoTokenCache, error) {
+	return f.storeTokenReplacing(resp, client, nil)
+}
+
+func (f *DeviceCodeFetcher) storeTokenReplacing(resp *CreateTokenResponse, client *RegisterClientResponse, expected *SsoTokenCache) (*SsoTokenCache, error) {
 	if client == nil {
 		return nil, trErrorf("client registration is required to store token")
 	}
@@ -523,7 +545,13 @@ func (f *DeviceCodeFetcher) storeToken(resp *CreateTokenResponse, client *Regist
 		ClientSecretExpiresAt: client.ClientSecretExpiresAt,
 		Region:                f.sso.Region,
 	}
-	if err := f.sso.setAccessTokenToCache(f.sso.StartURL, f.sso.SsoSessionName, token); err != nil {
+	var err error
+	if expected == nil {
+		err = f.sso.setAccessTokenToCache(f.sso.StartURL, f.sso.SsoSessionName, token)
+	} else {
+		err = f.sso.replaceAccessTokenCacheIfUnchanged(expected, token)
+	}
+	if err != nil {
 		return nil, err
 	}
 	return token, nil
@@ -548,20 +576,23 @@ func (f *DeviceCodeFetcher) createToken(ctx context.Context, grantType string, r
 }
 
 // refreshToken 使用 refresh_token 换取新的 access token。
-func (f *DeviceCodeFetcher) refreshToken(ctx context.Context, refreshToken string, client *RegisterClientResponse) (*SsoTokenCache, error) {
+func (f *DeviceCodeFetcher) refreshToken(ctx context.Context, cached *SsoTokenCache, client *RegisterClientResponse) (*SsoTokenCache, error) {
 	if client == nil {
 		return nil, trErrorf("client registration is required to refresh token")
 	}
-	resp, err := f.createToken(ctx, "refresh_token", refreshToken, "", client)
+	if cached == nil {
+		return nil, trErrorf("cached token is required to refresh access token")
+	}
+	resp, err := f.createToken(ctx, "refresh_token", cached.RefreshToken, "", client)
 	if err != nil {
 		return nil, err
 	}
 	// 有些 OAuth 服务会在刷新 access token 时轮换 refresh token。
 	// 只有当服务端未返回新的 refresh_token 时，才沿用旧值，避免把新 token 覆盖掉导致下一次静默刷新失败。
 	if resp.RefreshToken == "" {
-		resp.RefreshToken = refreshToken
+		resp.RefreshToken = cached.RefreshToken
 	}
-	return f.storeToken(resp, client)
+	return f.storeTokenReplacing(resp, client, cached)
 }
 
 func oauthErrorCode(err error) (string, bool) {
@@ -700,7 +731,7 @@ func (f *DeviceCodeFetcher) GetToken() (*SsoTokenCache, error) {
 	}
 
 	if cached != nil && cached.RefreshToken != "" {
-		token, err := f.refreshToken(ctx, cached.RefreshToken, client)
+		token, err := f.refreshToken(ctx, cached, client)
 		if err == nil {
 			return token, nil
 		}
@@ -761,7 +792,7 @@ func (f *DeviceCodeFetcher) GetValidTokenForBusiness() (*SsoTokenCache, error) {
 	if err != nil {
 		return nil, err
 	}
-	token, err := f.refreshToken(ctx, cached.RefreshToken, client)
+	token, err := f.refreshToken(ctx, cached, client)
 	if err != nil {
 		return nil, trErrorf("failed to refresh SSO access token; please log in using the `sso login` command: %w", err)
 	}
@@ -772,6 +803,10 @@ func (f *DeviceCodeFetcher) GetValidTokenForBusiness() (*SsoTokenCache, error) {
 func (s *Sso) SetProfile() error {
 	if !s.UseDeviceCode {
 		return trErrorf("currently, only device code authentication is supported")
+	}
+	cfg, err := configForWrite()
+	if err != nil {
+		return err
 	}
 
 	fetcher := newDeviceCodeFetcher(s)
@@ -785,6 +820,7 @@ func (s *Sso) SetProfile() error {
 		return trErrorf("failed to select the account and role: %v", err)
 	}
 
+	configBefore := normalizedConfigCopy(cfg)
 	s.Profile.Mode = ModeSSO
 	s.Profile.SsoSessionName = s.SsoSessionName
 	s.Profile.AccountId = accountId
@@ -799,22 +835,53 @@ func (s *Sso) SetProfile() error {
 		s.Profile.Name = fmt.Sprintf("%s-%s", roleName, accountId)
 	}
 
-	cfg, err := configForWrite()
+	cfg.Profiles[s.Profile.Name] = s.Profile
+	// GetToken persisted this token before account/role selection. Serialize the
+	// final profile link with logout and verify that the cache was not replaced
+	// or removed while the user was choosing a role.
+	cachePath, err := s.tokenCacheFilePath()
 	if err != nil {
 		return err
 	}
-
-	cfg.Profiles[s.Profile.Name] = s.Profile
-
-	if err := WriteConfigToFile(cfg); err != nil {
+	if err := s.commitProfileConfig(cfg, configBefore, token, cachePath); err != nil {
 		return err
 	}
 	fmt.Printf(tr("SSO profile [%s] has been configured successfully\n"), s.Profile.Name)
 	return nil
 }
 
+func (s *Sso) commitProfileConfig(cfg, configBefore *Configure, token *SsoTokenCache, cachePath string) (returnErr error) {
+	cacheLock, err := acquireCredentialCacheLock(cachePath)
+	if err != nil {
+		applyConfigData(cfg, configBefore)
+		return err
+	}
+	defer func() {
+		if err := cacheLock.release(); err != nil {
+			returnErr = combineLogoutErrors(returnErr, trErrorf("failed to release token cache lock: %w", err))
+		}
+	}()
+	currentToken, err := s.readTokenCacheUnlocked(cachePath)
+	if err != nil {
+		applyConfigData(cfg, configBefore)
+		return err
+	}
+	if currentToken == nil || !reflect.DeepEqual(currentToken, token) {
+		applyConfigData(cfg, configBefore)
+		return trErrorf("SSO token cache changed while configuring the profile; retry the command")
+	}
+
+	configErr := writeConfigTransaction(cfg)
+	if configErr != nil && !configMutationCommitted(configErr) {
+		applyConfigData(cfg, configBefore)
+		return configErr
+	}
+	setRuntimeConfig(cfg)
+	return configErr
+}
+
 // setAccessTokenToCache 将 token 缓存写入到指定会话文件。
-func (s *Sso) setAccessTokenToCache(startURL, sessionName string, token *SsoTokenCache) error {
+func (s *Sso) setAccessTokenToCache(startURL, sessionName string, token *SsoTokenCache) (returnErr error) {
 	cacheDir, err := s.getSsoCacheDir()
 	if err != nil {
 		return err
@@ -827,8 +894,40 @@ func (s *Sso) setAccessTokenToCache(startURL, sessionName string, token *SsoToke
 
 	fileName := s.generateCacheFileName(startURL, sessionName)
 	filePath := filepath.Join(cacheDir, fileName)
-
+	cacheLock, err := acquireCredentialCacheLock(filePath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := cacheLock.release(); returnErr == nil && err != nil {
+			returnErr = trErrorf("failed to release token cache lock: %w", err)
+		}
+	}()
 	return writeJSONFileAtomic(filePath, 0600, token)
+}
+
+func (s *Sso) replaceAccessTokenCacheIfUnchanged(expected, replacement *SsoTokenCache) (returnErr error) {
+	filePath, err := s.tokenCacheFilePath()
+	if err != nil {
+		return err
+	}
+	cacheLock, err := acquireCredentialCacheLock(filePath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := cacheLock.release(); returnErr == nil && err != nil {
+			returnErr = trErrorf("failed to release token cache lock: %w", err)
+		}
+	}()
+	current, err := s.readTokenCacheUnlocked(filePath)
+	if err != nil {
+		return err
+	}
+	if current == nil || !reflect.DeepEqual(current, expected) {
+		return trErrorf("SSO token cache changed while refreshing; retry the command")
+	}
+	return writeJSONFileAtomic(filePath, 0600, replacement)
 }
 
 // chooseAccountAndRole 交互式选择账号与角色。
@@ -1115,7 +1214,7 @@ func (s *Sso) Login() error {
 }
 
 // Logout 撤销缓存 token 并清理本地凭据。
-func (s *Sso) Logout() error {
+func (s *Sso) Logout() (returnErr error) {
 	cfg := ctx.config
 	ssoSession, err := s.loadSsoSession(cfg)
 	if err != nil {
@@ -1126,29 +1225,46 @@ func (s *Sso) Logout() error {
 		return trErrorf("the sign-in URL of SSO session %s is not configured", s.SsoSessionName)
 	}
 
-	tokenCache, err := s.readTokenCache()
+	cachePath, err := s.tokenCacheFilePath()
+	if err != nil {
+		return err
+	}
+	cacheLock, err := acquireCredentialCacheLock(cachePath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := cacheLock.release(); err != nil {
+			returnErr = combineLogoutErrors(returnErr, trErrorf("failed to release token cache lock: %w", err))
+		}
+	}()
+
+	tokenCache, err := s.readTokenCacheUnlocked(cachePath)
 	if err != nil {
 		return err
 	}
 
+	// Clear persisted STS credentials before revoking or deleting the token. A
+	// hard config conflict leaves the cache untouched so logout can be retried.
+	configErr := s.clearProfileStsCredentials(cfg)
+	if configErr != nil && !configMutationCommitted(configErr) {
+		return configErr
+	}
+	setRuntimeConfig(cfg)
+
 	if tokenCache == nil {
-		// 没有本地 token 缓存，仍需清理 profile 中的临时凭据。
-		return s.clearProfileStsCredentials(cfg)
+		return configErr
 	}
 
 	if err := s.revokeCachedToken(tokenCache); err != nil {
-		return err
+		return combineLogoutErrors(configErr, err)
 	}
 
-	if err := s.clearCachedToken(tokenCache); err != nil {
-		return err
+	cacheErr := removeLoginCacheAtPath(cachePath)
+	if cacheErr != nil {
+		cacheErr = trErrorf("failed to remove token cache file after clearing config: %w", cacheErr)
 	}
-
-	if err := s.clearProfileStsCredentials(cfg); err != nil {
-		return err
-	}
-
-	return nil
+	return combineLogoutErrors(configErr, cacheErr)
 }
 
 // revokeCachedToken 仅撤销 refresh token；access token 无需 revoke。
@@ -1167,7 +1283,7 @@ func (s *Sso) revokeCachedToken(tokenCache *SsoTokenCache) error {
 		return nil
 	}
 
-	var oauthClient OAuthClientAPI = NewOAuthClient(&OAuthClientConfig{Region: s.Region})
+	var oauthClient OAuthClientAPI = newOAuthClientForSSO(s.Region)
 	return oauthClient.RevokeToken(context.Background(), &RevokeTokenRequest{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
@@ -1195,6 +1311,10 @@ func (s *Sso) clearProfileStsCredentials(cfg *Configure) error {
 	if cfg == nil {
 		return trErrorf("the configuration file cannot be loaded")
 	}
+	if err := prepareConfigForMutation(cfg); err != nil {
+		return fmt.Errorf("failed to prepare config update: %w", err)
+	}
+	before := normalizedConfigCopy(cfg)
 	updated := false
 	for name, profile := range cfg.Profiles {
 		if profile == nil || profile.Mode != ModeSSO || profile.SsoSessionName != s.SsoSessionName {
@@ -1207,7 +1327,11 @@ func (s *Sso) clearProfileStsCredentials(cfg *Configure) error {
 	if !updated {
 		return nil
 	}
-	return WriteConfigToFile(cfg)
+	err := writeSsoLogoutConfigTransaction(cfg)
+	if err != nil && !configMutationCommitted(err) {
+		applyConfigData(cfg, before)
+	}
+	return err
 }
 
 // clearSsoProfileTemporaryCredentials 仅清理 SSO profile 中可重新换取的 STS 临时凭据。

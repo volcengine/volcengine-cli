@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/volcengine/volcengine-go-sdk/volcengine/credentials/clicreds"
 )
@@ -1305,6 +1307,8 @@ func TestWriteConfigToFileOverwritesExisting(t *testing.T) {
 	if err := os.Chmod(configPath, 0644); err != nil {
 		t.Fatalf("make existing config deliberately permissive: %v", err)
 	}
+	// Preserve the exported API's historical whole-file replacement contract:
+	// package-external callers cannot populate the private baseline fields.
 	second := &Configure{
 		Current:     "two",
 		Profiles:    map[string]*Profile{},
@@ -1325,21 +1329,449 @@ func TestWriteConfigToFileOverwritesExisting(t *testing.T) {
 	}
 }
 
+func TestConfigForWriteCapturesBaselineAfterLoadConfigEmptyFile(t *testing.T) {
+	configDir, cleanup := withTestConfigDir(t)
+	defer cleanup()
+	oldConfig := config
+	oldContextConfig := ctx.config
+	config = nil
+	ctx.config = nil
+	defer func() {
+		config = oldConfig
+		ctx.config = oldContextConfig
+	}()
+
+	// Preserve LoadConfig's historical empty-file behavior. configForWrite must
+	// still turn that newly created file into a writable config with a baseline.
+	if loaded := LoadConfig(); loaded != nil {
+		t.Fatalf("LoadConfig on a new empty file = %#v, want nil", loaded)
+	}
+	cfg, err := configForWrite()
+	if err != nil {
+		t.Fatalf("configForWrite after empty LoadConfig: %v", err)
+	}
+	if cfg.baseline == nil || !sameConfigPath(cfg.baselinePath, filepath.Join(configDir, ConfigFile)) {
+		t.Fatalf("configForWrite did not capture empty-file baseline: %#v path=%q", cfg.baseline, cfg.baselinePath)
+	}
+	cfg.Profiles["new"] = &Profile{Name: "new"}
+	if err := WriteConfigToFile(cfg); err != nil {
+		t.Fatalf("write config created from empty baseline: %v", err)
+	}
+	if loaded := LoadConfig(); loaded == nil || loaded.Profiles["new"] == nil {
+		t.Fatalf("new config was not persisted: %#v", loaded)
+	}
+}
+
+func TestWriteConfigTransactionWithoutBaselineCannotOverwriteExistingConfig(t *testing.T) {
+	_, cleanup := withTestConfigDir(t)
+	defer cleanup()
+
+	first := &Configure{
+		Current: "first",
+		Profiles: map[string]*Profile{
+			"first": {Name: "first"},
+		},
+		SsoSession: map[string]*SsoSession{},
+	}
+	if err := WriteConfigToFile(first); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+	unsafeOverwrite := &Configure{
+		Current: "second",
+		Profiles: map[string]*Profile{
+			"second": {Name: "second"},
+		},
+		SsoSession: map[string]*SsoSession{},
+	}
+	if err := writeConfigTransaction(unsafeOverwrite); !errors.Is(err, ErrConcurrentConfigModification) {
+		t.Fatalf("baseline-free overwrite error = %v, want concurrent modification", err)
+	}
+	loaded := LoadConfig()
+	if loaded == nil || loaded.Current != "first" || loaded.Profiles["first"] == nil {
+		t.Fatalf("baseline-free overwrite changed existing config: %#v", loaded)
+	}
+}
+
+func TestWriteConfigToFileMergesIndependentStaleChanges(t *testing.T) {
+	configDir, cleanup := withTestConfigDir(t)
+	defer cleanup()
+
+	seed := &Configure{
+		Current: "base",
+		Profiles: map[string]*Profile{
+			"base": {Name: "base", Mode: ModeAK, AccessKey: "ak", SecretKey: "sk"},
+		},
+		SsoSession: map[string]*SsoSession{},
+	}
+	if err := WriteConfigToFile(seed); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	profileWriter := LoadConfig()
+	sessionWriter := LoadConfig()
+	if profileWriter == nil || sessionWriter == nil {
+		t.Fatal("LoadConfig returned nil")
+	}
+	profileWriter.Profiles["profile-from-first-process"] = &Profile{
+		Name:      "profile-from-first-process",
+		Mode:      ModeAK,
+		AccessKey: "first-ak",
+		SecretKey: "first-sk",
+	}
+	profileWriter.SsoSession["session-from-first-process"] = &SsoSession{
+		Name:     "session-from-first-process",
+		StartURL: "https://first.example.com/start",
+		Region:   "cn-beijing",
+	}
+	sessionWriter.Profiles["profile-from-second-process"] = &Profile{
+		Name:      "profile-from-second-process",
+		Mode:      ModeAK,
+		AccessKey: "second-ak",
+		SecretKey: "second-sk",
+	}
+	sessionWriter.SsoSession["session-from-second-process"] = &SsoSession{
+		Name:     "session-from-second-process",
+		StartURL: "https://example.com/start",
+		Region:   "cn-beijing",
+	}
+
+	if err := writeConfigTransaction(profileWriter); err != nil {
+		t.Fatalf("write first stale config: %v", err)
+	}
+	if err := writeConfigTransaction(sessionWriter); err != nil {
+		t.Fatalf("merge second stale config: %v", err)
+	}
+
+	loaded := LoadConfig()
+	if loaded == nil {
+		t.Fatal("LoadConfig after merged writes returned nil")
+	}
+	if loaded.Profiles["profile-from-first-process"] == nil {
+		t.Fatalf("first process profile was lost: %#v", loaded.Profiles)
+	}
+	if loaded.Profiles["profile-from-second-process"] == nil {
+		t.Fatalf("second process profile was lost: %#v", loaded.Profiles)
+	}
+	if loaded.SsoSession["session-from-first-process"] == nil {
+		t.Fatalf("first process SSO session was lost: %#v", loaded.SsoSession)
+	}
+	if loaded.SsoSession["session-from-second-process"] == nil {
+		t.Fatalf("second process SSO session was lost: %#v", loaded.SsoSession)
+	}
+	if sessionWriter.Profiles["profile-from-first-process"] == nil {
+		t.Fatal("successful merge did not refresh the caller's in-memory config")
+	}
+	if sessionWriter.baseline == nil || !configDataEqual(sessionWriter.baseline, sessionWriter) {
+		t.Fatal("successful merge did not refresh the caller's immutable baseline")
+	}
+	if _, err := os.Stat(filepath.Join(configDir, ConfigFile+".lock")); err != nil {
+		t.Fatalf("stable config lock file missing after write: %v", err)
+	}
+}
+
+func TestWriteConfigToFileRejectsSameKeyStaleConflictAndPreservesFirstWrite(t *testing.T) {
+	configDir, cleanup := withTestConfigDir(t)
+	defer cleanup()
+
+	seed := &Configure{
+		Current: "shared",
+		Profiles: map[string]*Profile{
+			"shared": {
+				Name:      "shared",
+				Mode:      ModeAK,
+				AccessKey: "base-ak",
+				SecretKey: "base-sk",
+			},
+		},
+		SsoSession: map[string]*SsoSession{},
+	}
+	if err := WriteConfigToFile(seed); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	first := LoadConfig()
+	stale := LoadConfig()
+	first.Profiles["shared"].Region = "cn-beijing"
+	stale.Profiles["shared"].Region = "cn-shanghai"
+
+	if err := writeConfigTransaction(first); err != nil {
+		t.Fatalf("write first change: %v", err)
+	}
+	err := writeConfigTransaction(stale)
+	if !errors.Is(err, ErrConcurrentConfigModification) {
+		t.Fatalf("stale same-key write error = %v, want concurrent modification", err)
+	}
+	if !strings.Contains(err.Error(), `profiles["shared"]`) {
+		t.Fatalf("conflict error does not identify profile key: %v", err)
+	}
+
+	loaded := LoadConfig()
+	if loaded == nil || loaded.Profiles["shared"] == nil {
+		t.Fatalf("config missing after conflict: %#v", loaded)
+	}
+	if got := loaded.Profiles["shared"].Region; got != "cn-beijing" {
+		t.Fatalf("conflicting stale write changed disk region to %q; want first writer's value", got)
+	}
+	if _, err := os.Stat(filepath.Join(configDir, ConfigFile+".lock")); err != nil {
+		t.Fatalf("config lock file should remain after conflict: %v", err)
+	}
+}
+
+func TestWriteConfigToFileRejectsConcurrentCurrentChange(t *testing.T) {
+	_, cleanup := withTestConfigDir(t)
+	defer cleanup()
+
+	seed := &Configure{
+		Current: "base",
+		Profiles: map[string]*Profile{
+			"base":  {Name: "base"},
+			"first": {Name: "first"},
+			"stale": {Name: "stale"},
+		},
+		SsoSession: map[string]*SsoSession{},
+	}
+	if err := WriteConfigToFile(seed); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+	first := LoadConfig()
+	stale := LoadConfig()
+	first.Current = "first"
+	stale.Current = "stale"
+
+	if err := writeConfigTransaction(first); err != nil {
+		t.Fatalf("write first current: %v", err)
+	}
+	if err := writeConfigTransaction(stale); !errors.Is(err, ErrConcurrentConfigModification) {
+		t.Fatalf("stale current write error = %v, want concurrent modification", err)
+	}
+	loaded := LoadConfig()
+	if loaded == nil || loaded.Current != "first" {
+		t.Fatalf("disk current after conflict = %#v, want first", loaded)
+	}
+}
+
+func TestMergeConfigAcceptsConcurrentSameEnableColorChange(t *testing.T) {
+	base := &Configure{EnableColor: false}
+	local := &Configure{EnableColor: true}
+	remote := &Configure{EnableColor: true}
+
+	merged, err := mergeConfig(base, local, remote)
+	if err != nil {
+		t.Fatalf("same final enableColor should converge: %v", err)
+	}
+	if !merged.EnableColor {
+		t.Fatal("merged enableColor = false, want true")
+	}
+}
+
+func TestMergeConfigAcceptsConcurrentSameMapEntryChanges(t *testing.T) {
+	base := &Configure{
+		Profiles: map[string]*Profile{"shared": {Name: "shared", Region: "base"}},
+		SsoSession: map[string]*SsoSession{
+			"shared": {Name: "shared", Region: "base"},
+		},
+	}
+	local := normalizedConfigCopy(base)
+	remote := normalizedConfigCopy(base)
+	local.Profiles["shared"].Region = "same"
+	remote.Profiles["shared"].Region = "same"
+	local.SsoSession["shared"].Region = "same"
+	remote.SsoSession["shared"].Region = "same"
+
+	merged, err := mergeConfig(base, local, remote)
+	if err != nil {
+		t.Fatalf("same final map-entry values should converge: %v", err)
+	}
+	if merged.Profiles["shared"].Region != "same" ||
+		merged.SsoSession["shared"].Region != "same" {
+		t.Fatalf("same-final merge lost values: %#v", merged)
+	}
+}
+
+func TestWriteConfigTransactionAdvancesStateAfterPartialCommit(t *testing.T) {
+	configDir, cleanup := withTestConfigDir(t)
+	defer cleanup()
+
+	seed := &Configure{
+		Current:    "base",
+		Profiles:   map[string]*Profile{"base": {Name: "base"}},
+		SsoSession: map[string]*SsoSession{},
+	}
+	if err := WriteConfigToFile(seed); err != nil {
+		t.Fatal(err)
+	}
+	cfg := LoadConfig()
+	cfg.Profiles["new"] = &Profile{Name: "new"}
+
+	durabilityErr := errors.New("injected parent sync failure")
+	replacer := func(src, dst string) error {
+		if err := os.Rename(src, dst); err != nil {
+			return err
+		}
+		return &PartialCommitError{Err: durabilityErr}
+	}
+	err := writeConfigTransactionWithReplacer(cfg, replacer)
+	var partial *PartialCommitError
+	if !errors.As(err, &partial) || !partial.Committed() || !errors.Is(err, durabilityErr) {
+		t.Fatalf("partial commit error = %v", err)
+	}
+	if cfg.Profiles["new"] == nil || cfg.baseline == nil || cfg.baseline.Profiles["new"] == nil {
+		t.Fatalf("committed object/baseline not advanced: cfg=%#v baseline=%#v", cfg, cfg.baseline)
+	}
+	loaded := LoadConfig()
+	if loaded == nil || loaded.Profiles["new"] == nil {
+		t.Fatalf("partial commit not visible on disk: %#v", loaded)
+	}
+	// Retrying the now-converged transaction must not report a stale conflict.
+	if err := writeConfigTransaction(cfg); err != nil {
+		t.Fatalf("retry after partial commit: %v", err)
+	}
+	assertNoConfigTempFiles(t, configDir)
+}
+
+func TestWriteConfigTransactionHardFailureRestoresBaseline(t *testing.T) {
+	_, cleanup := withTestConfigDir(t)
+	defer cleanup()
+	seed := &Configure{Current: "base", Profiles: map[string]*Profile{"base": {Name: "base"}}, SsoSession: map[string]*SsoSession{}}
+	if err := WriteConfigToFile(seed); err != nil {
+		t.Fatal(err)
+	}
+	cfg := LoadConfig()
+	cfg.Current = "mutated"
+	cfg.Profiles["new"] = &Profile{Name: "new"}
+	wantErr := errors.New("injected hard replace failure")
+	err := writeConfigTransactionWithReplacer(cfg, func(string, string) error { return wantErr })
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("transaction error = %v, want hard failure", err)
+	}
+	if cfg.Current != "base" || cfg.Profiles["new"] != nil {
+		t.Fatalf("hard failure left uncommitted in-memory state: %#v", cfg)
+	}
+	if cfg.baseline == nil || cfg.baseline.Current != "base" {
+		t.Fatalf("baseline changed after hard failure: %#v", cfg.baseline)
+	}
+}
+
+func TestWriteConfigToFileRejectsSameSsoSessionKeyConflict(t *testing.T) {
+	_, cleanup := withTestConfigDir(t)
+	defer cleanup()
+
+	seed := &Configure{
+		Profiles: map[string]*Profile{},
+		SsoSession: map[string]*SsoSession{
+			"shared": {Name: "shared", StartURL: "https://base.example.com", Region: "cn-beijing"},
+		},
+	}
+	if err := WriteConfigToFile(seed); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+	first := LoadConfig()
+	stale := LoadConfig()
+	first.SsoSession["shared"].StartURL = "https://first.example.com"
+	stale.SsoSession["shared"].StartURL = "https://stale.example.com"
+
+	if err := writeConfigTransaction(first); err != nil {
+		t.Fatalf("write first SSO session update: %v", err)
+	}
+	err := writeConfigTransaction(stale)
+	if !errors.Is(err, ErrConcurrentConfigModification) || !strings.Contains(err.Error(), `sso-session["shared"]`) {
+		t.Fatalf("stale SSO session error = %v, want identified concurrent modification", err)
+	}
+	loaded := LoadConfig()
+	if got := loaded.SsoSession["shared"].StartURL; got != "https://first.example.com" {
+		t.Fatalf("conflicting stale write changed disk SSO URL to %q", got)
+	}
+}
+
+func TestConfigFileLockSerializesReadMergeAndReplace(t *testing.T) {
+	_, cleanup := withTestConfigDir(t)
+	defer cleanup()
+
+	seed := &Configure{
+		Profiles:   map[string]*Profile{},
+		SsoSession: map[string]*SsoSession{},
+	}
+	if err := WriteConfigToFile(seed); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+	first := LoadConfig()
+	second := LoadConfig()
+	first.Profiles["first"] = &Profile{Name: "first"}
+	second.Profiles["second"] = &Profile{Name: "second"}
+
+	firstInReplace := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	secondInReplace := make(chan struct{})
+	secondStarted := make(chan struct{})
+	var closeFirstOnce sync.Once
+	firstReplacer := func(src, dst string) error {
+		closeFirstOnce.Do(func() { close(firstInReplace) })
+		<-releaseFirst
+		return replaceFile(src, dst)
+	}
+	secondReplacer := func(src, dst string) error {
+		close(secondInReplace)
+		return replaceFile(src, dst)
+	}
+
+	firstErr := make(chan error, 1)
+	secondErr := make(chan error, 1)
+	go func() { firstErr <- writeConfigTransactionWithReplacer(first, firstReplacer) }()
+	select {
+	case <-firstInReplace:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first writer did not reach replace")
+	}
+	go func() {
+		close(secondStarted)
+		secondErr <- writeConfigTransactionWithReplacer(second, secondReplacer)
+	}()
+	<-secondStarted
+
+	select {
+	case <-secondInReplace:
+		close(releaseFirst)
+		t.Fatal("second writer reached replace while first held config lock")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(releaseFirst)
+	if err := <-firstErr; err != nil {
+		t.Fatalf("first writer: %v", err)
+	}
+	if err := <-secondErr; err != nil {
+		t.Fatalf("second writer: %v", err)
+	}
+
+	loaded := LoadConfig()
+	if loaded == nil || loaded.Profiles["first"] == nil || loaded.Profiles["second"] == nil {
+		t.Fatalf("serialized writes did not preserve both changes: %#v", loaded)
+	}
+}
+
 func TestWriteConfigToFileReplaceFailurePreservesExistingAndCleansTemp(t *testing.T) {
 	configDir, cleanup := withTestConfigDir(t)
 	defer cleanup()
 
 	configPath := filepath.Join(configDir, ConfigFile)
-	wantOld := []byte("existing config must survive\n")
-	if err := os.WriteFile(configPath, wantOld, 0600); err != nil {
-		t.Fatalf("write existing config: %v", err)
-	}
-	wantNew := &Configure{
-		Current:     "replacement",
+	wantOldConfig := &Configure{
+		Current:     "existing",
 		Profiles:    map[string]*Profile{},
 		SsoSession:  map[string]*SsoSession{},
-		EnableColor: true,
+		EnableColor: false,
 	}
+	if err := WriteConfigToFile(wantOldConfig); err != nil {
+		t.Fatalf("write existing config: %v", err)
+	}
+	wantOld, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read existing config: %v", err)
+	}
+	wantNew := LoadConfig()
+	if wantNew == nil {
+		t.Fatal("LoadConfig before replacement returned nil")
+	}
+	wantNew.Current = "replacement"
+	wantNew.EnableColor = true
 	replaceErr := errors.New("injected replace failure")
 	var tempPath string
 	replacer := func(src, dst string) error {

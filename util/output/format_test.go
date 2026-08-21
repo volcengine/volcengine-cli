@@ -367,13 +367,66 @@ func TestWriteTextEmptyObjectInHeterogeneousProjectionIsNotABlankRow(t *testing.
 	}
 }
 
-func TestWriteTextTopLevelScalarListRemainsOneItemPerLine(t *testing.T) {
+func TestWriteTextTopLevelScalarListJoinsOneRow(t *testing.T) {
 	var buf bytes.Buffer
 	if err := Write(&buf, FormatText, []interface{}{"a", "b", "c"}); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := buf.String(), "a\nb\nc\n"; got != want {
+	if got, want := buf.String(), "a\tb\tc\n"; got != want {
 		t.Fatalf("top-level scalar list = %q, want %q", got, want)
+	}
+}
+
+// A bare object (no --query) must flatten to TSV, never a JSON blob. Nested
+// fields recurse on their own lines prefixed by the UPPERCASED key, matching
+// the AWS CLI text formatter.
+func TestWriteTextBareObjectFlattensWithoutJSON(t *testing.T) {
+	data := map[string]interface{}{
+		"MaxResults": json.Number("2"),
+		"Items": []interface{}{
+			map[string]interface{}{"Id": "i-1", "Name": "web"},
+			map[string]interface{}{"Id": "i-2", "Name": "db"},
+		},
+	}
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatText, data); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "{") || strings.Contains(out, "[") {
+		t.Fatalf("bare object leaked JSON:\n%s", out)
+	}
+	want := "2\nITEMS\ti-1\tweb\nITEMS\ti-2\tdb\n"
+	if out != want {
+		t.Fatalf("bare object text = %q, want %q", out, want)
+	}
+}
+
+// A bare list of objects (no --query) shares one column set and emits one row
+// per object, matching the AWS CLI.
+func TestWriteTextBareObjectListFlattens(t *testing.T) {
+	data := []interface{}{
+		map[string]interface{}{"Id": "i-1", "Status": "RUNNING"},
+		map[string]interface{}{"Id": "i-2", "Status": "STOPPED"},
+	}
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatText, data); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := buf.String(), "i-1\tRUNNING\ni-2\tSTOPPED\n"; got != want {
+		t.Fatalf("bare object list = %q, want %q", got, want)
+	}
+}
+
+// A scalar list held under an object key becomes one prefixed line per item.
+func TestWriteTextScalarListUnderKeyIsPrefixed(t *testing.T) {
+	data := map[string]interface{}{"KeyName": []interface{}{"a", "b", "c"}}
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatText, data); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := buf.String(), "KEYNAME\ta\nKEYNAME\tb\nKEYNAME\tc\n"; got != want {
+		t.Fatalf("scalar list under key = %q, want %q", got, want)
 	}
 }
 

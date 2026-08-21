@@ -737,6 +737,9 @@ func buildPromptFuncMap() template.FuncMap {
 // createSsoSessionInSso 在 SSO 会话不存在时创建新会话并写入配置文件。
 // 该流程采用交互式输入，完成 StartURL、Region 与 Scopes 的采集与校验。
 func createSsoSessionInSso(sessionName string, cfg *Configure) (*SsoSession, error) {
+	if err := prepareConfigForMutation(cfg); err != nil {
+		return nil, fmt.Errorf("failed to prepare config update: %w", err)
+	}
 	newSession := &SsoSession{
 		Name: sessionName,
 	}
@@ -765,7 +768,7 @@ func createSsoSessionInSso(sessionName string, cfg *Configure) (*SsoSession, err
 	cfg.SsoSession[sessionName] = newSession
 
 	// 写入配置文件，确保会话持久化。
-	err = WriteConfigToFile(cfg)
+	err = writeConfigTransaction(cfg)
 	if err != nil {
 		return nil, trErrorf("failed to save SSO session configuration: %v", err)
 	}

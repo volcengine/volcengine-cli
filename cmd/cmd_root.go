@@ -86,7 +86,7 @@ func newColorCommand(use string, enabled bool) *cobra.Command {
 				return err
 			}
 			cfg.EnableColor = enabled
-			if err := WriteConfigToFile(cfg); err != nil {
+			if err := writeConfigTransaction(cfg); err != nil {
 				return err
 			}
 			setRuntimeConfig(cfg)

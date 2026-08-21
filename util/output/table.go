@@ -21,7 +21,9 @@ func itoa(i int) string { return strconv.Itoa(i) }
 //
 // Shape rules:
 //   - []map           → multi-column record table (+ sections for nested fields)
-//   - map             → Key | Value (+ sections for nested fields)
+//   - map             → one horizontal record: field-name header row + value row
+//     (+ sections for nested fields); transposed to Field | Value only when a
+//     known terminal width is exceeded
 //   - [][] / []scalar → projection / single column
 //   - scalar / null   → single cell
 func writeTable(w io.Writer, data interface{}, opts Options, numbered bool) error {
@@ -118,16 +120,6 @@ func renderSection(w io.Writer, sec section, opts Options, numbered bool, termWi
 		return err
 	}
 	return renderTable(w, headers, rows, opts, termWidth)
-}
-
-func tableFromKeyValue(m map[string]interface{}) (headers []string, rows [][]string) {
-	keys := sortedMapKeys(m)
-	headers = []string{"Key", "Value"}
-	rows = make([][]string, 0, len(keys))
-	for _, k := range keys {
-		rows = append(rows, []string{escapeCellString(k), scalarString(m[k])})
-	}
-	return headers, rows
 }
 
 // withRowNumbers prepends the "#" column, numbering from 1.

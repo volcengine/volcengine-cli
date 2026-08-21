@@ -259,6 +259,72 @@ func TestParserForceFlagWithoutValueBeforeDynamicFlag(t *testing.T) {
 	}
 }
 
+func TestParserCollectsRepeatableAPIParamControlWithForce(t *testing.T) {
+	parser := NewParser([]string{
+		"--api-param", " query =business=value",
+		"--api-param", "output=",
+		"--query", "Result.Id",
+		"--output", "text",
+		"--force",
+	})
+	ctx := NewContext()
+
+	if _, err := parser.ReadArgs(ctx); err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+	escape := ctx.dynamicFlags.GetByName("api-param")
+	if escape == nil {
+		t.Fatal("expected --api-param control in dynamicFlags")
+	}
+	want := []string{" query =business=value", "output="}
+	got := escape.GetValues()
+	if len(got) != len(want) {
+		t.Fatalf("--api-param values = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("--api-param values[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+	if ctx.dynamicFlags.GetByName("query") != nil || ctx.dynamicFlags.GetByName("output") != nil {
+		t.Fatal("unknown-action --query/--output must remain system flags before explicit expansion")
+	}
+	if got := ctx.fixedFlags.GetByName("query"); got == nil || got.GetValue() != "Result.Id" {
+		t.Fatalf("system query = %#v", got)
+	}
+	if got := ctx.fixedFlags.GetByName("output"); got == nil || got.GetValue() != "text" {
+		t.Fatalf("system output = %#v", got)
+	}
+}
+
+func TestParserRejectsAPIParamWithoutForce(t *testing.T) {
+	_, err := NewParser([]string{"--api-param", "query=business"}).ReadArgs(NewContext())
+	if err == nil || !strings.Contains(err.Error(), "--api-param is only available with --force") {
+		t.Fatalf("expected force-only --api-param error, got %v", err)
+	}
+}
+
+func TestParserKeepsAPIParamReservedWhenMetadataPublishesSameName(t *testing.T) {
+	ctx := NewContext()
+	_, err := NewParser(
+		[]string{"--api-param", "query=business", "--force"},
+		map[string]struct{}{"api-param": {}},
+	).ReadArgs(ctx)
+	if err != nil {
+		t.Fatalf("ReadArgs: %v", err)
+	}
+	control := ctx.dynamicFlags.GetByName("api-param")
+	if control == nil || !control.multi || len(control.GetValues()) != 1 {
+		t.Fatalf("metadata must not turn reserved --api-param into an ordinary flag: %#v", control)
+	}
+	if err := expandForceAPIParams(ctx); err != nil {
+		t.Fatalf("expandForceAPIParams: %v", err)
+	}
+	if got := ctx.dynamicFlags.GetByName("query"); got == nil || got.GetValue() != "business" {
+		t.Fatalf("expanded query = %#v", got)
+	}
+}
+
 func TestParserAcceptsPEMValuesStartingWithHyphens(t *testing.T) {
 	publicKey := "-----BEGIN CERTIFICATE-----\ncertificate-data\n-----END CERTIFICATE-----"
 	privateKey := "-----BEGIN RSA PRIVATE KEY-----\nprivate-key-data\n-----END RSA PRIVATE KEY-----"

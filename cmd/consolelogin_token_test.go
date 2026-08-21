@@ -214,6 +214,48 @@ func TestEnsureValidLoginTokenRefreshesExpiredCredentials(t *testing.T) {
 	}
 }
 
+func TestEnsureValidLoginTokenDoesNotRecreateCacheAfterLogout(t *testing.T) {
+	_, cleanup := withTestConfigDir(t)
+	defer cleanup()
+	cfg := &Configure{Profiles: map[string]*Profile{"default": {
+		Name: "default", Mode: ModeConsoleLogin, LoginSession: "expired-session",
+	}}}
+	oldCreds := STSCredentials{AccessKeyID: "old", SecretAccessKey: "old-sk", SessionToken: "old-st"}
+	newCreds := STSCredentials{AccessKeyID: "new", SecretAccessKey: "new-sk", SessionToken: "new-st"}
+	requestArrived := make(chan struct{})
+	allowResponse := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(requestArrived)
+		<-allowResponse
+		_ = json.NewEncoder(w).Encode(ConsoleTokenResponse{
+			AccessToken: string(mustMarshalAccessToken(t, newCreds)), RefreshToken: "new-refresh", ExpiresIn: 900,
+		})
+	}))
+	defer server.Close()
+	cache := &LoginTokenCache{
+		LoginSession: "expired-session", AccessToken: mustMarshalAccessToken(t, oldCreds),
+		RefreshToken: "old-refresh", ClientID: ConsoleClientIDSameDevice, Scope: scopeAllAll, EndpointURL: server.URL,
+		IssuedAt: time.Now().UTC().Add(-20 * time.Minute).Format(time.RFC3339), ExpiresIn: 900,
+	}
+	if err := writeLoginCache(cache); err != nil {
+		t.Fatal(err)
+	}
+	cachePath, _ := loginCacheFilePath("expired-session")
+	done := make(chan error, 1)
+	go func() { _, err := EnsureValidLoginToken(cfg, "default"); done <- err }()
+	<-requestArrived
+	if err := removeLoginCache("expired-session"); err != nil {
+		t.Fatal(err)
+	}
+	close(allowResponse)
+	if err := <-done; err == nil || !strings.Contains(err.Error(), "login session changed") {
+		t.Fatalf("refresh after logout error = %v, want session-changed rejection", err)
+	}
+	if _, err := os.Stat(cachePath); !os.IsNotExist(err) {
+		t.Fatalf("stale refresh recreated removed cache: %v", err)
+	}
+}
+
 func TestEnsureValidLoginTokenReturnsHelpfulErrorWhenRefreshFails(t *testing.T) {
 	_, cleanup := withTestConfigDir(t)
 	defer cleanup()

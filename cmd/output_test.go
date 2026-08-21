@@ -17,6 +17,18 @@ func withAPIOutputWriter(t *testing.T, w io.Writer) {
 	t.Cleanup(func() { apiOutputWriter = prev })
 }
 
+func withIsolatedInvocationFlags(t *testing.T) {
+	t.Helper()
+	previousFixedFlags := ctx.fixedFlags
+	previousDynamicFlags := ctx.dynamicFlags
+	ctx.fixedFlags = NewFlagSet()
+	ctx.dynamicFlags = NewFlagSet()
+	t.Cleanup(func() {
+		ctx.fixedFlags = previousFixedFlags
+		ctx.dynamicFlags = previousDynamicFlags
+	})
+}
+
 func TestResolveOutputFormatDefault(t *testing.T) {
 	c := &Context{fixedFlags: NewFlagSet(), dynamicFlags: NewFlagSet()}
 	got, err := resolveOutputFormat(c)
@@ -347,6 +359,8 @@ func (f writerFunc) Write(p []byte) (int, error) {
 }
 
 func TestOutputAndQueryAsSystemFlags(t *testing.T) {
+	withIsolatedInvocationFlags(t)
+
 	_, err := parseInvocationArgs([]string{
 		"--output", "yaml",
 		"--query", "Result.AccountId",
@@ -363,8 +377,8 @@ func TestOutputAndQueryAsSystemFlags(t *testing.T) {
 }
 
 func TestOutputConflictWithActionParameter(t *testing.T) {
-	ctx.fixedFlags = NewFlagSet()
-	ctx.dynamicFlags = NewFlagSet()
+	withIsolatedInvocationFlags(t)
+
 	p := NewParser([]string{"--output", "biz-value"}, map[string]struct{}{"output": {}})
 	if _, err := p.ReadArgs(ctx); err != nil {
 		t.Fatal(err)
@@ -388,9 +402,9 @@ func TestOutputConflictWithActionParameter(t *testing.T) {
 }
 
 func TestQueryConflictWithActionParameter(t *testing.T) {
+	withIsolatedInvocationFlags(t)
+
 	// insight.AgentChat exposes API parameter "query".
-	ctx.fixedFlags = NewFlagSet()
-	ctx.dynamicFlags = NewFlagSet()
 	p := NewParser([]string{"--query", "biz-jmespath-looking"}, map[string]struct{}{"query": {}})
 	if _, err := p.ReadArgs(ctx); err != nil {
 		t.Fatal(err)

@@ -196,16 +196,22 @@ func TestTableNumKeepsColumnOrder(t *testing.T) {
 	}
 }
 
-// A single object renders as Key|Value; its fields are not records, so
-// numbering them would be misleading.
-func TestTableNumDoesNotNumberSingleObject(t *testing.T) {
+// A single object renders as one horizontal record (field-name header row +
+// value row), matching the AWS CLI. table-num therefore numbers it as record 1.
+func TestTableNumNumbersSingleObjectAsOneRecord(t *testing.T) {
 	var buf bytes.Buffer
-	if err := Write(&buf, FormatTableNum,
-		map[string]interface{}{"Id": "i-1", "Status": "Running"}); err != nil {
+	if err := WriteWithOptions(&buf, FormatTableNum,
+		map[string]interface{}{"Id": "i-1", "Status": "Running"},
+		Options{TerminalWidth: -1}); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	if strings.Contains(buf.String(), "| # ") {
-		t.Fatalf("Key|Value table must not gain a # column:\n%s", buf.String())
+	out := buf.String()
+	header := firstLineContaining(out, "Id")
+	if !strings.Contains(header, "#") {
+		t.Fatalf("single object under table-num should gain a # header:\n%s", out)
+	}
+	if !strings.Contains(out, "| 1 ") {
+		t.Fatalf("single object should be numbered as record 1:\n%s", out)
 	}
 }
 

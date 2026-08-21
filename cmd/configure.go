@@ -5,16 +5,23 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"sync"
 
 	"github.com/volcengine/volcengine-cli/util"
 )
 
 var configFileMu sync.Mutex
+
+// ErrConcurrentConfigModification is returned when this process and another
+// process changed the same logical config value from a shared baseline.
+var ErrConcurrentConfigModification = errors.New("concurrent modification")
 
 var configFileDirFunc = util.GetConfigFileDir
 
@@ -34,6 +41,23 @@ type Configure struct {
 	Profiles    map[string]*Profile    `json:"profiles"`
 	EnableColor bool                   `json:"enableColor"`
 	SsoSession  map[string]*SsoSession `json:"sso-session"`
+
+	// baseline is an immutable deep copy of the config as observed before this
+	// object was handed to code that mutates it in place. It is intentionally
+	// not serialized. baselinePath prevents a config loaded from one test/home
+	// directory from being compared with a different config file.
+	baseline     *Configure
+	baselinePath string
+}
+
+// prepareConfigForMutation normalizes cfg and ensures it has an immutable
+// baseline before a long-lived runtime path mutates ctx.config directly.
+func prepareConfigForMutation(cfg *Configure) error {
+	if cfg == nil {
+		return errors.New("config is nil")
+	}
+	normalizeConfig(cfg)
+	return ensureConfigBaseline(cfg)
 }
 
 type Profile struct {
@@ -99,6 +123,8 @@ func LoadConfig() *Configure {
 	if err != nil {
 		return nil
 	}
+	normalizeConfig(cfg)
+	setConfigBaseline(cfg, cfg, configFilePath)
 
 	return cfg
 }
@@ -111,7 +137,10 @@ func readConfigFile() (*Configure, error) {
 	if err != nil {
 		return nil, err
 	}
-	configFilePath := filepath.Join(configFileDir, ConfigFile)
+	return readConfigFileAtPath(filepath.Join(configFileDir, ConfigFile))
+}
+
+func readConfigFileAtPath(configFilePath string) (*Configure, error) {
 	fileContent, err := ioutil.ReadFile(configFilePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -129,36 +158,62 @@ func readConfigFile() (*Configure, error) {
 	if err := json.Unmarshal(fileContent, cfg); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", configFilePath, err)
 	}
+	normalizeConfig(cfg)
 	return cfg, nil
 }
 
 func configForWrite() (*Configure, error) {
 	if cfg := runtimeConfig(); cfg != nil {
-		if cfg.Profiles == nil {
-			cfg.Profiles = make(map[string]*Profile)
-		}
-		if cfg.SsoSession == nil {
-			cfg.SsoSession = make(map[string]*SsoSession)
+		normalizeConfig(cfg)
+		if err := ensureConfigBaseline(cfg); err != nil {
+			return nil, err
 		}
 		return cfg, nil
 	}
-	loaded, err := readConfigFile()
+
+	configFileDir, err := configFileDirFunc()
+	if err != nil {
+		return nil, err
+	}
+	configFilePath := filepath.Join(configFileDir, ConfigFile)
+
+	configFileMu.Lock()
+	defer configFileMu.Unlock()
+	loaded, err := readConfigFileAtPath(configFilePath)
 	if err != nil {
 		return nil, err
 	}
 	if loaded == nil {
-		loaded = &Configure{
-			Profiles:   make(map[string]*Profile),
-			SsoSession: make(map[string]*SsoSession),
-		}
+		loaded = newEmptyConfig()
 	}
-	if loaded.Profiles == nil {
-		loaded.Profiles = make(map[string]*Profile)
-	}
-	if loaded.SsoSession == nil {
-		loaded.SsoSession = make(map[string]*SsoSession)
-	}
+	normalizeConfig(loaded)
+	setConfigBaseline(loaded, loaded, configFilePath)
 	return loaded, nil
+}
+
+// ensureConfigBaseline captures disk state before callers mutate a runtime
+// config that was constructed programmatically rather than by LoadConfig.
+func ensureConfigBaseline(cfg *Configure) error {
+	configFileDir, err := configFileDirFunc()
+	if err != nil {
+		return err
+	}
+	configFilePath := filepath.Join(configFileDir, ConfigFile)
+
+	configFileMu.Lock()
+	defer configFileMu.Unlock()
+	if cfg.baseline != nil && sameConfigPath(cfg.baselinePath, configFilePath) {
+		return nil
+	}
+	loaded, err := readConfigFileAtPath(configFilePath)
+	if err != nil {
+		return err
+	}
+	if loaded == nil {
+		loaded = newEmptyConfig()
+	}
+	setConfigBaseline(cfg, loaded, configFilePath)
+	return nil
 }
 
 // runtimeConfig returns the in-memory config used by the current CLI process.
@@ -179,7 +234,10 @@ func setRuntimeConfig(cfg *Configure) {
 	config = cfg
 }
 
-// WriteConfigToFile store config
+// WriteConfigToFile stores config using the historical whole-config overwrite
+// semantics. It intentionally does not require a baseline: this exported API
+// is also used by callers that construct Configure values directly. CLI
+// mutation paths use writeConfigTransaction instead.
 func WriteConfigToFile(config *Configure) error {
 	return writeConfigToFile(config, replaceFile)
 }
@@ -188,9 +246,43 @@ func WriteConfigToFile(config *Configure) error {
 // changing process-global state. Production always passes replaceFile; tests
 // can exercise a failure after the temporary file has been fully written.
 func writeConfigToFile(config *Configure, replacer func(src, dst string) error) error {
+	if config == nil {
+		return errors.New("config is nil")
+	}
+
 	configFileMu.Lock()
 	defer configFileMu.Unlock()
+	return writeConfigWithLock(config, replacer, false)
+}
 
+// writeConfigTransaction persists a baseline-bearing CLI mutation with a
+// lock-protected three-way merge. On success, and on a PartialCommitError, it
+// refreshes config with the committed merged value and advances its baseline.
+func writeConfigTransaction(config *Configure) error {
+	return writeConfigTransactionWithReplacer(config, replaceFile)
+}
+
+// writeConfigTransactionWithReplacer keeps replacement injectable for tests.
+func writeConfigTransactionWithReplacer(config *Configure, replacer func(src, dst string) error) error {
+	if config == nil {
+		return errors.New("config is nil")
+	}
+	// baseline is the immutable pre-mutation state captured by LoadConfig or
+	// prepareConfigForMutation. A hard, uncommitted failure must not leave the
+	// process using changes that never reached disk.
+	before := normalizedConfigCopy(config.baseline)
+	configFileMu.Lock()
+	defer configFileMu.Unlock()
+	err := writeConfigWithLock(config, replacer, true)
+	if err != nil && !configMutationCommitted(err) && config.baseline != nil {
+		applyConfigData(config, before)
+	}
+	return err
+}
+
+// writeConfigWithLock performs one complete cross-process write transaction.
+// The process-local mutex must be held by the caller.
+func writeConfigWithLock(config *Configure, replacer func(src, dst string) error, merge bool) (returnErr error) {
 	configFileDir, err := configFileDirFunc()
 	if err != nil {
 		return err
@@ -204,6 +296,36 @@ func writeConfigToFile(config *Configure, replacer func(src, dst string) error) 
 	}
 
 	targetPath := filepath.Join(configFileDir, ConfigFile)
+	lock, err := acquireConfigFileLock(targetPath + ".lock")
+	if err != nil {
+		return fmt.Errorf("lock config file: %w", err)
+	}
+	defer func() {
+		if err := lock.release(); returnErr == nil && err != nil {
+			returnErr = &PartialCommitError{Err: fmt.Errorf("release config file lock after committing config: %w", err)}
+		}
+	}()
+
+	// The disk read, three-way conflict check, and atomic replacement all run
+	// under the same cross-process lock. Holding a lock only around replace
+	// would still let two processes write from the same stale snapshot.
+	configToWrite := normalizedConfigCopy(config)
+	if merge {
+		if config.baseline == nil || !sameConfigPath(config.baselinePath, targetPath) {
+			return nilBaselineConfigConflictError()
+		}
+		diskConfig, diskErr := readConfigFileAtPath(targetPath)
+		if diskErr != nil {
+			return diskErr
+		}
+		if diskConfig == nil {
+			diskConfig = newEmptyConfig()
+		}
+		configToWrite, err = mergeConfig(config.baseline, config, diskConfig)
+		if err != nil {
+			return err
+		}
+	}
 
 	dir := filepath.Dir(targetPath)
 	tempFile, err := os.CreateTemp(dir, ".tmp-config-*")
@@ -219,7 +341,7 @@ func writeConfigToFile(config *Configure, replacer func(src, dst string) error) 
 		return err
 	}
 
-	data, err := marshalConfig(config)
+	data, err := marshalConfig(configToWrite)
 	if err != nil {
 		return err
 	}
@@ -233,10 +355,230 @@ func writeConfigToFile(config *Configure, replacer func(src, dst string) error) 
 		return err
 	}
 
-	if err := replacer(tempName, targetPath); err != nil {
-		return err
+	replaceErr := replacer(tempName, targetPath)
+	if replaceErr != nil {
+		var partial *PartialCommitError
+		if !errors.As(replaceErr, &partial) || !partial.Committed() {
+			return replaceErr
+		}
 	}
-	return nil
+	applyConfigData(config, configToWrite)
+	setConfigBaseline(config, configToWrite, targetPath)
+	return replaceErr
+}
+
+func newEmptyConfig() *Configure {
+	return &Configure{
+		Profiles:   make(map[string]*Profile),
+		SsoSession: make(map[string]*SsoSession),
+	}
+}
+
+func normalizeConfig(cfg *Configure) {
+	if cfg == nil {
+		return
+	}
+	if cfg.Profiles == nil {
+		cfg.Profiles = make(map[string]*Profile)
+	}
+	if cfg.SsoSession == nil {
+		cfg.SsoSession = make(map[string]*SsoSession)
+	}
+}
+
+func normalizedConfigCopy(cfg *Configure) *Configure {
+	cloned := cloneConfigData(cfg)
+	if cloned == nil {
+		cloned = newEmptyConfig()
+	}
+	normalizeConfig(cloned)
+	return cloned
+}
+
+// cloneConfigData deliberately excludes baseline metadata.
+func cloneConfigData(cfg *Configure) *Configure {
+	if cfg == nil {
+		return nil
+	}
+	cloned := &Configure{
+		Current:     cfg.Current,
+		EnableColor: cfg.EnableColor,
+		Profiles:    make(map[string]*Profile, len(cfg.Profiles)),
+		SsoSession:  make(map[string]*SsoSession, len(cfg.SsoSession)),
+	}
+	for name, profile := range cfg.Profiles {
+		cloned.Profiles[name] = cloneProfile(profile)
+	}
+	for name, session := range cfg.SsoSession {
+		cloned.SsoSession[name] = cloneSsoSession(session)
+	}
+	return cloned
+}
+
+func cloneSsoSession(session *SsoSession) *SsoSession {
+	if session == nil {
+		return nil
+	}
+	cloned := *session
+	cloned.RegistrationScopes = append([]string(nil), session.RegistrationScopes...)
+	return &cloned
+}
+
+func applyConfigData(dst, src *Configure) {
+	cloned := normalizedConfigCopy(src)
+	dst.Current = cloned.Current
+	dst.Profiles = cloned.Profiles
+	dst.EnableColor = cloned.EnableColor
+	dst.SsoSession = cloned.SsoSession
+}
+
+func setConfigBaseline(cfg, snapshot *Configure, path string) {
+	if cfg == nil {
+		return
+	}
+	cfg.baseline = normalizedConfigCopy(snapshot)
+	cfg.baselinePath = filepath.Clean(path)
+}
+
+func sameConfigPath(left, right string) bool {
+	return left != "" && filepath.Clean(left) == filepath.Clean(right)
+}
+
+func configDataEmpty(cfg *Configure) bool {
+	cfg = normalizedConfigCopy(cfg)
+	return cfg.Current == "" && !cfg.EnableColor && len(cfg.Profiles) == 0 && len(cfg.SsoSession) == 0
+}
+
+func configDataEqual(left, right *Configure) bool {
+	return reflect.DeepEqual(normalizedConfigCopy(left), normalizedConfigCopy(right))
+}
+
+func mergeConfig(base, local, remote *Configure) (*Configure, error) {
+	base = normalizedConfigCopy(base)
+	local = normalizedConfigCopy(local)
+	remote = normalizedConfigCopy(remote)
+	merged := normalizedConfigCopy(remote)
+
+	localCurrentChanged := local.Current != base.Current
+	remoteCurrentChanged := remote.Current != base.Current
+	if localCurrentChanged && remoteCurrentChanged && local.Current != remote.Current {
+		return nil, configConflictError("current")
+	}
+	if localCurrentChanged {
+		merged.Current = local.Current
+	}
+
+	localColorChanged := local.EnableColor != base.EnableColor
+	remoteColorChanged := remote.EnableColor != base.EnableColor
+	if localColorChanged && remoteColorChanged && local.EnableColor != remote.EnableColor {
+		return nil, configConflictError("enableColor")
+	}
+	if localColorChanged {
+		merged.EnableColor = local.EnableColor
+	}
+
+	profiles, err := mergeProfileMaps(base.Profiles, local.Profiles, remote.Profiles)
+	if err != nil {
+		return nil, err
+	}
+	merged.Profiles = profiles
+	sessions, err := mergeSsoSessionMaps(base.SsoSession, local.SsoSession, remote.SsoSession)
+	if err != nil {
+		return nil, err
+	}
+	merged.SsoSession = sessions
+	return merged, nil
+}
+
+func mergeProfileMaps(base, local, remote map[string]*Profile) (map[string]*Profile, error) {
+	keys := sortedProfileKeys(base, local, remote)
+	merged := make(map[string]*Profile, len(keys))
+	for _, key := range keys {
+		baseValue, baseOK := base[key]
+		localValue, localOK := local[key]
+		remoteValue, remoteOK := remote[key]
+		localChanged := !profileEntryEqual(baseValue, baseOK, localValue, localOK)
+		remoteChanged := !profileEntryEqual(baseValue, baseOK, remoteValue, remoteOK)
+		if localChanged && remoteChanged && !profileEntryEqual(localValue, localOK, remoteValue, remoteOK) {
+			return nil, configConflictError(fmt.Sprintf("profiles[%q]", key))
+		}
+		chosen, exists := remoteValue, remoteOK
+		if localChanged {
+			chosen, exists = localValue, localOK
+		}
+		if exists {
+			merged[key] = cloneProfile(chosen)
+		}
+	}
+	return merged, nil
+}
+
+func mergeSsoSessionMaps(base, local, remote map[string]*SsoSession) (map[string]*SsoSession, error) {
+	keys := sortedSsoSessionKeys(base, local, remote)
+	merged := make(map[string]*SsoSession, len(keys))
+	for _, key := range keys {
+		baseValue, baseOK := base[key]
+		localValue, localOK := local[key]
+		remoteValue, remoteOK := remote[key]
+		localChanged := !ssoSessionEntryEqual(baseValue, baseOK, localValue, localOK)
+		remoteChanged := !ssoSessionEntryEqual(baseValue, baseOK, remoteValue, remoteOK)
+		if localChanged && remoteChanged && !ssoSessionEntryEqual(localValue, localOK, remoteValue, remoteOK) {
+			return nil, configConflictError(fmt.Sprintf("sso-session[%q]", key))
+		}
+		chosen, exists := remoteValue, remoteOK
+		if localChanged {
+			chosen, exists = localValue, localOK
+		}
+		if exists {
+			merged[key] = cloneSsoSession(chosen)
+		}
+	}
+	return merged, nil
+}
+
+func profileEntryEqual(left *Profile, leftOK bool, right *Profile, rightOK bool) bool {
+	return leftOK == rightOK && (!leftOK || reflect.DeepEqual(left, right))
+}
+
+func ssoSessionEntryEqual(left *SsoSession, leftOK bool, right *SsoSession, rightOK bool) bool {
+	return leftOK == rightOK && (!leftOK || reflect.DeepEqual(left, right))
+}
+
+func sortedProfileKeys(maps ...map[string]*Profile) []string {
+	keys := make(map[string]struct{})
+	for _, values := range maps {
+		for key := range values {
+			keys[key] = struct{}{}
+		}
+	}
+	return sortedConfigKeys(keys)
+}
+
+func sortedSsoSessionKeys(maps ...map[string]*SsoSession) []string {
+	keys := make(map[string]struct{})
+	for _, values := range maps {
+		for key := range values {
+			keys[key] = struct{}{}
+		}
+	}
+	return sortedConfigKeys(keys)
+}
+
+func sortedConfigKeys(keys map[string]struct{}) []string {
+	result := make([]string, 0, len(keys))
+	for key := range keys {
+		result = append(result, key)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func configConflictError(field string) error {
+	return fmt.Errorf("%w: config field %s was changed by another process", ErrConcurrentConfigModification, field)
+}
+
+func nilBaselineConfigConflictError() error {
+	return fmt.Errorf("%w: cannot safely overwrite existing config without a baseline; reload the config and retry", ErrConcurrentConfigModification)
 }
 
 func marshalConfig(config *Configure) ([]byte, error) {
@@ -301,7 +643,7 @@ func setConfigProfile(profile *Profile) error {
 	cfg.Profiles[nextProfile.Name] = nextProfile
 	cfg.Current = nextProfile.Name
 	// 写入配置文件，完成持久化。
-	return WriteConfigToFile(cfg)
+	return writeConfigTransaction(cfg)
 }
 
 func mergeProfile(base *Profile, input *Profile) *Profile {
@@ -451,6 +793,9 @@ func deleteConfigProfile(profileName string) error {
 	if cfg = ctx.config; cfg == nil {
 		return trErrorf("configuration profile %v not found", profileName)
 	}
+	if err := prepareConfigForMutation(cfg); err != nil {
+		return err
+	}
 
 	// check if the target profileFlags exists
 	if _, exist = cfg.Profiles[profileName]; !exist {
@@ -465,7 +810,7 @@ func deleteConfigProfile(profileName string) error {
 	}
 
 	// 写入配置文件，完成持久化。
-	return WriteConfigToFile(cfg)
+	return writeConfigTransaction(cfg)
 }
 
 func changeConfigProfile(profileName string) error {
@@ -477,6 +822,9 @@ func changeConfigProfile(profileName string) error {
 	// 若配置为空则初始化基础结构。
 	if cfg = ctx.config; cfg == nil {
 		return trErrorf("configuration profile %v not found", profileName)
+	}
+	if err := prepareConfigForMutation(cfg); err != nil {
+		return err
 	}
 
 	// check if the target profileFlags exists
@@ -492,7 +840,7 @@ func changeConfigProfile(profileName string) error {
 	// change current
 	cfg.Current = profileName
 	// 写入配置文件，完成持久化。
-	return WriteConfigToFile(cfg)
+	return writeConfigTransaction(cfg)
 }
 
 func (p *Profile) ToMap() map[string]interface{} {
@@ -541,5 +889,5 @@ func setSsoSession(session *SsoSession) error {
 	cfg.SsoSession[session.Name] = newSession
 
 	// 写入配置文件，完成持久化。
-	return WriteConfigToFile(cfg)
+	return writeConfigTransaction(cfg)
 }

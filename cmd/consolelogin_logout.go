@@ -1,8 +1,15 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"sort"
+)
+
+var (
+	writeLogoutConfigTransaction = writeConfigTransaction
+	removeLoginCacheFile         = os.Remove
 )
 
 // ConsoleLogout holds runtime state for the volcengine logout flow.
@@ -25,10 +32,13 @@ func (cl *ConsoleLogout) Logout() error {
 
 // logoutSingleProfile logs out the specified (or current) profile by removing
 // its cached login token file and clearing the login_session in config.
-func (cl *ConsoleLogout) logoutSingleProfile() error {
+func (cl *ConsoleLogout) logoutSingleProfile() (returnErr error) {
 	cfg := runtimeConfig()
 	if cfg == nil || cfg.Profiles == nil {
 		return trErrorf("no configuration found; nothing to log out")
+	}
+	if err := prepareConfigForMutation(cfg); err != nil {
+		return fmt.Errorf("preparing config update: %w", err)
 	}
 
 	profileName := cl.Profile
@@ -56,19 +66,42 @@ func (cl *ConsoleLogout) logoutSingleProfile() error {
 		return nil
 	}
 
-	// Attempt to delete the cached token file.
-	if err := removeLoginCache(profile.LoginSession); err != nil {
-		return trErrorf("removing cached token for profile %q: %w", profileName, err)
+	loginSession := profile.LoginSession
+	cachePath, err := loginCacheFilePath(loginSession)
+	if err != nil {
+		return trErrorf("resolving cache file path for profile %q: %w", profileName, err)
 	}
+	cacheLock, err := acquireCredentialCacheLock(cachePath)
+	if err != nil {
+		return trErrorf("locking cached token for profile %q: %w", profileName, err)
+	}
+	defer func() {
+		if err := cacheLock.release(); err != nil {
+			returnErr = combineLogoutErrors(returnErr, trErrorf("releasing cache lock for profile %q: %w", profileName, err))
+		}
+	}()
 
-	// Clear the login_session field in the profile config.
+	// Disconnect the profile from the cached credentials before deleting them.
+	// The cache lock prevents a concurrent login from replacing this exact
+	// cache instance between the config commit and removal.
 	profile.LoginSession = ""
 	cfg.Profiles[profileName] = profile
 
-	if err := WriteConfigToFile(cfg); err != nil {
-		return trErrorf("updating config after logout: %w", err)
+	configErr := writeLogoutConfigTransaction(cfg)
+	if configErr != nil && !configMutationCommitted(configErr) {
+		profile.LoginSession = loginSession
+		cfg.Profiles[profileName] = profile
+		return trErrorf("updating config before logout: %w", configErr)
 	}
 	setRuntimeConfig(cfg)
+
+	cacheErr := removeLoginCacheAtPath(cachePath)
+	if cacheErr != nil {
+		cacheErr = trErrorf("removing cached token for profile %q after config was cleared: %w", profileName, cacheErr)
+	}
+	if err := combineLogoutErrors(configErr, cacheErr); err != nil {
+		return err
+	}
 
 	fmt.Printf(tr("Successfully logged out of profile %q.\n"), profileName)
 	printPostLogoutHint()
@@ -79,66 +112,144 @@ func (cl *ConsoleLogout) logoutSingleProfile() error {
 // with an active login-session, removes the corresponding cache file, and
 // clears the login-session field. This is config-driven rather than
 // filesystem-scanning, ensuring we only touch files that belong to known profiles.
-func (cl *ConsoleLogout) logoutAll() error {
+func (cl *ConsoleLogout) logoutAll() (returnErr error) {
 	cfg := runtimeConfig()
 	if cfg == nil || cfg.Profiles == nil {
 		fmt.Println(tr("No configuration found; nothing to log out."))
 		return nil
 	}
+	if err := prepareConfigForMutation(cfg); err != nil {
+		return fmt.Errorf("preparing config update: %w", err)
+	}
 
-	deletedCount := 0
-	var firstErr error
-
+	type profileSession struct {
+		name      string
+		session   string
+		cachePath string
+		profile   *Profile
+	}
+	profiles := make([]profileSession, 0)
 	for name, profile := range cfg.Profiles {
 		if profile == nil || profile.Mode != ModeConsoleLogin || profile.LoginSession == "" {
 			continue
 		}
+		cachePath, err := loginCacheFilePath(profile.LoginSession)
+		if err != nil {
+			return trErrorf("resolving cache file path for profile %q: %w", name, err)
+		}
+		profiles = append(profiles, profileSession{name: name, session: profile.LoginSession, cachePath: cachePath, profile: profile})
+	}
+	if len(profiles) == 0 {
+		fmt.Println(tr("No console-login profiles with active sessions found. Nothing to do."))
+		return nil
+	}
 
-		// Attempt to delete the cached token file for this profile.
-		if err := removeLoginCache(profile.LoginSession); err != nil {
-			fmt.Fprintf(os.Stderr, tr("Warning: failed to remove cache for profile %q: %v\n"), name, err)
-			if firstErr == nil {
-				firstErr = err
-			}
-			// Continue to process remaining profiles.
+	// A deterministic order prevents two logout-all processes from deadlocking
+	// while protecting overlapping sets of cache files.
+	sort.Slice(profiles, func(i, j int) bool { return profiles[i].cachePath < profiles[j].cachePath })
+	locks := make(map[string]*configFileLock)
+	lockPaths := make([]string, 0, len(profiles))
+	for _, item := range profiles {
+		if _, exists := locks[item.cachePath]; exists {
 			continue
 		}
+		cacheLock, err := acquireCredentialCacheLock(item.cachePath)
+		if err != nil {
+			for i := len(lockPaths) - 1; i >= 0; i-- {
+				_ = locks[lockPaths[i]].release()
+			}
+			return trErrorf("locking cached token for profile %q: %w", item.name, err)
+		}
+		locks[item.cachePath] = cacheLock
+		lockPaths = append(lockPaths, item.cachePath)
+	}
+	defer func() {
+		for i := len(lockPaths) - 1; i >= 0; i-- {
+			if err := locks[lockPaths[i]].release(); err != nil {
+				returnErr = combineLogoutErrors(returnErr, trErrorf("releasing credential cache lock: %w", err))
+			}
+		}
+	}()
 
-		// Clear login-session in config.
-		profile.LoginSession = ""
-		deletedCount++
-		fmt.Printf(tr("  Logged out profile %q\n"), name)
+	for _, item := range profiles {
+		item.profile.LoginSession = ""
+		cfg.Profiles[item.name] = item.profile
 	}
 
-	// Persist config changes (even if some removals failed, clear the ones that succeeded).
-	if err := WriteConfigToFile(cfg); err != nil {
-		fmt.Fprintf(os.Stderr, tr("Warning: failed to update config after logout: %v\n"), err)
-	} else {
-		setRuntimeConfig(cfg)
+	configErr := writeLogoutConfigTransaction(cfg)
+	if configErr != nil && !configMutationCommitted(configErr) {
+		for _, item := range profiles {
+			item.profile.LoginSession = item.session
+			cfg.Profiles[item.name] = item.profile
+		}
+		return trErrorf("updating config before logout: %w", configErr)
+	}
+	setRuntimeConfig(cfg)
+
+	var firstCacheErr error
+	for _, item := range profiles {
+		if err := removeLoginCacheAtPath(item.cachePath); err != nil {
+			fmt.Fprintf(os.Stderr, tr("Warning: failed to remove cache for profile %q after config was cleared: %v\n"), item.name, err)
+			if firstCacheErr == nil {
+				firstCacheErr = trErrorf("removing cached token for profile %q after config was cleared: %w", item.name, err)
+			}
+			continue
+		}
+		fmt.Printf(tr("  Logged out profile %q\n"), item.name)
 	}
 
-	if deletedCount > 0 {
-		fmt.Printf("\n"+tr("Successfully logged out %d console-login profile(s).\n"), deletedCount)
+	if configErr == nil && firstCacheErr == nil {
+		fmt.Printf("\n"+tr("Successfully logged out %d console-login profile(s).\n"), len(profiles))
 		printPostLogoutHint()
-	} else {
-		fmt.Println(tr("No console-login profiles with active sessions found. Nothing to do."))
 	}
 
-	return firstErr
+	return combineLogoutErrors(configErr, firstCacheErr)
 }
 
 // removeLoginCache resolves the cache file path for a login-session and removes it.
 // Returns nil if the file does not exist (idempotent).
-func removeLoginCache(loginSession string) error {
+func removeLoginCache(loginSession string) (returnErr error) {
 	cachePath, err := loginCacheFilePath(loginSession)
 	if err != nil {
 		return trErrorf("resolving cache file path: %w", err)
 	}
+	cacheLock, err := acquireCredentialCacheLock(cachePath)
+	if err != nil {
+		return trErrorf("locking cache file: %w", err)
+	}
+	defer func() {
+		if err := cacheLock.release(); err != nil {
+			returnErr = combineLogoutErrors(returnErr, trErrorf("releasing cache lock: %w", err))
+		}
+	}()
+	return removeLoginCacheAtPath(cachePath)
+}
 
-	if err := os.Remove(cachePath); err != nil && !os.IsNotExist(err) {
+func removeLoginCacheAtPath(cachePath string) error {
+	if err := removeLoginCacheFile(cachePath); err != nil && !os.IsNotExist(err) {
 		return trErrorf("removing %s: %w", cachePath, err)
 	}
 	return nil
+}
+
+func configMutationCommitted(err error) bool {
+	if err == nil {
+		return true
+	}
+	var partial *PartialCommitError
+	return errors.As(err, &partial) && partial.Committed()
+}
+
+// combineLogoutErrors keeps the primary error available to errors.Is/As while
+// also reporting a later cleanup failure. errors.Join is unavailable on Go 1.17.
+func combineLogoutErrors(primary, additional error) error {
+	if primary == nil {
+		return additional
+	}
+	if additional == nil {
+		return primary
+	}
+	return fmt.Errorf("%w; additional logout cleanup error: %v", primary, additional)
 }
 
 // printPostLogoutHint prints a security reminder after logout.

@@ -1,0 +1,22 @@
+name: windows-test
+
+on: [pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  windows-test:
+    name: Windows / Go 1.17
+    runs-on: windows-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.17'
+
+      - name: Test Windows-sensitive packages
+        run: go test ./cmd ./upgrade
