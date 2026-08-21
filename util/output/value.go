@@ -34,7 +34,12 @@ func scalarString(v interface{}) string {
 	case string:
 		return escapeCellString(x)
 	case bool:
-		return strconv.FormatBool(x)
+		// Human-readable formats use title-case booleans. JSON and YAML retain
+		// their native lowercase boolean syntax in their own encoders.
+		if x {
+			return "True"
+		}
+		return "False"
 	case float64:
 		if x == float64(int64(x)) {
 			return strconv.FormatInt(int64(x), 10)

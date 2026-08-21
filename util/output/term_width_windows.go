@@ -12,9 +12,8 @@ import (
 // terminalWidth returns the console width of f, or 0 when unavailable.
 //
 // Implemented with GetConsoleScreenBufferInfo directly instead of adding a
-// dependency (golang.org/x/term) for one syscall. AWS CLI uses ioctl/TIOCGWINSZ
-// and therefore falls back to 80 on Windows; probing the real console here is a
-// deliberate improvement over that behaviour.
+// dependency for one syscall. Reading the active console window preserves the
+// user's actual width instead of relying on a fixed fallback.
 func terminalWidth(f *os.File) int {
 	if f == nil {
 		return 0
@@ -37,6 +36,10 @@ func terminalWidth(f *os.File) int {
 	if err != nil {
 		return 0
 	}
+	// LoadDLL increments the module reference count. terminalWidth can be
+	// called repeatedly by library consumers, so release it on every path,
+	// including a failed procedure lookup.
+	defer kernel32.Release()
 	proc, err := kernel32.FindProc("GetConsoleScreenBufferInfo")
 	if err != nil {
 		return 0

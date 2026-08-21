@@ -110,8 +110,8 @@ func TestWritePropagatesWriterErrors(t *testing.T) {
 }
 
 // Without --query, the envelope's ResponseMetadata is dropped and nested
-// payload is split into titled sections (aligned with AWS CLI). The section
-// title keeps the origin path visible so users still know where data came from.
+// payload is split into titled sections. The section title keeps the origin
+// path visible so users still know where data came from.
 func TestTableStripsMetadataAndSplitsNestedPayload(t *testing.T) {
 	var buf bytes.Buffer
 	if err := Write(&buf, FormatTable, sampleEnvelope()); err != nil {
@@ -192,6 +192,68 @@ func TestEmptyObjectListTable(t *testing.T) {
 	}
 }
 
+func TestTablePreservesAllEmptyObjectRecords(t *testing.T) {
+	data := []interface{}{map[string]interface{}{}, map[string]interface{}{}}
+	for _, format := range []Format{FormatTable, FormatTableNum} {
+		var buf bytes.Buffer
+		if err := WriteWithOptions(&buf, format, data, Options{TerminalWidth: -1}); err != nil {
+			t.Fatalf("%s: %v", format, err)
+		}
+		out := buf.String()
+		if strings.Contains(out, "(empty)") || strings.Count(out, "{}") != len(data) {
+			t.Fatalf("%s lost empty-object records:\n%s", format, out)
+		}
+		if format == FormatTableNum && (!strings.Contains(out, "| 1 ") || !strings.Contains(out, "| 2 ")) {
+			t.Fatalf("table-num did not number empty-object records:\n%s", out)
+		}
+	}
+}
+
+func TestNestedEmptyObjectListHasARealSection(t *testing.T) {
+	data := map[string]interface{}{
+		"Items": []interface{}{map[string]interface{}{}, map[string]interface{}{}},
+	}
+	var buf bytes.Buffer
+	if err := WriteWithOptions(&buf, FormatTable, data, Options{TerminalWidth: -1}); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Items\n") || strings.Count(out, "{}") != 2 {
+		t.Fatalf("nested empty-object records have no usable section:\n%s", out)
+	}
+}
+
+func TestTablePreservesAllEmptyPositionalRecords(t *testing.T) {
+	data := []interface{}{[]interface{}{}, []interface{}{}}
+	for _, format := range []Format{FormatTable, FormatTableNum} {
+		var buf bytes.Buffer
+		if err := WriteWithOptions(&buf, format, data, Options{TerminalWidth: -1}); err != nil {
+			t.Fatalf("%s: %v", format, err)
+		}
+		out := buf.String()
+		if strings.Contains(out, "(empty)") || strings.Count(out, "[]") != len(data) {
+			t.Fatalf("%s lost empty positional records:\n%s", format, out)
+		}
+		if format == FormatTableNum && (!strings.Contains(out, "| 1 ") || !strings.Contains(out, "| 2 ")) {
+			t.Fatalf("table-num did not number empty positional records:\n%s", out)
+		}
+	}
+}
+
+func TestNestedEmptyPositionalListHasARealSection(t *testing.T) {
+	data := map[string]interface{}{
+		"Items": []interface{}{[]interface{}{}, []interface{}{}},
+	}
+	var buf bytes.Buffer
+	if err := WriteWithOptions(&buf, FormatTable, data, Options{TerminalWidth: -1}); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Items\n") || strings.Count(out, "[]") != 2 {
+		t.Fatalf("nested empty positional records have no usable section:\n%s", out)
+	}
+}
+
 func TestWriteTextListProjection(t *testing.T) {
 	var buf bytes.Buffer
 	data := []interface{}{
@@ -204,6 +266,114 @@ func TestWriteTextListProjection(t *testing.T) {
 	lines := strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n")
 	if len(lines) != 2 || lines[0] != "i-1\tRUNNING" {
 		t.Fatalf("text projection unexpected: %q", buf.String())
+	}
+}
+
+func TestWriteTextDeepListProjection(t *testing.T) {
+	data := []interface{}{
+		[]interface{}{"a", "b", []interface{}{"c", "d"}},
+		[]interface{}{"e", "f", []interface{}{
+			[]interface{}{},
+			[]interface{}{"g", "h"},
+		}},
+	}
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatText, data); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := buf.String(), "a\tb\nc\td\ne\tf\ng\th\n"; got != want {
+		t.Fatalf("deep text projection = %q, want %q", got, want)
+	}
+}
+
+func TestWriteTextDeepJMESPathProjection(t *testing.T) {
+	data := map[string]interface{}{
+		"Reservations": []interface{}{
+			map[string]interface{}{"Instances": []interface{}{
+				map[string]interface{}{"Id": "i-1", "State": "RUNNING"},
+				map[string]interface{}{"Id": "i-2", "State": "STOPPED"},
+			}},
+			map[string]interface{}{"Instances": []interface{}{}},
+		},
+	}
+	projected, err := ApplyQuery(data, "Reservations[*].Instances[*].[Id,State]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatText, projected); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := buf.String(), "i-1\tRUNNING\ni-2\tSTOPPED\n"; got != want {
+		t.Fatalf("JMESPath text projection = %q, want %q", got, want)
+	}
+}
+
+func TestWriteTextDeepObjectJMESPathProjectionKeepsColumnOrder(t *testing.T) {
+	data := map[string]interface{}{
+		"Reservations": []interface{}{
+			map[string]interface{}{"Instances": []interface{}{
+				map[string]interface{}{"Id": "i-1", "Name": "web"},
+				map[string]interface{}{"Id": "i-2", "Name": "db"},
+			}},
+			map[string]interface{}{"Instances": []interface{}{}},
+		},
+	}
+	query, err := CompileQuery("Reservations[*].Instances[*].{Name:Name,Id:Id}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected, err := query.Search(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := WriteWithOptions(&buf, FormatText, projected, Options{Columns: query.Columns()}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := buf.String(), "web\ti-1\ndb\ti-2\n"; got != want {
+		t.Fatalf("deep object projection = %q, want %q", got, want)
+	}
+	if strings.Contains(buf.String(), "{\"") {
+		t.Fatalf("deep object projection leaked compact JSON: %q", buf.String())
+	}
+}
+
+func TestWriteTextNestedEmptyProjectionWritesNothing(t *testing.T) {
+	for _, data := range []interface{}{
+		[]interface{}{[]interface{}{}},
+		[]interface{}{[]interface{}{[]interface{}{[]interface{}{}}}},
+		[]interface{}{map[string]interface{}{}},
+		[]interface{}{[]interface{}{map[string]interface{}{}}},
+	} {
+		var buf bytes.Buffer
+		if err := Write(&buf, FormatText, data); err != nil {
+			t.Fatal(err)
+		}
+		if buf.Len() != 0 {
+			t.Fatalf("nested empty projection wrote a phantom row: %q", buf.String())
+		}
+	}
+}
+
+func TestWriteTextEmptyObjectInHeterogeneousProjectionIsNotABlankRow(t *testing.T) {
+	data := []interface{}{map[string]interface{}{}, "value", []interface{}{}}
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatText, data); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := buf.String(), "value\n"; got != want {
+		t.Fatalf("heterogeneous projection = %q, want %q", got, want)
+	}
+}
+
+func TestWriteTextTopLevelScalarListRemainsOneItemPerLine(t *testing.T) {
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatText, []interface{}{"a", "b", "c"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := buf.String(), "a\nb\nc\n"; got != want {
+		t.Fatalf("top-level scalar list = %q, want %q", got, want)
 	}
 }
 
@@ -226,6 +396,19 @@ func TestTableAndTextEscapeControlCharacters(t *testing.T) {
 			if !strings.Contains(out, escaped) {
 				t.Fatalf("%s output missing escaped sequence %q: %q", format, escaped, out)
 			}
+		}
+	}
+}
+
+func TestTableAndTextUseTitleCaseBooleanSpelling(t *testing.T) {
+	data := []interface{}{map[string]interface{}{"Enabled": true, "Ready": false}}
+	for _, format := range []Format{FormatTable, FormatTableNum, FormatText} {
+		var buf bytes.Buffer
+		if err := Write(&buf, format, data); err != nil {
+			t.Fatalf("%s: %v", format, err)
+		}
+		if !strings.Contains(buf.String(), "True") || !strings.Contains(buf.String(), "False") {
+			t.Fatalf("%s should use title-case booleans in human-readable output:\n%s", format, buf.String())
 		}
 	}
 }

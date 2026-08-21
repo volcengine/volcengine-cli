@@ -11,7 +11,9 @@ import (
 //   - []map           → one TSV row per object (column order from opts.Columns,
 //     otherwise sorted; missing → None)
 //   - map             → single TSV row of sorted values
-//   - [][] / []scalar → projection / one value per line
+//   - [][]             → one TSV row per projected row; deeper nested rows are
+//     flattened recursively and empty nested lists do not create blank lines
+//   - []scalar         → one value per line
 //   - scalar / null   → single line
 //
 // Text stays free of headers and borders so it pipes cleanly into line tools
@@ -40,7 +42,7 @@ func textLines(data interface{}, opts Options) []string {
 		if allMaps(s) {
 			return textFromObjectList(s, opts)
 		}
-		return textFromSlice(s)
+		return textFromSlice(s, opts)
 	}
 	if m, ok := data.(map[string]interface{}); ok {
 		return textFromKeyValue(m, opts)
@@ -67,8 +69,11 @@ func textFromKeyValue(m map[string]interface{}, opts Options) []string {
 }
 
 func textFromObjectList(list []interface{}, opts Options) []string {
-	_, rows := objectListMatrix(list, opts)
-	if len(rows) == 0 {
+	headers, rows := objectListMatrix(list, opts)
+	// A list containing only empty objects has no fields and therefore no TSV
+	// records. Emitting one empty line per object would turn structural emptiness
+	// into phantom data rows and disagree with a standalone empty object.
+	if len(headers) == 0 || len(rows) == 0 {
 		return nil
 	}
 	out := make([]string, 0, len(rows))
@@ -78,28 +83,98 @@ func textFromObjectList(list []interface{}, opts Options) []string {
 	return out
 }
 
-func textFromSlice(s []interface{}) []string {
+func textFromSlice(s []interface{}, opts Options) []string {
 	if len(s) == 0 {
 		return nil
 	}
-	if allSlices(s) {
-		out := make([]string, 0, len(s))
-		for _, row := range s {
-			arr, ok := row.([]interface{})
-			if !ok {
-				continue
-			}
-			cols := make([]string, len(arr))
-			for i, c := range arr {
-				cols[i] = scalarString(c)
-			}
-			out = append(out, strings.Join(cols, "\t"))
-		}
-		return out
+	if hasNestedTextValue(s) {
+		return textFromNestedSlice(s, opts)
 	}
 	out := make([]string, 0, len(s))
 	for _, v := range s {
 		out = append(out, scalarString(v))
 	}
 	return out
+}
+
+// textFromNestedSlice formats positional projections recursively. JMESPath can
+// produce shapes deeper than [][] (for example Reservations[].Instances[].[]),
+// and an empty inner projection must be truly empty rather than a phantom blank
+// record. Scalar siblings stay on one TSV row; child lists continue below it.
+// The top-level []scalar rule intentionally remains one value per line.
+func textFromNestedSlice(s []interface{}, opts Options) []string {
+	if len(s) == 0 {
+		return nil
+	}
+	if allMaps(s) {
+		return textFromObjectList(s, opts)
+	}
+	// A heterogeneous list containing objects still needs to expand those
+	// objects instead of serializing them as JSON. Use the union of object keys
+	// so every object row has a stable positional schema.
+	if hasMapValue(s) {
+		keys := applyColumnOrder(unionMapKeys(s), opts.Columns)
+		var out []string
+		for _, value := range s {
+			switch value := value.(type) {
+			case map[string]interface{}:
+				if len(keys) == 0 {
+					// Empty objects do not create blank records. Scalars and child
+					// lists in the same heterogeneous projection still render.
+					continue
+				}
+				row := make([]string, len(keys))
+				for i, key := range keys {
+					item, present := value[key]
+					if !present {
+						row[i] = noneValue
+					} else {
+						row[i] = scalarString(item)
+					}
+				}
+				out = append(out, strings.Join(row, "\t"))
+			case []interface{}:
+				out = append(out, textFromNestedSlice(value, opts)...)
+			default:
+				out = append(out, scalarString(value))
+			}
+		}
+		return out
+	}
+	var scalars []string
+	var nested [][]interface{}
+	for _, value := range s {
+		if child, ok := value.([]interface{}); ok {
+			nested = append(nested, child)
+			continue
+		}
+		scalars = append(scalars, scalarString(value))
+	}
+	out := make([]string, 0, 1+len(nested))
+	if len(scalars) > 0 {
+		out = append(out, strings.Join(scalars, "\t"))
+	}
+	for _, child := range nested {
+		out = append(out, textFromNestedSlice(child, opts)...)
+	}
+	return out
+}
+
+func hasNestedTextValue(s []interface{}) bool {
+	for _, value := range s {
+		switch value.(type) {
+		case map[string]interface{}, []interface{}:
+			return true
+		}
+	}
+	return false
+}
+
+func hasMapValue(s []interface{}) bool {
+	for _, value := range s {
+		if _, ok := value.(map[string]interface{}); ok {
+			return true
+		}
+	}
+	return false
 }

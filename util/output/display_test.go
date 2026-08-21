@@ -132,7 +132,7 @@ func TestTableNumSkipsVerticalization(t *testing.T) {
 
 // --- 3. Terminal width fitting -------------------------------------------
 
-func TestWidthFittingRespectsTerminal(t *testing.T) {
+func TestWidthFittingWrapsWithoutLosingData(t *testing.T) {
 	rows := []interface{}{
 		map[string]interface{}{
 			"Short": "a",
@@ -153,8 +153,14 @@ func TestWidthFittingRespectsTerminal(t *testing.T) {
 			t.Fatalf("line %d width %d exceeds terminal %d:\n%s", i+1, got, width, buf.String())
 		}
 	}
-	if !strings.Contains(buf.String(), "...") {
-		t.Fatalf("truncated cells should be marked with ...:\n%s", buf.String())
+	if got := strings.Count(buf.String(), "x"); got != 200 {
+		t.Fatalf("wrapped table lost x data: got %d of 200:\n%s", got, buf.String())
+	}
+	if got := strings.Count(buf.String(), "y"); got != 200 {
+		t.Fatalf("wrapped table lost y data: got %d of 200:\n%s", got, buf.String())
+	}
+	if strings.Contains(buf.String(), "...") {
+		t.Fatalf("wrapped cells must not use lossy ellipses:\n%s", buf.String())
 	}
 }
 
@@ -193,14 +199,58 @@ func TestWidthFittingTrimsWidestFirst(t *testing.T) {
 	}
 }
 
-func TestTruncateToWidthHandlesWideRunes(t *testing.T) {
-	// Each CJK rune is two cells wide; truncation must not exceed the budget.
-	got := truncateToWidth(strings.Repeat("中", 10), 9)
-	if displayWidth(got) > 9 {
-		t.Fatalf("truncated width %d exceeds 9: %q", displayWidth(got), got)
+func TestWidthFittingHandlesHugeColumnsInBoundedSteps(t *testing.T) {
+	got := fitWidths([]int{1 << 30, 1 << 30, 4}, 80)
+	if got[2] != 4 {
+		t.Fatalf("narrow column should be preserved, got %v", got)
 	}
-	if !strings.HasSuffix(got, "...") {
-		t.Fatalf("expected ellipsis: %q", got)
+	if total := got[0] + got[1] + got[2]; total != 80-(1+3*len(got)) {
+		t.Fatalf("fitted width budget mismatch: got %v", got)
+	}
+}
+
+func TestWrapToWidthPreservesWideRunes(t *testing.T) {
+	original := strings.Repeat("中", 10)
+	got := wrapToWidth(original, 9)
+	if strings.Join(got, "") != original {
+		t.Fatalf("wrapped value changed: %#v", got)
+	}
+	for _, line := range got {
+		if width := displayWidth(line); width > 9 {
+			t.Fatalf("wrapped width %d exceeds 9: %q", width, line)
+		}
+	}
+}
+
+func TestWrapToWidthKeepsCombiningMarksWithBaseRune(t *testing.T) {
+	original := "a\u0301b\u0301"
+	got := wrapToWidth(original, 1)
+	want := []string{"a\u0301", "b\u0301"}
+	if len(got) != len(want) {
+		t.Fatalf("wrapped combining sequence = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("wrapped combining sequence = %#v, want %#v", got, want)
+		}
+	}
+}
+
+func TestWrapToWidthKeepsEmojiGraphemeClustersIntact(t *testing.T) {
+	emoji := "👩‍❤️‍💋‍👩"
+	original := "A" + emoji + "B"
+	got := wrapToWidth(original, 2)
+	want := []string{"A", emoji, "B"}
+	if len(got) != len(want) {
+		t.Fatalf("wrapped emoji = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("wrapped emoji = %#v, want %#v", got, want)
+		}
+		if width := displayWidth(got[i]); width > 2 {
+			t.Fatalf("wrapped emoji line width %d exceeds 2: %q", width, got[i])
+		}
 	}
 }
 
@@ -297,19 +347,21 @@ func TestNestedSectionTitleRespectsTerminalWidthWithWideRunes(t *testing.T) {
 		t.Fatal(err)
 	}
 	foundTitle := false
+	var title strings.Builder
 	for _, line := range strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n") {
 		if strings.Contains(line, "中") {
 			foundTitle = true
+			title.WriteString(line)
 			if got := displayWidth(line); got > width {
 				t.Fatalf("section title width %d exceeds terminal %d: %q", got, width, line)
-			}
-			if !strings.HasSuffix(line, "...") {
-				t.Fatalf("truncated section title should end in ellipsis: %q", line)
 			}
 		}
 	}
 	if !foundTitle {
 		t.Fatalf("nested section title missing: %q", buf.String())
+	}
+	if title.String() != key {
+		t.Fatalf("wrapped section title changed: got %q, want %q", title.String(), key)
 	}
 }
 
@@ -336,6 +388,30 @@ func TestColorDoesNotAffectAlignment(t *testing.T) {
 	if stripANSI(colored.String()) != plain.String() {
 		t.Fatalf("color changed layout:\nplain=%q\ncolored=%q",
 			plain.String(), stripANSI(colored.String()))
+	}
+}
+
+func TestColorDoesNotAffectWrappedLayout(t *testing.T) {
+	rows := []interface{}{
+		map[string]interface{}{"City": "中文城市", "Name": strings.Repeat("x", 30)},
+		map[string]interface{}{"City": "Tokyo", "Name": strings.Repeat("y", 30)},
+	}
+	var plain, colored bytes.Buffer
+	if err := WriteWithOptions(&plain, FormatTable, rows, Options{TerminalWidth: 24}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteWithOptions(&colored, FormatTable, rows,
+		Options{TerminalWidth: 24, Color: true}); err != nil {
+		t.Fatal(err)
+	}
+	if stripANSI(colored.String()) != plain.String() {
+		t.Fatalf("color changed wrapped layout:\nplain=%q\ncolored=%q",
+			plain.String(), stripANSI(colored.String()))
+	}
+	for i, line := range strings.Split(strings.TrimSuffix(plain.String(), "\n"), "\n") {
+		if got := displayWidth(line); got > 24 {
+			t.Fatalf("wrapped line %d width %d exceeds 24:\n%s", i+1, got, plain.String())
+		}
 	}
 }
 

@@ -11,8 +11,7 @@ import (
 
 // terminalWidth returns the terminal width of f, or 0 when unavailable.
 //
-// Uses the TIOCGWINSZ ioctl, the same mechanism as AWS CLI
-// (determine_terminal_width in table.py), implemented without adding a
+// Uses the platform TIOCGWINSZ ioctl directly, avoiding an additional
 // dependency for a single syscall.
 func terminalWidth(f *os.File) int {
 	if f == nil {

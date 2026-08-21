@@ -2,19 +2,16 @@ package output
 
 // Display-layer shaping for table/text.
 //
-// Two transforms happen here, both aligned with AWS CLI behaviour and both
-// strictly presentational: they never run for json/yaml, so scripted consumers
-// keep the exact API response.
+// Two strictly presentational transforms happen here. They never run for
+// json/yaml, so scripted consumers keep the exact API response.
 //
 //  1. stripResponseMetadata — drop the ResponseMetadata envelope so a bare
 //     `--output table` shows the payload instead of a two-row Key/Value table
 //     whose Result cell holds the entire response as JSON.
-//     AWS: Formatter._remove_request_id (formatter.py).
 //
 //  2. verticalize — a single-row table is transposed to Field | Value, because
 //     one wide row forces horizontal scrolling while a tall two-column table
 //     fits on screen.
-//     AWS: convert_to_vertical_table (table.py).
 
 // responseMetadataKey is the Volcengine envelope field carrying RequestId and
 // other call metadata. It is diagnostic data, not payload.

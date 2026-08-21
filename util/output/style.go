@@ -2,10 +2,8 @@ package output
 
 // Table styling.
 //
-// AWS CLI colorizes table cells through ColorizedStyler (table.py). Note that
-// AWS itself has disabled title and header styling — both methods return the
-// text unchanged — leaving only row content colored. This file follows the same
-// conservative shape: headers get bold, cells get a subtle color, nothing else.
+// Styling is intentionally restrained: headers get bold, cells get a subtle
+// color, and titles and borders remain plain.
 //
 // Styling is opt-in via Options.Color and must never affect layout: every width
 // calculation runs on stripANSI(text), so a colored table aligns exactly like an

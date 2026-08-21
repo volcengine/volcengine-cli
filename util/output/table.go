@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/mattn/go-runewidth"
+	"github.com/rivo/uniseg"
 )
 
 func itoa(i int) string { return strconv.Itoa(i) }
@@ -97,14 +98,19 @@ func renderSection(w io.Writer, sec section, opts Options, numbered bool, termWi
 
 	if sec.title != "" {
 		// Section titles contain response keys and query aliases. Treat them as
-		// untrusted terminal text just like cells: controls must be visible, and
-		// a long title must not bypass the configured terminal width.
+		// untrusted terminal text just like cells: controls must be visible. Wrap
+		// long titles instead of truncating response paths.
 		title := escapeCellString(sec.title)
 		if termWidth > 0 {
-			title = truncateToWidth(title, termWidth)
-		}
-		if _, err := io.WriteString(w, title+"\n"); err != nil {
-			return err
+			for _, line := range wrapToWidth(title, termWidth) {
+				if _, err := io.WriteString(w, line+"\n"); err != nil {
+					return err
+				}
+			}
+		} else {
+			if _, err := io.WriteString(w, title+"\n"); err != nil {
+				return err
+			}
 		}
 	}
 	if len(headers) == 0 && len(rows) == 0 {
@@ -158,6 +164,16 @@ func tableFromSlice(s []interface{}) (headers []string, rows [][]string) {
 			if len(arr) > maxCols {
 				maxCols = len(arr)
 			}
+		}
+		if maxCols == 0 {
+			// The outer list contains positional records even though every
+			// record is empty. Preserve their count instead of rendering the
+			// non-empty outer list as "(empty)".
+			rows = make([][]string, len(s))
+			for i := range rows {
+				rows[i] = []string{"[]"}
+			}
+			return []string{"Value"}, rows
 		}
 		rows = make([][]string, 0, len(s))
 		for _, row := range s {
@@ -225,11 +241,12 @@ func columnWidths(headers []string, rows [][]string) []int {
 	return widths
 }
 
-// fitWidths shrinks columns proportionally so the grid fits termWidth.
+// fitWidths shrinks column widths so the grid fits termWidth.
 //
-// Only over-wide columns are trimmed, and every column keeps minCellWidth so a
-// narrow terminal cannot collapse the table into unreadable slivers. Returns the
-// widths unchanged when they already fit or when no width is known.
+// Cells are wrapped to these widths later; response content is never truncated.
+// Every column keeps minCellWidth so a narrow terminal cannot collapse the table
+// into unreadable slivers. Returns the widths unchanged when they already fit or
+// when no width is known.
 func fitWidths(widths []int, termWidth int) []int {
 	const minCellWidth = 3
 	if termWidth <= 0 || len(widths) == 0 {
@@ -248,47 +265,56 @@ func fitWidths(widths []int, termWidth int) []int {
 		return widths
 	}
 
-	fitted := make([]int, len(widths))
-	copy(fitted, widths)
-	// Repeatedly trim the widest column until the budget is met; this keeps
-	// narrow columns intact instead of scaling everything down uniformly.
+	fitted := append([]int(nil), widths...)
+	// Lower the widest tier in chunks. A character-at-a-time loop makes table
+	// rendering proportional to the largest response string (potentially
+	// millions of iterations); tiered reduction is bounded by the number of
+	// distinct column widths while still preserving narrow columns.
 	for total > budget {
-		widest, idx := 0, -1
+		widest := 0
 		for i, w := range fitted {
 			if w > widest {
-				widest, idx = w, i
+				widest = fitted[i]
 			}
 		}
-		if idx < 0 || fitted[idx] <= minCellWidth {
+		if widest <= minCellWidth {
 			break
 		}
-		fitted[idx]--
-		total--
+		next, count := minCellWidth, 0
+		for _, w := range fitted {
+			switch {
+			case w == widest:
+				count++
+			case w > next:
+				next = w
+			}
+		}
+		excess := total - budget
+		tierCapacity := (widest - next) * count
+		if tierCapacity <= excess {
+			for i, w := range fitted {
+				if w == widest {
+					fitted[i] = next
+				}
+			}
+			total -= tierCapacity
+			continue
+		}
+		base, remainder := excess/count, excess%count
+		for i, w := range fitted {
+			if w != widest {
+				continue
+			}
+			reduction := base
+			if remainder > 0 {
+				reduction++
+				remainder--
+			}
+			fitted[i] -= reduction
+			total -= reduction
+		}
 	}
 	return fitted
-}
-
-// truncateToWidth shortens s to width display cells, marking the cut with "...".
-func truncateToWidth(s string, width int) string {
-	if displayWidth(s) <= width {
-		return s
-	}
-	const ellipsis = "..."
-	if width <= len(ellipsis) {
-		return string([]rune(ellipsis)[:width])
-	}
-	target := width - len(ellipsis)
-	var b strings.Builder
-	used := 0
-	for _, r := range s {
-		rw := runewidth.RuneWidth(r)
-		if used+rw > target {
-			break
-		}
-		b.WriteRune(r)
-		used += rw
-	}
-	return b.String() + ellipsis
 }
 
 func renderTable(w io.Writer, headers []string, rows [][]string, opts Options, termWidth int) error {
@@ -304,9 +330,6 @@ func renderTable(w io.Writer, headers []string, rows [][]string, opts Options, t
 	for i, r := range rows {
 		nr := make([]string, cols)
 		copy(nr, r)
-		for j := range nr {
-			nr[j] = truncateToWidth(nr[j], widths[j])
-		}
 		norm[i] = nr
 	}
 
@@ -317,10 +340,7 @@ func renderTable(w io.Writer, headers []string, rows [][]string, opts Options, t
 	if len(headers) > 0 {
 		h := make([]string, cols)
 		copy(h, headers)
-		for j := range h {
-			h[j] = opts.styleHeader(truncateToWidth(h[j], widths[j]))
-		}
-		if err := writeTableLine(w, tableRow(h, widths)); err != nil {
+		if err := writeWrappedTableRow(w, h, widths, opts.styleHeader); err != nil {
 			return err
 		}
 		if err := writeTableLine(w, border); err != nil {
@@ -328,15 +348,73 @@ func renderTable(w io.Writer, headers []string, rows [][]string, opts Options, t
 		}
 	}
 	for _, r := range norm {
-		styled := make([]string, len(r))
-		for j, cell := range r {
-			styled[j] = opts.styleCell(cell)
-		}
-		if err := writeTableLine(w, tableRow(styled, widths)); err != nil {
+		if err := writeWrappedTableRow(w, r, widths, opts.styleCell); err != nil {
 			return err
 		}
 	}
 	return writeTableLine(w, border)
+}
+
+// writeWrappedTableRow renders one logical row as as many physical rows as are
+// needed to preserve every cell. Styling is applied after wrapping so ANSI
+// sequences never participate in display-width calculations.
+func writeWrappedTableRow(w io.Writer, cells []string, widths []int, style func(string) string) error {
+	wrapped := make([][]string, len(widths))
+	lineCount := 1
+	for i, width := range widths {
+		cell := ""
+		if i < len(cells) {
+			cell = cells[i]
+		}
+		wrapped[i] = wrapToWidth(cell, width)
+		if len(wrapped[i]) > lineCount {
+			lineCount = len(wrapped[i])
+		}
+	}
+	for line := 0; line < lineCount; line++ {
+		physical := make([]string, len(widths))
+		for col := range widths {
+			if line < len(wrapped[col]) {
+				physical[col] = style(wrapped[col][line])
+			}
+		}
+		if err := writeTableLine(w, tableRow(physical, widths)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// wrapToWidth splits s on display-cell boundaries without losing data. Input
+// has already had control characters escaped, so every grapheme cluster is safe
+// to print. Iterating clusters (rather than runes) keeps combining sequences,
+// emoji joined with ZWJ, and regional-indicator flags intact.
+func wrapToWidth(s string, width int) []string {
+	if width <= 0 || displayWidth(s) <= width {
+		return []string{s}
+	}
+	var lines []string
+	var current strings.Builder
+	used := 0
+	flush := func() {
+		lines = append(lines, current.String())
+		current.Reset()
+		used = 0
+	}
+	graphemes := uniseg.NewGraphemes(s)
+	for graphemes.Next() {
+		cluster := graphemes.Str()
+		clusterWidth := runewidth.StringWidth(cluster)
+		if clusterWidth > 0 && used > 0 && used+clusterWidth > width {
+			flush()
+		}
+		current.WriteString(cluster)
+		used += clusterWidth
+	}
+	if current.Len() > 0 || len(lines) == 0 {
+		flush()
+	}
+	return lines
 }
 
 func writeTableLine(w io.Writer, line string) error {

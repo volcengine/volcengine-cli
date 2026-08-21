@@ -4,13 +4,9 @@ package output
 //
 // A response often nests lists/objects inside a row (SecurityGroupIds, Tags,
 // NetworkInterfaces...). Rendering those cells as compact JSON keeps the table
-// one flat grid but makes nested data unreadable. AWS CLI instead splits the
-// output into several titled sections, one per nested field
-// (TableFormatter._build_table / _build_sub_table_from_list in formatter.py).
-//
-// This file reproduces that split while keeping the existing flat behaviour as
-// the default: nested sections are produced only when the data actually has
-// nested content, so simple responses render exactly as before.
+// flat but makes nested data unreadable. Structured values are therefore split
+// into titled sections, one per nested field. Simple scalar responses keep the
+// compact flat layout.
 
 // section is one titled grid in the rendered output.
 type section struct {
@@ -130,6 +126,19 @@ func buildSections(data interface{}, opts Options, title string, depth int) []se
 // a section per nested field, per record.
 func objectListSections(list []interface{}, opts Options, title string, depth int) []section {
 	keys := applyColumnOrder(unionMapKeys(list), opts.Columns)
+	if len(keys) == 0 {
+		// The list is not empty: it contains records whose objects happen to
+		// have no fields. Keep one visible row per record so table-num can still
+		// number them and a parent "(see section)" never points at a section
+		// that disappeared.
+		rows := make([][]string, len(list))
+		for i := range rows {
+			rows[i] = []string{"{}"}
+		}
+		return []section{{
+			title: title, headers: []string{"Value"}, rows: rows, numbered: true,
+		}}
+	}
 	scalarKeys, nestedKeys := splitNestedKeys(list, keys)
 
 	// A key is "nested" as soon as ONE row nests it, but the other rows may hold
