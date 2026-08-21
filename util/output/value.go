@@ -110,16 +110,20 @@ func isDangerousBidiControl(r rune) bool {
 	}
 }
 
-// escapeBidiControls makes only terminal-reordering format controls visible.
-// In particular, it leaves JSON's existing backslash escapes untouched.
-func escapeBidiControls(value string) string {
-	if strings.IndexFunc(value, isDangerousBidiControl) < 0 {
+func isRawTerminalControl(r rune) bool {
+	return unicode.IsControl(r) || isDangerousBidiControl(r)
+}
+
+// escapeRawTerminalControls makes raw terminal controls visible without
+// touching backslash escapes that JSON has already produced.
+func escapeRawTerminalControls(value string) string {
+	if strings.IndexFunc(value, isRawTerminalControl) < 0 {
 		return value
 	}
 	var escaped strings.Builder
 	escaped.Grow(len(value))
 	for _, r := range value {
-		if isDangerousBidiControl(r) {
+		if isRawTerminalControl(r) {
 			fmt.Fprintf(&escaped, `\u%04X`, r)
 			continue
 		}
@@ -136,9 +140,9 @@ func compactJSON(v interface{}) string {
 	encoder := json.NewEncoder(buf)
 	encoder.SetEscapeHTML(false)
 	if err := encoder.Encode(v); err != nil {
-		return escapeBidiControls(fmt.Sprint(v))
+		return escapeRawTerminalControls(fmt.Sprint(v))
 	}
-	return escapeBidiControls(strings.TrimSuffix(buf.String(), "\n"))
+	return escapeRawTerminalControls(strings.TrimSuffix(buf.String(), "\n"))
 }
 
 func allMaps(rows []interface{}) bool {

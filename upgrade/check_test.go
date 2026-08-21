@@ -292,7 +292,9 @@ func TestInvalidateCheckCache(t *testing.T) {
 	if err := SaveCheckCache("1.0.50", "1.0.49"); err != nil {
 		t.Fatal(err)
 	}
-	InvalidateCheckCache()
+	if err := invalidateCheckCache(); err != nil {
+		t.Fatal(err)
+	}
 	if _, ok := LoadCheckCache(); ok {
 		t.Fatal("expected miss after invalidate")
 	}
@@ -933,9 +935,84 @@ func TestInvalidateCheckCache_BusyLockDoesNotDelete(t *testing.T) {
 	}
 	defer holder.release()
 
-	InvalidateCheckCache()
+	err = invalidateCheckCache()
+	if err == nil || !strings.Contains(err.Error(), "timed out waiting for notice cache lock") {
+		t.Fatalf("InvalidateCheckCache error=%v, want busy-lock timeout", err)
+	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("cache removed while lock was held: %v", err)
+	}
+}
+
+func TestInvalidateCheckCache_UsesLongerBoundedWait(t *testing.T) {
+	dir := t.TempDir()
+	origConfigDir := ConfigDirFunc
+	ConfigDirFunc = func() (string, error) { return dir, nil }
+	defer func() { ConfigDirFunc = origConfigDir }()
+
+	if err := SaveCheckCache("9.9.9", "1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	path, err := CheckCachePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	origAcquire := acquireNoticeCacheFileLock
+	defer func() {
+		acquireNoticeCacheFileLock = origAcquire
+	}()
+
+	var gotWait time.Duration
+	acquireNoticeCacheFileLock = func(lockPath string, wait time.Duration) (*upgradeLock, error) {
+		gotWait = wait
+		return nil, fmt.Errorf("locking unsupported")
+	}
+	if err := invalidateCheckCache(); err != nil {
+		t.Fatal(err)
+	}
+	if gotWait <= noticeCacheLockWait || gotWait > invalidateCheckCacheLockWait {
+		t.Fatalf("invalidation file-lock wait=%v, want greater than %v and no more than total wait %v",
+			gotWait, noticeCacheLockWait, invalidateCheckCacheLockWait)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("cache still exists after invalidation: %v", err)
+	}
+}
+
+func TestWithNoticeCacheLockWaitBoundsInProcessContention(t *testing.T) {
+	firstEntered := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- withNoticeCacheLock(func() error {
+			close(firstEntered)
+			<-releaseFirst
+			return nil
+		})
+	}()
+	<-firstEntered
+
+	callbackRan := false
+	start := time.Now()
+	err := withNoticeCacheLockWait(50*time.Millisecond, func() error {
+		callbackRan = true
+		return nil
+	})
+	elapsed := time.Since(start)
+	if err == nil || !strings.Contains(err.Error(), "in-process notice cache lock") {
+		t.Fatalf("bounded local lock error=%v, want timeout", err)
+	}
+	if callbackRan {
+		t.Fatal("callback ran without acquiring the in-process lock")
+	}
+	if elapsed > time.Second {
+		t.Fatalf("local lock timeout took %v, want a bounded wait", elapsed)
+	}
+
+	close(releaseFirst)
+	if err := <-firstDone; err != nil {
+		t.Fatal(err)
 	}
 }
 

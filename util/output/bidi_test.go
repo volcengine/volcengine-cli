@@ -118,6 +118,67 @@ func TestTextEscapesDangerousBidiControlsInNestedValues(t *testing.T) {
 	}
 }
 
+func TestTextEscapesControlCharactersInNestedFieldPrefixes(t *testing.T) {
+	unsafeKey := "nested\ncolumn\tosc\x1b]52;c;payload\a" + dangerousBidiControls
+	safePrefix := "NESTED\\nCOLUMN\\tOSC\\x1B]52;C;PAYLOAD\\x07" + escapedBidiControls
+	cases := []struct {
+		name string
+		cell interface{}
+		want string
+	}{
+		{name: "scalar list", cell: []interface{}{"one", "two"}, want: safePrefix + "\tone\n" + safePrefix + "\ttwo\n"},
+		{name: "object", cell: map[string]interface{}{"A": "one", "B": "two"}, want: safePrefix + "\tone\ttwo\n"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := Write(&buf, FormatText, map[string]interface{}{unsafeKey: tc.cell}); err != nil {
+				t.Fatal(err)
+			}
+			if got := buf.String(); got != tc.want {
+				t.Fatalf("nested field output = %q, want %q", got, tc.want)
+			}
+			assertNoRawTerminalControls(t, buf.String())
+		})
+	}
+}
+
+func TestTextEscapesControlCharactersInQuotedQueryAliasPrefix(t *testing.T) {
+	query, err := CompileQuery(`{"nested\ncolumn\tosc\u001b]52;c;payload\u0007bidi\u202e": Source}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := query.Search(map[string]interface{}{"Source": []interface{}{"value"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := WriteWithOptions(&buf, FormatText, result, Options{Columns: query.Columns(), Queried: true}); err != nil {
+		t.Fatal(err)
+	}
+	want := "NESTED\\nCOLUMN\\tOSC\\x1B]52;C;PAYLOAD\\x07BIDI\\u202E\tvalue\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("quoted alias output = %q, want %q", got, want)
+	}
+	assertNoRawTerminalControls(t, buf.String())
+}
+
+func assertNoRawTerminalControls(t *testing.T, output string) {
+	t.Helper()
+	for _, raw := range []string{"\r", "\x1b", "\a", "\u009b"} {
+		if strings.Contains(output, raw) {
+			t.Fatalf("output contains raw terminal control %q: %q", raw, output)
+		}
+	}
+	for _, r := range dangerousBidiControls {
+		if strings.ContainsRune(output, r) {
+			t.Fatalf("output contains raw bidi control U+%04X: %q", r, output)
+		}
+	}
+}
+
 func TestTableEscapesDangerousBidiControlsInMaxDepthJSONCell(t *testing.T) {
 	unsafeText := "before" + dangerousBidiControls + safeShapingText + "after"
 	var data interface{} = map[string]interface{}{
@@ -140,6 +201,19 @@ func TestTableEscapesDangerousBidiControlsInMaxDepthJSONCell(t *testing.T) {
 	}
 	if !strings.Contains(out, escapedBidiControls+safeShapingText) {
 		t.Fatalf("table changed escaped bidi or safe shaping text: %q", out)
+	}
+}
+
+func TestCompactJSONEscapesRawTerminalControlsWithoutDoubleEscaping(t *testing.T) {
+	got := compactJSON(map[string]interface{}{
+		"value": "line\ncolumn\tosc\x1b]52;c;x" +
+			"\u0085\u009b\u202e" +
+			`slash\literal`,
+	})
+	want := `{"value":"line\ncolumn\tosc\u001b]52;c;x\u0085\u009B\u202Eslash\\literal"}`
+
+	if got != want {
+		t.Fatalf("compactJSON() = %q, want %q", got, want)
 	}
 }
 

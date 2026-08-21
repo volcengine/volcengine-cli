@@ -198,8 +198,10 @@ func TestSsoLogoutConfigConflictDoesNotRevokeOrDeleteCache(t *testing.T) {
 	configDir, cleanupConfig := withTestConfigDir(t)
 	defer cleanupConfig()
 	getSsoConfigFileDir = func() (string, error) { return configDir, nil }
-	oldConfig, oldCtx := config, ctx.config
-	defer func() { config, ctx.config = oldConfig, oldCtx }()
+	oldConfig, oldCtx, oldTx := config, ctx.config, ctx.configTransaction
+	defer func() {
+		config, ctx.config, ctx.configTransaction = oldConfig, oldCtx, oldTx
+	}()
 
 	cfg := &Configure{
 		Profiles: map[string]*Profile{"dev": {
@@ -213,17 +215,18 @@ func TestSsoLogoutConfigConflictDoesNotRevokeOrDeleteCache(t *testing.T) {
 	if err := WriteConfigToFile(cfg); err != nil {
 		t.Fatal(err)
 	}
-	cfg = LoadConfig()
-	setRuntimeConfig(cfg)
+	tx := loadConfigTransaction()
+	cfg = tx.config
+	setRuntimeConfigTransaction(tx)
 	cacheTokenForTest(t, sso, &SsoTokenCache{
 		AccessToken: "access", RefreshToken: "refresh", ExpiresAt: time.Now().Add(time.Hour).Format(time.RFC3339),
 		ClientId: "client", ClientSecret: "secret", ClientSecretExpiresAt: validClientSecretExpiry(),
 	})
 	cachePath, _ := sso.tokenCacheFilePath()
 	// Simulate another process changing the same profile after this process read it.
-	remote := LoadConfig()
-	remote.Profiles["dev"].Region = "remote-change"
-	if err := writeConfigTransaction(remote); err != nil {
+	remoteTx := loadConfigTransaction()
+	remoteTx.config.Profiles["dev"].Region = "remote-change"
+	if err := writeConfigTransaction(remoteTx); err != nil {
 		t.Fatal(err)
 	}
 	fakeOAuth := &fakeOAuthClient{}
@@ -250,8 +253,10 @@ func TestSsoLogoutRevokeFailureKeepsCacheAfterClearingSts(t *testing.T) {
 	configDir, cleanupConfig := withTestConfigDir(t)
 	defer cleanupConfig()
 	getSsoConfigFileDir = func() (string, error) { return configDir, nil }
-	oldConfig, oldCtx := config, ctx.config
-	defer func() { config, ctx.config = oldConfig, oldCtx }()
+	oldConfig, oldCtx, oldTx := config, ctx.config, ctx.configTransaction
+	defer func() {
+		config, ctx.config, ctx.configTransaction = oldConfig, oldCtx, oldTx
+	}()
 
 	cfg := &Configure{
 		Profiles: map[string]*Profile{"dev": {
@@ -265,8 +270,9 @@ func TestSsoLogoutRevokeFailureKeepsCacheAfterClearingSts(t *testing.T) {
 	if err := WriteConfigToFile(cfg); err != nil {
 		t.Fatal(err)
 	}
-	cfg = LoadConfig()
-	setRuntimeConfig(cfg)
+	tx := loadConfigTransaction()
+	cfg = tx.config
+	setRuntimeConfigTransaction(tx)
 	cacheTokenForTest(t, sso, &SsoTokenCache{
 		AccessToken: "access", RefreshToken: "refresh", ExpiresAt: time.Now().Add(time.Hour).Format(time.RFC3339),
 		ClientId: "client", ClientSecret: "secret", ClientSecretExpiresAt: validClientSecretExpiry(),

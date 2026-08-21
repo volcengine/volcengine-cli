@@ -202,7 +202,7 @@ func DoUpgrade(opts Options) error {
 	// - default upgrade-to-latest: latest == target, avoid immediate re-prompt
 	// - pin (--version): re-resolve real latest so we do not poison the
 	//   24h cache with a pinned "latest" (which would suppress real update notices)
-	refreshVersionCacheAfterInstall(explicitTarget, target)
+	refreshVersionCacheAfterInstallBestEffort(stderr, explicitTarget, target)
 
 	fmt.Fprintf(stdout, "\nSuccessfully upgraded Volcengine CLI from %s to %s!\n", current, target)
 	return nil
@@ -244,19 +244,23 @@ func errTargetNotNewer(current, target string) error {
 		target, current, releases)
 }
 
-func refreshVersionCacheAfterInstall(pinned bool, installed string) {
+func refreshVersionCacheAfterInstall(pinned bool, installed string) error {
 	installed = NormalizeVersion(installed)
 	if !pinned {
-		_ = SaveCheckCache(installed, installed)
-		return
+		return SaveCheckCache(installed, installed)
 	}
 	// Best-effort: discover the true latest. On failure, drop the cache so the
 	// next command rechecks instead of treating the pinned version as latest.
 	if realLatest, err := ResolveLatestVersionQuick(); err == nil && realLatest != "" {
-		_ = SaveCheckCache(realLatest, installed)
-		return
+		return SaveCheckCache(realLatest, installed)
 	}
-	InvalidateCheckCache()
+	return invalidateCheckCache()
+}
+
+func refreshVersionCacheAfterInstallBestEffort(stderr io.Writer, pinned bool, installed string) {
+	if err := refreshVersionCacheAfterInstall(pinned, installed); err != nil {
+		fmt.Fprintf(stderr, "Warning: failed to refresh version-check cache: %v\n", err)
+	}
 }
 
 func confirmUpgrade(w io.Writer, r io.Reader, current, target string) bool {

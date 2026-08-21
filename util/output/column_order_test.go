@@ -155,6 +155,50 @@ func TestTextFollowsQueryColumnOrder(t *testing.T) {
 	}
 }
 
+func TestTextKeepsQueryScalarOrderWhenStructuredColumnRecurses(t *testing.T) {
+	rows := []interface{}{
+		map[string]interface{}{
+			"Z":       "last alphabetically",
+			"NestedZ": map[string]interface{}{"Value": "child-z"},
+			"NestedA": map[string]interface{}{"Value": "child-a"},
+			"A":       "first alphabetically",
+		},
+	}
+	var buf bytes.Buffer
+	if err := WriteWithOptions(&buf, FormatText, rows,
+		Options{Columns: []string{"Z", "NestedZ", "NestedA", "A"}}); err != nil {
+		t.Fatalf("WriteWithOptions: %v", err)
+	}
+	want := "last alphabetically\tfirst alphabetically\nNESTEDZ\tchild-z\nNESTEDA\tchild-a\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("text scalar subsequence order = %q, want %q", got, want)
+	}
+}
+
+func TestTextKeepsQueryNestedOrderForMixedStructuredColumn(t *testing.T) {
+	rows := []interface{}{
+		map[string]interface{}{
+			"Z":       "z-1",
+			"NestedA": map[string]interface{}{"Value": "a-1"},
+			"Mixed":   "plain",
+		},
+		map[string]interface{}{
+			"Z":       "z-2",
+			"NestedA": map[string]interface{}{"Value": "a-2"},
+			"Mixed":   map[string]interface{}{"Value": "mixed-2"},
+		},
+	}
+	var buf bytes.Buffer
+	if err := WriteWithOptions(&buf, FormatText, rows,
+		Options{Columns: []string{"Z", "NestedA", "Mixed"}}); err != nil {
+		t.Fatalf("WriteWithOptions: %v", err)
+	}
+	want := "z-1\tplain\nNESTEDA\ta-1\nz-2\tNone\nNESTEDA\ta-2\nMIXED\tmixed-2\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("text nested subsequence order = %q, want %q", got, want)
+	}
+}
+
 func TestTableNumAddsRowNumbersFromOne(t *testing.T) {
 	data := []interface{}{
 		map[string]interface{}{"Id": "i-1", "Status": "Running"},

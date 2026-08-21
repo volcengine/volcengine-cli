@@ -51,10 +51,10 @@ func TestCredentialCacheLockSerializesWriter(t *testing.T) {
 func TestLogoutSingleProfileConfigConflictKeepsCacheAndRestoresMemory(t *testing.T) {
 	_, cleanup := withTestConfigDir(t)
 	defer cleanup()
-	oldConfig, oldCtx := config, ctx.config
+	oldConfig, oldCtx, oldTx := config, ctx.config, ctx.configTransaction
 	oldWriter := writeLogoutConfigTransaction
 	defer func() {
-		config, ctx.config = oldConfig, oldCtx
+		config, ctx.config, ctx.configTransaction = oldConfig, oldCtx, oldTx
 		writeLogoutConfigTransaction = oldWriter
 	}()
 
@@ -64,15 +64,16 @@ func TestLogoutSingleProfileConfigConflictKeepsCacheAndRestoresMemory(t *testing
 	if err := WriteConfigToFile(cfg); err != nil {
 		t.Fatal(err)
 	}
-	cfg = LoadConfig()
-	setRuntimeConfig(cfg)
+	tx := loadConfigTransaction()
+	cfg = tx.config
+	setRuntimeConfigTransaction(tx)
 	cache := &LoginTokenCache{LoginSession: "session-1", AccessToken: json.RawMessage(`{"AccessKeyId":"ak"}`)}
 	if err := writeLoginCache(cache); err != nil {
 		t.Fatal(err)
 	}
 	cachePath, _ := loginCacheFilePath("session-1")
 	wantErr := errors.New("injected concurrent config conflict")
-	writeLogoutConfigTransaction = func(*Configure) error { return wantErr }
+	writeLogoutConfigTransaction = func(*configTransaction) error { return wantErr }
 
 	err := (&ConsoleLogout{Profile: "default"}).Logout()
 	if !errors.Is(err, wantErr) {
@@ -98,14 +99,15 @@ func TestCommitConsoleLoginHardConfigFailureRestoresCacheAndMemory(t *testing.T)
 	if err := WriteConfigToFile(cfg); err != nil {
 		t.Fatal(err)
 	}
-	cfg = LoadConfig()
+	tx := loadConfigTransaction()
+	cfg = tx.config
 	before := normalizedConfigCopy(cfg)
 	cfg.Profiles["default"].LoginSession = "new"
 	newCache := &LoginTokenCache{LoginSession: "new", AccessToken: json.RawMessage(`{"AccessKeyId":"new"}`)}
 	wantErr := errors.New("injected config failure")
-	writeLoginConfigTransaction = func(*Configure) error { return wantErr }
+	writeLoginConfigTransaction = func(*configTransaction) error { return wantErr }
 
-	err := commitConsoleLogin(cfg, before, newCache)
+	err := commitConsoleLogin(tx, before, newCache)
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("commit error = %v, want config failure", err)
 	}

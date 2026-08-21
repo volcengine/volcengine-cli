@@ -72,9 +72,16 @@ func formatList(list []interface{}, identifier string, opts Options, out *[]stri
 		return
 	}
 	if listHasMap(list) {
-		keys := listScalarKeys(list, opts)
+		orderedKeys := listObjectKeys(list, opts)
+		keys := listScalarKeys(list, orderedKeys)
+		listOpts := opts
+		listOpts.Columns = orderedKeys
 		for _, element := range list {
-			formatText(element, identifier, keys, opts, out)
+			if !isStructuredValue(element) {
+				formatScalarList([]interface{}{element}, identifier, out)
+				continue
+			}
+			formatText(element, identifier, keys, listOpts, out)
 		}
 		return
 	}
@@ -104,7 +111,7 @@ func formatList(list []interface{}, identifier string, opts Options, out *[]stri
 // row.
 func formatScalarList(elements []interface{}, identifier string, out *[]string) {
 	if identifier != "" {
-		prefix := strings.ToUpper(identifier)
+		prefix := escapeCellString(strings.ToUpper(identifier))
 		for _, item := range elements {
 			*out = append(*out, prefix+"\t"+scalarString(item))
 		}
@@ -124,7 +131,7 @@ func formatDict(m map[string]interface{}, identifier string, scalarKeys []string
 	scalars, nested := partitionDict(m, scalarKeys, opts)
 	if len(scalars) > 0 {
 		if identifier != "" {
-			scalars = append([]string{strings.ToUpper(identifier)}, scalars...)
+			scalars = append([]string{escapeCellString(strings.ToUpper(identifier))}, scalars...)
 		}
 		*out = append(*out, strings.Join(scalars, "\t"))
 	}
@@ -156,11 +163,17 @@ func partitionDict(m map[string]interface{}, scalarKeys []string, opts Options) 
 		return scalars, nested
 	}
 
+	nestedKeys := make([]string, 0, len(m))
 	for _, key := range scalarKeys {
-		if value, ok := m[key]; ok {
-			scalars = append(scalars, scalarString(value))
-		} else {
+		value, ok := m[key]
+		switch {
+		case !ok:
 			scalars = append(scalars, noneValue)
+		case isStructuredValue(value):
+			scalars = append(scalars, noneValue)
+			nestedKeys = append(nestedKeys, key)
+		default:
+			scalars = append(scalars, scalarString(value))
 		}
 	}
 	shared := make(map[string]struct{}, len(scalarKeys))
@@ -173,17 +186,38 @@ func partitionDict(m map[string]interface{}, scalarKeys []string, opts Options) 
 			remaining = append(remaining, key)
 		}
 	}
-	sort.Strings(remaining)
-	for _, key := range applyColumnOrder(remaining, opts.Columns) {
+	nestedKeys = append(nestedKeys, remaining...)
+	for _, key := range orderedSubset(opts.Columns, nestedKeys) {
 		nested = append(nested, textField{key: key, value: m[key]})
 	}
 	return scalars, nested
 }
 
-// listScalarKeys is the union of keys that are scalar in at least one object of
-// the list, sorted and then reordered by the --query column hint when it
-// matches exactly. It mirrors the AWS CLI's shared-column behavior.
-func listScalarKeys(list []interface{}, opts Options) []string {
+// listObjectKeys returns the complete object-key union in query order when the
+// hint matches that union exactly, otherwise in alphabetical order.
+func listObjectKeys(list []interface{}, opts Options) []string {
+	seen := make(map[string]struct{})
+	for _, element := range list {
+		m, ok := element.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		for key := range m {
+			seen[key] = struct{}{}
+		}
+	}
+	keys := make([]string, 0, len(seen))
+	for key := range seen {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return applyColumnOrder(keys, opts.Columns)
+}
+
+// listScalarKeys is the union of keys that are scalar in at least one object
+// of the list, kept as a subsequence of the validated complete object order.
+// It mirrors the AWS CLI's shared-column behavior.
+func listScalarKeys(list []interface{}, orderedKeys []string) []string {
 	seen := make(map[string]struct{})
 	for _, element := range list {
 		m, ok := element.(map[string]interface{})
@@ -200,8 +234,7 @@ func listScalarKeys(list []interface{}, opts Options) []string {
 	for key := range seen {
 		keys = append(keys, key)
 	}
-	sort.Strings(keys)
-	return applyColumnOrder(keys, opts.Columns)
+	return orderedSubset(orderedKeys, keys)
 }
 
 func isStructuredValue(v interface{}) bool {

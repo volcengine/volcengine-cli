@@ -46,6 +46,18 @@ func TestMarshalConfigUsesIndentedJSON(t *testing.T) {
 	}
 }
 
+func TestConfigureKeepsPublicLiteralShape(t *testing.T) {
+	// This intentionally uses an unkeyed literal. Configure is a public data
+	// type whose four-field shape predates the transaction implementation.
+	// Keeping the guard in the defining package avoids go vet's external
+	// composite-literal warning while still failing compilation if fields are
+	// added, removed, or reordered.
+	cfg := Configure{"default", nil, false, nil}
+	if cfg.Current != "default" {
+		t.Fatalf("unkeyed Configure literal = %#v", cfg)
+	}
+}
+
 // --------------- validateProfileMode ---------------
 
 func TestValidateProfileModeRequiresAkCredentialsByDefault(t *testing.T) {
@@ -1135,8 +1147,12 @@ func resetProfileFlagsForTest(t *testing.T) func() {
 func withTestCtxConfig(t *testing.T, cfg *Configure) func() {
 	t.Helper()
 	old := ctx.config
-	ctx.config = cfg
-	return func() { ctx.config = old }
+	oldTx := ctx.configTransaction
+	ctx.SetConfig(cfg)
+	return func() {
+		ctx.config = old
+		ctx.configTransaction = oldTx
+	}
 }
 
 func TestConfigureSetPreservesPointerFlagsWhenNotPassed(t *testing.T) {
@@ -1307,8 +1323,7 @@ func TestWriteConfigToFileOverwritesExisting(t *testing.T) {
 	if err := os.Chmod(configPath, 0644); err != nil {
 		t.Fatalf("make existing config deliberately permissive: %v", err)
 	}
-	// Preserve the exported API's historical whole-file replacement contract:
-	// package-external callers cannot populate the private baseline fields.
+	// Preserve the exported API's historical whole-file replacement contract.
 	second := &Configure{
 		Current:     "two",
 		Profiles:    map[string]*Profile{},
@@ -1329,16 +1344,116 @@ func TestWriteConfigToFileOverwritesExisting(t *testing.T) {
 	}
 }
 
+func TestWriteConfigToFilePreservesCallerOwnedReferences(t *testing.T) {
+	_, cleanup := withTestConfigDir(t)
+	defer cleanup()
+
+	profile := &Profile{Name: "profile", Region: "initial"}
+	session := &SsoSession{Name: "session", Region: "initial"}
+	profiles := map[string]*Profile{"profile": profile}
+	sessions := map[string]*SsoSession{"session": session}
+	cfg := &Configure{
+		Current:    "profile",
+		Profiles:   profiles,
+		SsoSession: sessions,
+	}
+
+	if err := WriteConfigToFile(cfg); err != nil {
+		t.Fatalf("WriteConfigToFile: %v", err)
+	}
+
+	if cfg.Profiles["profile"] != profile || cfg.SsoSession["session"] != session {
+		t.Fatal("WriteConfigToFile replaced caller-owned nested objects")
+	}
+	profiles["later"] = &Profile{Name: "later"}
+	sessions["later"] = &SsoSession{Name: "later"}
+	profile.Region = "updated"
+	session.Region = "updated"
+	if cfg.Profiles["later"] == nil || cfg.SsoSession["later"] == nil ||
+		cfg.Profiles["profile"].Region != "updated" ||
+		cfg.SsoSession["session"].Region != "updated" {
+		t.Fatal("WriteConfigToFile replaced caller-owned maps or detached nested references")
+	}
+}
+
+func TestWriteConfigToFilePreservesNilCollectionSerialization(t *testing.T) {
+	configDir, cleanup := withTestConfigDir(t)
+	defer cleanup()
+
+	cfg := &Configure{Current: "profile"}
+	if err := WriteConfigToFile(cfg); err != nil {
+		t.Fatalf("WriteConfigToFile: %v", err)
+	}
+	if cfg.Profiles != nil || cfg.SsoSession != nil {
+		t.Fatalf("WriteConfigToFile normalized caller-owned nil maps: %#v", cfg)
+	}
+
+	data, err := ioutil.ReadFile(filepath.Join(configDir, ConfigFile))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	var encoded map[string]json.RawMessage
+	if err := json.Unmarshal(data, &encoded); err != nil {
+		t.Fatalf("decode config JSON: %v", err)
+	}
+	if string(encoded["profiles"]) != "null" || string(encoded["sso-session"]) != "null" {
+		t.Fatalf("nil collections encoded as profiles=%s sso-session=%s, want null", encoded["profiles"], encoded["sso-session"])
+	}
+}
+
+func TestLoadConfigPreservesNilCollections(t *testing.T) {
+	configDir, cleanup := withTestConfigDir(t)
+	defer cleanup()
+
+	configPath := filepath.Join(configDir, ConfigFile)
+	data := []byte(`{"current":"","profiles":null,"enableColor":false,"sso-session":null}`)
+	if err := ioutil.WriteFile(configPath, data, 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg := LoadConfig()
+	if cfg == nil {
+		t.Fatal("LoadConfig returned nil")
+	}
+	if cfg.Profiles != nil || cfg.SsoSession != nil {
+		t.Fatalf("LoadConfig normalized public nil collections: %#v", cfg)
+	}
+
+	tx := loadConfigTransaction()
+	if tx == nil || tx.config.Profiles == nil || tx.config.SsoSession == nil {
+		t.Fatalf("internal transaction did not initialize collections: %#v", tx)
+	}
+}
+
+func TestWriteConfigToFileNilPreservesHistoricalSerialization(t *testing.T) {
+	configDir, cleanup := withTestConfigDir(t)
+	defer cleanup()
+
+	if err := WriteConfigToFile(nil); err != nil {
+		t.Fatalf("WriteConfigToFile(nil): %v", err)
+	}
+	data, err := ioutil.ReadFile(filepath.Join(configDir, ConfigFile))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if string(data) != "null\n" {
+		t.Fatalf("WriteConfigToFile(nil) wrote %q, want %q", data, "null\n")
+	}
+}
+
 func TestConfigForWriteCapturesBaselineAfterLoadConfigEmptyFile(t *testing.T) {
 	configDir, cleanup := withTestConfigDir(t)
 	defer cleanup()
 	oldConfig := config
 	oldContextConfig := ctx.config
+	oldTransaction := ctx.configTransaction
 	config = nil
 	ctx.config = nil
+	ctx.configTransaction = nil
 	defer func() {
 		config = oldConfig
 		ctx.config = oldContextConfig
+		ctx.configTransaction = oldTransaction
 	}()
 
 	// Preserve LoadConfig's historical empty-file behavior. configForWrite must
@@ -1346,15 +1461,16 @@ func TestConfigForWriteCapturesBaselineAfterLoadConfigEmptyFile(t *testing.T) {
 	if loaded := LoadConfig(); loaded != nil {
 		t.Fatalf("LoadConfig on a new empty file = %#v, want nil", loaded)
 	}
-	cfg, err := configForWrite()
+	tx, err := configForWrite()
 	if err != nil {
 		t.Fatalf("configForWrite after empty LoadConfig: %v", err)
 	}
-	if cfg.baseline == nil || !sameConfigPath(cfg.baselinePath, filepath.Join(configDir, ConfigFile)) {
-		t.Fatalf("configForWrite did not capture empty-file baseline: %#v path=%q", cfg.baseline, cfg.baselinePath)
+	if tx.baseline == nil || !sameConfigPath(tx.baselinePath, filepath.Join(configDir, ConfigFile)) {
+		t.Fatalf("configForWrite did not capture empty-file baseline: %#v path=%q", tx.baseline, tx.baselinePath)
 	}
+	cfg := tx.config
 	cfg.Profiles["new"] = &Profile{Name: "new"}
-	if err := WriteConfigToFile(cfg); err != nil {
+	if err := writeConfigTransaction(tx); err != nil {
 		t.Fatalf("write config created from empty baseline: %v", err)
 	}
 	if loaded := LoadConfig(); loaded == nil || loaded.Profiles["new"] == nil {
@@ -1383,7 +1499,7 @@ func TestWriteConfigTransactionWithoutBaselineCannotOverwriteExistingConfig(t *t
 		},
 		SsoSession: map[string]*SsoSession{},
 	}
-	if err := writeConfigTransaction(unsafeOverwrite); !errors.Is(err, ErrConcurrentConfigModification) {
+	if err := writeConfigTransaction(&configTransaction{config: unsafeOverwrite}); !errors.Is(err, ErrConcurrentConfigModification) {
 		t.Fatalf("baseline-free overwrite error = %v, want concurrent modification", err)
 	}
 	loaded := LoadConfig()
@@ -1407,11 +1523,13 @@ func TestWriteConfigToFileMergesIndependentStaleChanges(t *testing.T) {
 		t.Fatalf("seed config: %v", err)
 	}
 
-	profileWriter := LoadConfig()
-	sessionWriter := LoadConfig()
-	if profileWriter == nil || sessionWriter == nil {
+	profileTx := loadConfigTransaction()
+	sessionTx := loadConfigTransaction()
+	if profileTx == nil || sessionTx == nil {
 		t.Fatal("LoadConfig returned nil")
 	}
+	profileWriter := profileTx.config
+	sessionWriter := sessionTx.config
 	profileWriter.Profiles["profile-from-first-process"] = &Profile{
 		Name:      "profile-from-first-process",
 		Mode:      ModeAK,
@@ -1435,10 +1553,10 @@ func TestWriteConfigToFileMergesIndependentStaleChanges(t *testing.T) {
 		Region:   "cn-beijing",
 	}
 
-	if err := writeConfigTransaction(profileWriter); err != nil {
+	if err := writeConfigTransaction(profileTx); err != nil {
 		t.Fatalf("write first stale config: %v", err)
 	}
-	if err := writeConfigTransaction(sessionWriter); err != nil {
+	if err := writeConfigTransaction(sessionTx); err != nil {
 		t.Fatalf("merge second stale config: %v", err)
 	}
 
@@ -1461,7 +1579,7 @@ func TestWriteConfigToFileMergesIndependentStaleChanges(t *testing.T) {
 	if sessionWriter.Profiles["profile-from-first-process"] == nil {
 		t.Fatal("successful merge did not refresh the caller's in-memory config")
 	}
-	if sessionWriter.baseline == nil || !configDataEqual(sessionWriter.baseline, sessionWriter) {
+	if sessionTx.baseline == nil || !configDataEqual(sessionTx.baseline, sessionWriter) {
 		t.Fatal("successful merge did not refresh the caller's immutable baseline")
 	}
 	if _, err := os.Stat(filepath.Join(configDir, ConfigFile+".lock")); err != nil {
@@ -1489,15 +1607,17 @@ func TestWriteConfigToFileRejectsSameKeyStaleConflictAndPreservesFirstWrite(t *t
 		t.Fatalf("seed config: %v", err)
 	}
 
-	first := LoadConfig()
-	stale := LoadConfig()
+	firstTx := loadConfigTransaction()
+	staleTx := loadConfigTransaction()
+	first := firstTx.config
+	stale := staleTx.config
 	first.Profiles["shared"].Region = "cn-beijing"
 	stale.Profiles["shared"].Region = "cn-shanghai"
 
-	if err := writeConfigTransaction(first); err != nil {
+	if err := writeConfigTransaction(firstTx); err != nil {
 		t.Fatalf("write first change: %v", err)
 	}
-	err := writeConfigTransaction(stale)
+	err := writeConfigTransaction(staleTx)
 	if !errors.Is(err, ErrConcurrentConfigModification) {
 		t.Fatalf("stale same-key write error = %v, want concurrent modification", err)
 	}
@@ -1533,20 +1653,102 @@ func TestWriteConfigToFileRejectsConcurrentCurrentChange(t *testing.T) {
 	if err := WriteConfigToFile(seed); err != nil {
 		t.Fatalf("seed config: %v", err)
 	}
-	first := LoadConfig()
-	stale := LoadConfig()
+	firstTx := loadConfigTransaction()
+	staleTx := loadConfigTransaction()
+	first := firstTx.config
+	stale := staleTx.config
 	first.Current = "first"
 	stale.Current = "stale"
 
-	if err := writeConfigTransaction(first); err != nil {
+	if err := writeConfigTransaction(firstTx); err != nil {
 		t.Fatalf("write first current: %v", err)
 	}
-	if err := writeConfigTransaction(stale); !errors.Is(err, ErrConcurrentConfigModification) {
+	if err := writeConfigTransaction(staleTx); !errors.Is(err, ErrConcurrentConfigModification) {
 		t.Fatalf("stale current write error = %v, want concurrent modification", err)
 	}
 	loaded := LoadConfig()
 	if loaded == nil || loaded.Current != "first" {
 		t.Fatalf("disk current after conflict = %#v, want first", loaded)
+	}
+}
+
+func TestWriteConfigTransactionRejectsConcurrentDeleteOfSelectedProfile(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		baseCurrent string
+		deleteFirst bool
+	}{
+		{name: "valid base delete commits first", baseCurrent: "base", deleteFirst: true},
+		{name: "valid base selection commits first", baseCurrent: "base", deleteFirst: false},
+		{name: "legacy dangling base delete commits first", baseCurrent: "legacy-missing", deleteFirst: true},
+		{name: "legacy dangling base selection commits first", baseCurrent: "legacy-missing", deleteFirst: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, cleanup := withTestConfigDir(t)
+			defer cleanup()
+
+			seed := &Configure{
+				Current: tc.baseCurrent,
+				Profiles: map[string]*Profile{
+					"base":   {Name: "base"},
+					"target": {Name: "target"},
+				},
+				SsoSession: map[string]*SsoSession{},
+			}
+			if err := WriteConfigToFile(seed); err != nil {
+				t.Fatalf("seed config: %v", err)
+			}
+
+			deleteTx := loadConfigTransaction()
+			selectTx := loadConfigTransaction()
+			deleteWriter := deleteTx.config
+			selectWriter := selectTx.config
+			delete(deleteWriter.Profiles, "target")
+			selectWriter.Current = "target"
+
+			first, second := deleteTx, selectTx
+			if !tc.deleteFirst {
+				first, second = selectTx, deleteTx
+			}
+			if err := writeConfigTransaction(first); err != nil {
+				t.Fatalf("first transaction: %v", err)
+			}
+			if err := writeConfigTransaction(second); !errors.Is(err, ErrConcurrentConfigModification) {
+				t.Fatalf("second transaction error = %v, want concurrent modification", err)
+			}
+
+			loaded := LoadConfig()
+			if loaded == nil {
+				t.Fatal("LoadConfig after conflict returned nil")
+			}
+			if tc.deleteFirst {
+				if loaded.Current != tc.baseCurrent || loaded.Profiles["target"] != nil {
+					t.Fatalf("selection changed the committed deletion: %#v", loaded)
+				}
+			} else if loaded.Current != "target" || loaded.Profiles["target"] == nil {
+				t.Fatalf("deletion changed the committed selection: %#v", loaded)
+			}
+		})
+	}
+}
+
+func TestMergeConfigPreservesPreexistingDanglingCurrent(t *testing.T) {
+	base := &Configure{
+		Current:    "legacy-missing",
+		Profiles:   map[string]*Profile{"base": {Name: "base"}},
+		SsoSession: map[string]*SsoSession{},
+	}
+	local := normalizedConfigCopy(base)
+	remote := normalizedConfigCopy(base)
+	local.EnableColor = true
+	remote.Profiles["remote"] = &Profile{Name: "remote"}
+
+	merged, err := mergeConfig(base, local, remote)
+	if err != nil {
+		t.Fatalf("independent changes on legacy dangling config: %v", err)
+	}
+	if merged.Current != "legacy-missing" || !merged.EnableColor || merged.Profiles["remote"] == nil {
+		t.Fatalf("legacy dangling config merge = %#v", merged)
 	}
 }
 
@@ -1600,7 +1802,8 @@ func TestWriteConfigTransactionAdvancesStateAfterPartialCommit(t *testing.T) {
 	if err := WriteConfigToFile(seed); err != nil {
 		t.Fatal(err)
 	}
-	cfg := LoadConfig()
+	tx := loadConfigTransaction()
+	cfg := tx.config
 	cfg.Profiles["new"] = &Profile{Name: "new"}
 
 	durabilityErr := errors.New("injected parent sync failure")
@@ -1610,20 +1813,20 @@ func TestWriteConfigTransactionAdvancesStateAfterPartialCommit(t *testing.T) {
 		}
 		return &PartialCommitError{Err: durabilityErr}
 	}
-	err := writeConfigTransactionWithReplacer(cfg, replacer)
+	err := writeConfigTransactionWithReplacer(tx, replacer)
 	var partial *PartialCommitError
 	if !errors.As(err, &partial) || !partial.Committed() || !errors.Is(err, durabilityErr) {
 		t.Fatalf("partial commit error = %v", err)
 	}
-	if cfg.Profiles["new"] == nil || cfg.baseline == nil || cfg.baseline.Profiles["new"] == nil {
-		t.Fatalf("committed object/baseline not advanced: cfg=%#v baseline=%#v", cfg, cfg.baseline)
+	if cfg.Profiles["new"] == nil || tx.baseline == nil || tx.baseline.Profiles["new"] == nil {
+		t.Fatalf("committed object/baseline not advanced: cfg=%#v baseline=%#v", cfg, tx.baseline)
 	}
 	loaded := LoadConfig()
 	if loaded == nil || loaded.Profiles["new"] == nil {
 		t.Fatalf("partial commit not visible on disk: %#v", loaded)
 	}
 	// Retrying the now-converged transaction must not report a stale conflict.
-	if err := writeConfigTransaction(cfg); err != nil {
+	if err := writeConfigTransaction(tx); err != nil {
 		t.Fatalf("retry after partial commit: %v", err)
 	}
 	assertNoConfigTempFiles(t, configDir)
@@ -1636,19 +1839,62 @@ func TestWriteConfigTransactionHardFailureRestoresBaseline(t *testing.T) {
 	if err := WriteConfigToFile(seed); err != nil {
 		t.Fatal(err)
 	}
-	cfg := LoadConfig()
-	cfg.Current = "mutated"
+	tx := loadConfigTransaction()
+	cfg := tx.config
 	cfg.Profiles["new"] = &Profile{Name: "new"}
+	cfg.Current = "new"
 	wantErr := errors.New("injected hard replace failure")
-	err := writeConfigTransactionWithReplacer(cfg, func(string, string) error { return wantErr })
+	replacerCalled := false
+	err := writeConfigTransactionWithReplacer(tx, func(string, string) error {
+		replacerCalled = true
+		return wantErr
+	})
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("transaction error = %v, want hard failure", err)
+	}
+	if !replacerCalled {
+		t.Fatal("hard-failure test did not reach the replace stage")
 	}
 	if cfg.Current != "base" || cfg.Profiles["new"] != nil {
 		t.Fatalf("hard failure left uncommitted in-memory state: %#v", cfg)
 	}
-	if cfg.baseline == nil || cfg.baseline.Current != "base" {
-		t.Fatalf("baseline changed after hard failure: %#v", cfg.baseline)
+	if tx.baseline == nil || tx.baseline.Current != "base" {
+		t.Fatalf("baseline changed after hard failure: %#v", tx.baseline)
+	}
+	loaded := LoadConfig()
+	if loaded == nil || loaded.Current != "base" || loaded.Profiles["base"] == nil || loaded.Profiles["new"] != nil {
+		t.Fatalf("hard failure changed config on disk: %#v", loaded)
+	}
+}
+
+func TestWriteConfigTransactionRejectsLocallyDanglingCurrentBeforeReplace(t *testing.T) {
+	_, cleanup := withTestConfigDir(t)
+	defer cleanup()
+
+	seed := &Configure{Current: "base", Profiles: map[string]*Profile{"base": {Name: "base"}}, SsoSession: map[string]*SsoSession{}}
+	if err := WriteConfigToFile(seed); err != nil {
+		t.Fatal(err)
+	}
+	tx := loadConfigTransaction()
+	cfg := tx.config
+	cfg.Current = "missing"
+	replacerCalled := false
+	err := writeConfigTransactionWithReplacer(tx, func(string, string) error {
+		replacerCalled = true
+		return nil
+	})
+	if !errors.Is(err, ErrConcurrentConfigModification) || !strings.Contains(err.Error(), "current/profile relationship") {
+		t.Fatalf("dangling current error = %v, want current/profile relationship conflict", err)
+	}
+	if replacerCalled {
+		t.Fatal("invalid config reached the replace stage")
+	}
+	if cfg.Current != "base" || cfg.Profiles["base"] == nil {
+		t.Fatalf("invalid transaction was not restored in memory: %#v", cfg)
+	}
+	loaded := LoadConfig()
+	if loaded == nil || loaded.Current != "base" || loaded.Profiles["base"] == nil {
+		t.Fatalf("invalid transaction changed config on disk: %#v", loaded)
 	}
 }
 
@@ -1665,15 +1911,17 @@ func TestWriteConfigToFileRejectsSameSsoSessionKeyConflict(t *testing.T) {
 	if err := WriteConfigToFile(seed); err != nil {
 		t.Fatalf("seed config: %v", err)
 	}
-	first := LoadConfig()
-	stale := LoadConfig()
+	firstTx := loadConfigTransaction()
+	staleTx := loadConfigTransaction()
+	first := firstTx.config
+	stale := staleTx.config
 	first.SsoSession["shared"].StartURL = "https://first.example.com"
 	stale.SsoSession["shared"].StartURL = "https://stale.example.com"
 
-	if err := writeConfigTransaction(first); err != nil {
+	if err := writeConfigTransaction(firstTx); err != nil {
 		t.Fatalf("write first SSO session update: %v", err)
 	}
-	err := writeConfigTransaction(stale)
+	err := writeConfigTransaction(staleTx)
 	if !errors.Is(err, ErrConcurrentConfigModification) || !strings.Contains(err.Error(), `sso-session["shared"]`) {
 		t.Fatalf("stale SSO session error = %v, want identified concurrent modification", err)
 	}
@@ -1694,8 +1942,10 @@ func TestConfigFileLockSerializesReadMergeAndReplace(t *testing.T) {
 	if err := WriteConfigToFile(seed); err != nil {
 		t.Fatalf("seed config: %v", err)
 	}
-	first := LoadConfig()
-	second := LoadConfig()
+	firstTx := loadConfigTransaction()
+	secondTx := loadConfigTransaction()
+	first := firstTx.config
+	second := secondTx.config
 	first.Profiles["first"] = &Profile{Name: "first"}
 	second.Profiles["second"] = &Profile{Name: "second"}
 
@@ -1716,7 +1966,7 @@ func TestConfigFileLockSerializesReadMergeAndReplace(t *testing.T) {
 
 	firstErr := make(chan error, 1)
 	secondErr := make(chan error, 1)
-	go func() { firstErr <- writeConfigTransactionWithReplacer(first, firstReplacer) }()
+	go func() { firstErr <- writeConfigTransactionWithReplacer(firstTx, firstReplacer) }()
 	select {
 	case <-firstInReplace:
 	case <-time.After(5 * time.Second):
@@ -1724,7 +1974,7 @@ func TestConfigFileLockSerializesReadMergeAndReplace(t *testing.T) {
 	}
 	go func() {
 		close(secondStarted)
-		secondErr <- writeConfigTransactionWithReplacer(second, secondReplacer)
+		secondErr <- writeConfigTransactionWithReplacer(secondTx, secondReplacer)
 	}()
 	<-secondStarted
 

@@ -37,7 +37,8 @@ func (cl *ConsoleLogout) logoutSingleProfile() (returnErr error) {
 	if cfg == nil || cfg.Profiles == nil {
 		return trErrorf("no configuration found; nothing to log out")
 	}
-	if err := prepareConfigForMutation(cfg); err != nil {
+	tx, err := prepareConfigForMutation(cfg)
+	if err != nil {
 		return fmt.Errorf("preparing config update: %w", err)
 	}
 
@@ -87,13 +88,13 @@ func (cl *ConsoleLogout) logoutSingleProfile() (returnErr error) {
 	profile.LoginSession = ""
 	cfg.Profiles[profileName] = profile
 
-	configErr := writeLogoutConfigTransaction(cfg)
+	configErr := writeLogoutConfigTransaction(tx)
 	if configErr != nil && !configMutationCommitted(configErr) {
 		profile.LoginSession = loginSession
 		cfg.Profiles[profileName] = profile
 		return trErrorf("updating config before logout: %w", configErr)
 	}
-	setRuntimeConfig(cfg)
+	setRuntimeConfigTransaction(tx)
 
 	cacheErr := removeLoginCacheAtPath(cachePath)
 	if cacheErr != nil {
@@ -118,7 +119,8 @@ func (cl *ConsoleLogout) logoutAll() (returnErr error) {
 		fmt.Println(tr("No configuration found; nothing to log out."))
 		return nil
 	}
-	if err := prepareConfigForMutation(cfg); err != nil {
+	tx, err := prepareConfigForMutation(cfg)
+	if err != nil {
 		return fmt.Errorf("preparing config update: %w", err)
 	}
 
@@ -176,7 +178,7 @@ func (cl *ConsoleLogout) logoutAll() (returnErr error) {
 		cfg.Profiles[item.name] = item.profile
 	}
 
-	configErr := writeLogoutConfigTransaction(cfg)
+	configErr := writeLogoutConfigTransaction(tx)
 	if configErr != nil && !configMutationCommitted(configErr) {
 		for _, item := range profiles {
 			item.profile.LoginSession = item.session
@@ -184,7 +186,7 @@ func (cl *ConsoleLogout) logoutAll() (returnErr error) {
 		}
 		return trErrorf("updating config before logout: %w", configErr)
 	}
-	setRuntimeConfig(cfg)
+	setRuntimeConfigTransaction(tx)
 
 	var firstCacheErr error
 	for _, item := range profiles {

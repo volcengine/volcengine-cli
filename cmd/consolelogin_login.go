@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -23,6 +24,18 @@ const loginCacheDirectoryEnv = "VOLCENGINE_LOGIN_CACHE_DIRECTORY"
 const defaultConsoleLoginRegion = "cn-beijing"
 
 var writeLoginConfigTransaction = writeConfigTransaction
+var replaceLoginCacheFile = replaceLoginCacheFilePlatform
+
+// loginCacheRefreshWriteError means the refreshed credentials are valid and
+// the cache snapshot was still current, but persisting the replacement failed.
+// Preserve the historical behavior of using those credentials for this command
+// while warning that a later command may have to refresh again.
+type loginCacheRefreshWriteError struct {
+	err error
+}
+
+func (e *loginCacheRefreshWriteError) Error() string { return e.err.Error() }
+func (e *loginCacheRefreshWriteError) Unwrap() error { return e.err }
 
 // ConsoleLogin holds runtime state for the volcengine login flow.
 type ConsoleLogin struct {
@@ -61,11 +74,12 @@ func (cl *ConsoleLogin) Login() (returnErr error) {
 	}
 
 	// Load existing profile values from the in-memory runtime config first.
-	cfg, err := configForWrite()
+	tx, err := configForWrite()
 	if err != nil {
 		return err
 	}
-	setRuntimeConfig(cfg)
+	cfg := tx.config
+	setRuntimeConfigTransaction(tx)
 	if cfg.Profiles == nil {
 		cfg.Profiles = make(map[string]*Profile)
 	}
@@ -183,7 +197,7 @@ func (cl *ConsoleLogin) Login() (returnErr error) {
 		cfg.Current = cl.Profile
 	}
 
-	if err := commitConsoleLogin(cfg, configBefore, cache); err != nil {
+	if err := commitConsoleLogin(tx, configBefore, cache); err != nil {
 		return err
 	}
 
@@ -196,7 +210,8 @@ func (cl *ConsoleLogin) Login() (returnErr error) {
 	return nil
 }
 
-func commitConsoleLogin(cfg, configBefore *Configure, cache *LoginTokenCache) (returnErr error) {
+func commitConsoleLogin(tx *configTransaction, configBefore *Configure, cache *LoginTokenCache) (returnErr error) {
+	cfg := tx.config
 	cachePath, err := loginCacheFilePath(cache.LoginSession)
 	if err != nil {
 		return err
@@ -220,7 +235,7 @@ func commitConsoleLogin(cfg, configBefore *Configure, cache *LoginTokenCache) (r
 		return trErrorf("writing login cache: %w", err)
 	}
 
-	configErr := writeLoginConfigTransaction(cfg)
+	configErr := writeLoginConfigTransaction(tx)
 	if configErr != nil && !configMutationCommitted(configErr) {
 		applyConfigData(cfg, configBefore)
 		var rollbackErr error
@@ -231,7 +246,7 @@ func commitConsoleLogin(cfg, configBefore *Configure, cache *LoginTokenCache) (r
 		}
 		return trErrorf("writing config: %w", combineLogoutErrors(configErr, rollbackErr))
 	}
-	setRuntimeConfig(cfg)
+	setRuntimeConfigTransaction(tx)
 	if configErr != nil {
 		return trErrorf("writing config: %w", configErr)
 	}
@@ -534,7 +549,7 @@ func writeLoginCacheBytesUnlocked(cachePath string, data []byte) (retErr error) 
 	if err := os.Chmod(tmpName, 0600); err != nil {
 		return trErrorf("setting cache file permissions: %w", err)
 	}
-	if err := os.Rename(tmpName, cachePath); err != nil {
+	if err := replaceLoginCacheFile(tmpName, cachePath); err != nil {
 		return trErrorf("renaming temp cache file: %w", err)
 	}
 	return nil
@@ -553,7 +568,7 @@ func readLoginCache(loginSession string) (cache *LoginTokenCache, returnErr erro
 	}
 	defer func() {
 		if err := cacheLock.release(); returnErr == nil && err != nil {
-			returnErr = trErrorf("releasing login cache lock: %w", err)
+			returnErr = &loginCacheRefreshWriteError{err: trErrorf("releasing login cache lock: %w", err)}
 		}
 	}()
 	return readLoginCacheUnlocked(cachePath)
@@ -594,7 +609,10 @@ func replaceLoginCacheIfUnchanged(loginSession string, expected, replacement *Lo
 	if current == nil || !reflect.DeepEqual(current, expected) {
 		return trErrorf("login cache changed while refreshing; retry or run 've login' again")
 	}
-	return writeLoginCacheUnlocked(cachePath, replacement)
+	if err := writeLoginCacheUnlocked(cachePath, replacement); err != nil {
+		return &loginCacheRefreshWriteError{err: err}
+	}
+	return nil
 }
 
 // extractLoginSession decodes the JWT payload (second segment) and returns the
@@ -738,6 +756,11 @@ func EnsureValidLoginToken(cfg *Configure, profileName string) (*STSCredentials,
 	replacement.TokenType = tokenResp.TokenType
 
 	if err := replaceLoginCacheIfUnchanged(profile.LoginSession, cache, &replacement); err != nil {
+		var writeErr *loginCacheRefreshWriteError
+		if errors.As(err, &writeErr) {
+			fmt.Fprintf(os.Stderr, tr("Warning: failed to update login cache: %v\n"), writeErr)
+			return newCreds, nil
+		}
 		return nil, trErrorf("refreshed credentials were discarded because the login session changed: %w", err)
 	}
 

@@ -2,6 +2,7 @@ package output
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -535,6 +536,58 @@ func TestQueryContainsKeepsSameTokenNumberMembership(t *testing.T) {
 	}
 }
 
+func TestQueryContainsUsesJSONNumericValue(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		member json.Number
+		needle json.Number
+	}{
+		{name: "integer member", member: json.Number("1"), needle: json.Number("1.0")},
+		{name: "decimal member", member: json.Number("1.0"), needle: json.Number("1")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := map[string]interface{}{
+				"Numbers": []interface{}{tc.member},
+				"Needle":  tc.needle,
+			}
+			got, err := ApplyQuery(data, "contains(Numbers, Needle)")
+			if err != nil || got != true {
+				t.Fatalf("equivalent-token numeric contains = %#v, %v; want true", got, err)
+			}
+		})
+	}
+}
+
+func TestQueryObjectProjectionDoesNotEvaluateSyntheticValues(t *testing.T) {
+	data := map[string]interface{}{
+		"Values": map[string]interface{}{
+			"integer": json.Number("1"),
+			"decimal": json.Number("1.0"),
+		},
+	}
+	for _, expr := range []string{
+		"Values.*",
+		"Values.*.not_null(@, 'fallback')",
+	} {
+		got, err := ApplyQuery(data, expr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		values, ok := got.([]interface{})
+		if !ok {
+			t.Fatalf("object projection %q = %#v, want a list", expr, got)
+		}
+		if len(values) != 2 {
+			t.Fatalf("object projection %q = %#v, want exactly the two source values", expr, values)
+		}
+		for _, value := range values {
+			if value != json.Number("1") && value != json.Number("1.0") {
+				t.Fatalf("object projection %q produced synthetic value %#v", expr, value)
+			}
+		}
+	}
+}
+
 func TestQueryContainsRejectsNumericJSONLiterals(t *testing.T) {
 	for _, expr := range []string{
 		"contains(Result.Numbers, `9007199254740993`)",
@@ -580,6 +633,82 @@ func TestQueryStringOrderingFunctionsRemainAvailable(t *testing.T) {
 	}
 }
 
+func TestQuerySortByDoesNotMutateSharedInput(t *testing.T) {
+	query, err := CompileQuery("sort_by(Items, &Name)[].Name")
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := []interface{}{
+		map[string]interface{}{"Name": "web"},
+		map[string]interface{}{"Name": "db"},
+	}
+	data := map[string]interface{}{"Items": items}
+
+	got, err := query.Search(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []interface{}{"db", "web"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("sort_by result = %#v, want %#v", got, want)
+	}
+	if items[0].(map[string]interface{})["Name"] != "web" || items[1].(map[string]interface{})["Name"] != "db" {
+		t.Fatalf("sort_by mutated input: %#v", items)
+	}
+}
+
+func TestQuerySortByKeepsEmptyArrayShape(t *testing.T) {
+	got, err := ApplyQuery(map[string]interface{}{"Items": []interface{}{}}, "sort_by(Items, &Name)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, ok := got.([]interface{})
+	if !ok || items == nil || len(items) != 0 {
+		t.Fatalf("empty sort_by result = %#v, want non-nil empty array", got)
+	}
+}
+
+func TestQuerySortBySharedInputIsConcurrentSafe(t *testing.T) {
+	query, err := CompileQuery("sort_by(Items, &Name)[].Name")
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := make([]interface{}, 64)
+	for i := range items {
+		items[i] = map[string]interface{}{"Name": fmt.Sprintf("item-%03d", len(items)-i)}
+	}
+	data := map[string]interface{}{"Items": items}
+
+	start := make(chan struct{})
+	errors := make(chan error, 16)
+	var wg sync.WaitGroup
+	for i := 0; i < cap(errors); i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			result, searchErr := query.Search(data)
+			if searchErr != nil {
+				errors <- searchErr
+				return
+			}
+			values := result.([]interface{})
+			if len(values) != len(items) || values[0] != "item-001" || values[len(values)-1] != "item-064" {
+				errors <- fmt.Errorf("unexpected sorted result: %#v", values)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errors)
+	for searchErr := range errors {
+		t.Error(searchErr)
+	}
+	if items[0].(map[string]interface{})["Name"] != "item-064" {
+		t.Fatalf("concurrent sort_by mutated input: %#v", items[0])
+	}
+}
+
 func TestQueryOrderingFunctionsRejectExactResponseNumbers(t *testing.T) {
 	data := map[string]interface{}{
 		"Items": []interface{}{
@@ -593,6 +722,28 @@ func TestQueryOrderingFunctionsRejectExactResponseNumbers(t *testing.T) {
 		"max_by(Items, &Size)",
 		"min_by(Items, &Size)",
 		"type(Exact)",
+	} {
+		query, err := CompileQuery(expr)
+		if err != nil {
+			t.Errorf("CompileQuery(%q): %v", expr, err)
+			continue
+		}
+		if got, err := query.Search(data); err == nil {
+			t.Errorf("Search(%q) = %#v, want explicit json.Number type error", expr, got)
+		}
+	}
+}
+
+func TestQueryByFunctionsRejectSingleExactResponseNumber(t *testing.T) {
+	data := map[string]interface{}{
+		"Items": []interface{}{
+			map[string]interface{}{"Id": "large", "Size": json.Number("9007199254740993")},
+		},
+	}
+	for _, expr := range []string{
+		"sort_by(Items, &Size)",
+		"max_by(Items, &Size)",
+		"min_by(Items, &Size)",
 	} {
 		query, err := CompileQuery(expr)
 		if err != nil {

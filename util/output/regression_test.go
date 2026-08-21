@@ -209,6 +209,46 @@ func TestScalarListNotTreatedAsNested(t *testing.T) {
 	}
 }
 
+func TestTextHeterogeneousScalarAndStructuredColumnRecurses(t *testing.T) {
+	data := []interface{}{
+		map[string]interface{}{"Id": "i-1", "Value": "plain"},
+		map[string]interface{}{
+			"Id": "i-2",
+			"Value": map[string]interface{}{
+				"Name": "nested",
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatText, data); err != nil {
+		t.Fatal(err)
+	}
+	want := "i-1\tplain\ni-2\tNone\nVALUE\tnested\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("heterogeneous object column = %q, want %q", got, want)
+	}
+}
+
+func TestTextNestedMixedObjectListKeepsPrefixOnScalarValues(t *testing.T) {
+	data := map[string]interface{}{
+		"Items": []interface{}{
+			map[string]interface{}{"A": "mapped"},
+			"tail",
+			nil,
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatText, data); err != nil {
+		t.Fatal(err)
+	}
+	want := "ITEMS\tmapped\nITEMS\ttail\nITEMS\tNone\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("nested mixed list = %q, want %q", got, want)
+	}
+}
+
 func TestOrderedSubsetPreservesOriginalOrder(t *testing.T) {
 	order := []string{"A", "B", "C", "D"}
 	got := orderedSubset(order, []string{"C", "A"})

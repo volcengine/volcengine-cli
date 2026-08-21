@@ -81,15 +81,16 @@ func newColorCommand(use string, enabled bool) *cobra.Command {
 		Use:    use,
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := configForWrite()
+			tx, err := configForWrite()
 			if err != nil {
 				return err
 			}
+			cfg := tx.config
 			cfg.EnableColor = enabled
-			if err := writeConfigTransaction(cfg); err != nil {
+			if err := writeConfigTransaction(tx); err != nil {
 				return err
 			}
-			setRuntimeConfig(cfg)
+			setRuntimeConfigTransaction(tx)
 			return nil
 		},
 	}

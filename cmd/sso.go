@@ -130,7 +130,8 @@ func (s *Sso) EnsureValidStsToken(ctx *Context) error {
 	if err != nil {
 		return trErrorf("failed to get role credentials: %w", err)
 	}
-	if err := prepareConfigForMutation(ctx.config); err != nil {
+	tx, err := prepareConfigForMutation(ctx.config)
+	if err != nil {
 		return fmt.Errorf("failed to refresh stsToken: failed to prepare config update: %w", err)
 	}
 
@@ -139,7 +140,7 @@ func (s *Sso) EnsureValidStsToken(ctx *Context) error {
 	s.Profile.SessionToken = roleCredentials.SessionToken
 	s.Profile.StsExpiration = roleCredentials.Expiration
 	ctx.config.Profiles[s.Profile.Name] = s.Profile
-	return writeConfigTransaction(ctx.config)
+	return writeConfigTransaction(tx)
 }
 
 // SsoTokenCache 保存 SSO 访问令牌及客户端凭据的缓存结构。
@@ -804,10 +805,11 @@ func (s *Sso) SetProfile() error {
 	if !s.UseDeviceCode {
 		return trErrorf("currently, only device code authentication is supported")
 	}
-	cfg, err := configForWrite()
+	tx, err := configForWrite()
 	if err != nil {
 		return err
 	}
+	cfg := tx.config
 
 	fetcher := newDeviceCodeFetcher(s)
 	token, err := fetcher.GetToken()
@@ -843,14 +845,15 @@ func (s *Sso) SetProfile() error {
 	if err != nil {
 		return err
 	}
-	if err := s.commitProfileConfig(cfg, configBefore, token, cachePath); err != nil {
+	if err := s.commitProfileConfig(tx, configBefore, token, cachePath); err != nil {
 		return err
 	}
 	fmt.Printf(tr("SSO profile [%s] has been configured successfully\n"), s.Profile.Name)
 	return nil
 }
 
-func (s *Sso) commitProfileConfig(cfg, configBefore *Configure, token *SsoTokenCache, cachePath string) (returnErr error) {
+func (s *Sso) commitProfileConfig(tx *configTransaction, configBefore *Configure, token *SsoTokenCache, cachePath string) (returnErr error) {
+	cfg := tx.config
 	cacheLock, err := acquireCredentialCacheLock(cachePath)
 	if err != nil {
 		applyConfigData(cfg, configBefore)
@@ -871,12 +874,12 @@ func (s *Sso) commitProfileConfig(cfg, configBefore *Configure, token *SsoTokenC
 		return trErrorf("SSO token cache changed while configuring the profile; retry the command")
 	}
 
-	configErr := writeConfigTransaction(cfg)
+	configErr := writeConfigTransaction(tx)
 	if configErr != nil && !configMutationCommitted(configErr) {
 		applyConfigData(cfg, configBefore)
 		return configErr
 	}
-	setRuntimeConfig(cfg)
+	setRuntimeConfigTransaction(tx)
 	return configErr
 }
 
@@ -1311,7 +1314,8 @@ func (s *Sso) clearProfileStsCredentials(cfg *Configure) error {
 	if cfg == nil {
 		return trErrorf("the configuration file cannot be loaded")
 	}
-	if err := prepareConfigForMutation(cfg); err != nil {
+	tx, err := prepareConfigForMutation(cfg)
+	if err != nil {
 		return fmt.Errorf("failed to prepare config update: %w", err)
 	}
 	before := normalizedConfigCopy(cfg)
@@ -1327,7 +1331,7 @@ func (s *Sso) clearProfileStsCredentials(cfg *Configure) error {
 	if !updated {
 		return nil
 	}
-	err := writeSsoLogoutConfigTransaction(cfg)
+	err = writeSsoLogoutConfigTransaction(tx)
 	if err != nil && !configMutationCommitted(err) {
 		applyConfigData(cfg, before)
 	}

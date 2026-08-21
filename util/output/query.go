@@ -7,7 +7,7 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/jmespath/go-jmespath"
+	"github.com/volcengine/volcengine-cli/internal/jmespath"
 )
 
 // Query is a validated JMESPath expression.

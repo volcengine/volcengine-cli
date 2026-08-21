@@ -241,4 +241,3 @@ E1 / E4 真实路径打不到，已按「单测通过即覆盖」结案，本组
 - 当前 profile 已切到 `default`
 - STS 凭证过期时间：首轮显示 2026-08-18 10:10:45；补跑时 refresh 后 `GetCallerIdentity` 仍可用
 - 原始输出：`/tmp/ve-output-verify/`（含 `E3b_*` / `E5` / `F1`–`F7`）
-

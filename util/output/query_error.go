@@ -6,8 +6,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/jmespath/go-jmespath"
 	"github.com/mattn/go-runewidth"
+	"github.com/volcengine/volcengine-cli/internal/jmespath"
 )
 
 // Error reporting for --query compilation.

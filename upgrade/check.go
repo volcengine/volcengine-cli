@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -58,10 +57,12 @@ const failureBackoff = 15 * time.Minute
 var (
 	ConfigDirFunc = defaultConfigDir
 
-	// noticeCacheMu serializes every in-process cache read-modify-write section.
+	// noticeCacheProcessLock serializes every in-process cache read-modify-write
+	// section. A channel keeps acquisition timeout-aware; sync.Mutex.Lock cannot
+	// be bounded when a cache writer gets stuck in filesystem I/O.
 	// OS file locks provide cross-process exclusion, but their treatment of locks
 	// opened through multiple descriptors in one process is platform-dependent.
-	noticeCacheMu sync.Mutex
+	noticeCacheProcessLock = make(chan struct{}, 1)
 
 	// renameCheckCacheFile is a test seam for verifying that a failed atomic
 	// replacement leaves the previous cache intact.
@@ -318,6 +319,11 @@ func noticeAlreadyClaimedToday(c versionCheckCache, currentVersion string, now t
 // Bounded so a stuck holder cannot hang every ve process on the notice path.
 const noticeCacheLockWait = 500 * time.Millisecond
 
+// Invalidation runs after a successful pinned upgrade when the latest-version
+// refresh failed. Give an active cache writer longer to finish so a transient
+// contention does not leave a misleading fresh cache behind.
+const invalidateCheckCacheLockWait = 2 * time.Second
+
 var acquireNoticeCacheFileLock = acquireExclusiveFileLockWithWait
 
 // noticeCacheLockPath is a sibling lock file for version_check.json cross-process claim.
@@ -343,14 +349,25 @@ func noticeCacheLockPath() (string, error) {
 // Not re-entrant: do not call writeCheckCache / SaveCheckCache / this helper
 // again from inside fn. Locked sections must use writeCheckCacheUnlocked only.
 func withNoticeCacheLock(fn func() error) error {
-	noticeCacheMu.Lock()
-	defer noticeCacheMu.Unlock()
+	return withNoticeCacheLockWait(noticeCacheLockWait, fn)
+}
+
+func withNoticeCacheLockWait(wait time.Duration, fn func() error) error {
+	deadline := time.Now().Add(wait)
+	if !acquireNoticeCacheProcessLock(wait) {
+		return fmt.Errorf("timed out waiting for in-process notice cache lock")
+	}
+	defer func() { <-noticeCacheProcessLock }()
 
 	lockPath, err := noticeCacheLockPath()
 	if err != nil {
 		return fn()
 	}
-	lock, err := acquireNoticeCacheFileLock(lockPath, noticeCacheLockWait)
+	remaining := time.Until(deadline)
+	if remaining < 0 {
+		remaining = 0
+	}
+	lock, err := acquireNoticeCacheFileLock(lockPath, remaining)
 	if err != nil {
 		if isUpgradeLockBusy(err) {
 			return fmt.Errorf("timed out waiting for notice cache lock %s: %w", lockPath, err)
@@ -359,6 +376,26 @@ func withNoticeCacheLock(fn func() error) error {
 	}
 	defer lock.release()
 	return fn()
+}
+
+func acquireNoticeCacheProcessLock(wait time.Duration) bool {
+	// Preserve one immediate acquisition attempt even for a zero timeout.
+	select {
+	case noticeCacheProcessLock <- struct{}{}:
+		return true
+	default:
+	}
+	if wait <= 0 {
+		return false
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case noticeCacheProcessLock <- struct{}{}:
+		return true
+	case <-timer.C:
+		return false
+	}
 }
 
 // acquireExclusiveFileLockWithWait polls a non-blocking exclusive lock until
@@ -433,17 +470,26 @@ func claimUpgradeNoticeLocked(latest, current string, now time.Time) bool {
 	return true
 }
 
-// InvalidateCheckCache removes the version check cache (best-effort).
+// InvalidateCheckCache removes the version check cache on a best-effort basis.
 // Does not delete the sibling .lock file: unlinking a held lock path allows a
 // second process to create a new inode and take a concurrent "exclusive" lock.
 func InvalidateCheckCache() {
-	_ = withNoticeCacheLock(func() error {
+	_ = invalidateCheckCache()
+}
+
+// invalidateCheckCache exposes maintenance failures to the upgrade path without
+// changing the long-standing exported best-effort API above.
+func invalidateCheckCache() error {
+	return withNoticeCacheLockWait(invalidateCheckCacheLockWait, func() error {
 		path, err := CheckCachePath()
 		if err != nil {
+			return err
+		}
+		err = os.Remove(path)
+		if os.IsNotExist(err) {
 			return nil
 		}
-		_ = os.Remove(path)
-		return nil
+		return err
 	})
 }
 

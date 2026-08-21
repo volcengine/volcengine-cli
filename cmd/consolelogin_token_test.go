@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -211,6 +212,93 @@ func TestEnsureValidLoginTokenRefreshesExpiredCredentials(t *testing.T) {
 	}
 	if refreshed.RefreshToken != "refresh-new" {
 		t.Fatalf("cached refresh token = %q, want refresh-new", refreshed.RefreshToken)
+	}
+}
+
+func TestEnsureValidLoginTokenUsesRefreshedCredentialsWhenCacheWriteFails(t *testing.T) {
+	_, cleanup := withTestConfigDir(t)
+	defer cleanup()
+
+	cfg := &Configure{Profiles: map[string]*Profile{"default": {
+		Name: "default", Mode: ModeConsoleLogin, LoginSession: "expired-session",
+	}}}
+	oldCreds := STSCredentials{AccessKeyID: "ak-old", SecretAccessKey: "sk-old", SessionToken: "st-old"}
+	newCreds := STSCredentials{AccessKeyID: "ak-new", SecretAccessKey: "sk-new", SessionToken: "st-new"}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(ConsoleTokenResponse{
+			AccessToken: string(mustMarshalAccessToken(t, newCreds)), RefreshToken: "refresh-new", ExpiresIn: 900,
+		})
+	}))
+	defer server.Close()
+	cache := &LoginTokenCache{
+		LoginSession: "expired-session", AccessToken: mustMarshalAccessToken(t, oldCreds),
+		RefreshToken: "refresh-old", ClientID: ConsoleClientIDSameDevice, Scope: scopeAllAll, EndpointURL: server.URL,
+		IssuedAt: time.Now().UTC().Add(-20 * time.Minute).Format(time.RFC3339), ExpiresIn: 900,
+	}
+	if err := writeLoginCache(cache); err != nil {
+		t.Fatal(err)
+	}
+
+	originalReplace := replaceLoginCacheFile
+	replaceLoginCacheFile = func(string, string) error { return errors.New("injected replace failure") }
+	defer func() { replaceLoginCacheFile = originalReplace }()
+
+	credentials, err := EnsureValidLoginToken(cfg, "default")
+	if err != nil {
+		t.Fatalf("refresh should remain usable after cache persistence failure: %v", err)
+	}
+	if credentials == nil || *credentials != newCreds {
+		t.Fatalf("credentials = %#v, want %#v", credentials, newCreds)
+	}
+	current, err := readLoginCache("expired-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var currentCreds STSCredentials
+	if err := json.Unmarshal(current.AccessToken, &currentCreds); err != nil {
+		t.Fatal(err)
+	}
+	if currentCreds != oldCreds || current.RefreshToken != cache.RefreshToken ||
+		current.IssuedAt != cache.IssuedAt || current.ExpiresIn != cache.ExpiresIn {
+		t.Fatalf("failed replacement changed old cache: got %#v want %#v", current, cache)
+	}
+	cachePath, err := loginCacheFilePath("expired-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	matches, err := filepath.Glob(filepath.Join(filepath.Dir(cachePath), ".tmp-login-cache-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("temporary login cache files leaked: %v", matches)
+	}
+}
+
+func TestWriteLoginCacheReplacesExistingFile(t *testing.T) {
+	_, cleanup := withTestConfigDir(t)
+	defer cleanup()
+
+	oldCache := &LoginTokenCache{
+		LoginSession: "replace-session", AccessToken: json.RawMessage(`{"value":"old"}`),
+		RefreshToken: "old", IssuedAt: "2026-08-21T00:00:00Z", ExpiresIn: 60,
+	}
+	newCache := &LoginTokenCache{
+		LoginSession: "replace-session", AccessToken: json.RawMessage(`{"value":"new"}`),
+		RefreshToken: "new", IssuedAt: "2026-08-21T00:01:00Z", ExpiresIn: 120,
+	}
+	if err := writeLoginCache(oldCache); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeLoginCache(newCache); err != nil {
+		t.Fatalf("replace existing login cache: %v", err)
+	}
+	got, err := readLoginCache("replace-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RefreshToken != newCache.RefreshToken || got.IssuedAt != newCache.IssuedAt || got.ExpiresIn != newCache.ExpiresIn {
+		t.Fatalf("replaced cache = %#v, want %#v", got, newCache)
 	}
 }
 
