@@ -21,16 +21,21 @@ const BINARIES = [
 
 // The repo the skills bundle is built from (informational; the bundle itself
 // is downloaded pre-packaged, so this tool never clones it at runtime). Only
-// `volcengine/volcengine-skills` is bundled — arkcli ships its own skills when
-// `@volcengine/ark-cli` is installed, so re-bundling them here is redundant.
+// `skills/core` from `volcengine/volcengine-skills` is bundled — arkcli ships
+// its own skills when `@volcengine/ark-cli` is installed, so re-bundling them
+// here is redundant.
 const SKILL_REPOS = ["volcengine/volcengine-skills"];
 
-// Default location of the pre-packaged skills bundle (a .zip containing skill
-// directories at its root). Downloaded at runtime, extracted, then handed to
-// `skills add <dir>`. Override with --bundle-url or the SKILLS_BUNDLE_URL env
-// var; use a local zip with --bundle-file.
+// Default location of the legacy pre-packaged skills bundle (a .zip containing
+// skill directories at its root). The <=1.1.2 path downloads and extracts it,
+// then hands it to `skills add <dir>`. Override with --bundle-url or the
+// SKILLS_BUNDLE_URL env var; use a local zip with --bundle-file.
 const DEFAULT_BUNDLE_URL =
-  "https://cloudcache.volccdn.com/ve/skills/v1.0.0/volcengine-skills-bundle.zip";
+  "https://cloudcache.volccdn.com/ve/skills/v1.1.1/volcengine-skill-bundle.zip";
+
+// `ve skills update` was introduced after v1.1.2. Older versions keep using
+// the legacy bundle + `npx skills add` flow below.
+const VE_LEGACY_SKILLS_MAX_VERSION = "1.1.2";
 
 // Default agents targeted by `skills add` when the caller does not pass
 // `--agent`. We enumerate the supported agents explicitly instead of using the
@@ -39,8 +44,7 @@ const DEFAULT_BUNDLE_URL =
 // are covered transitively and do not need to be listed here; use `--agent` to
 // target any other agent not in this list.
 const DEFAULT_AGENTS = [
-  "claude-code", "codex", "deepagents", "cursor", "antigravity",
-  "antigravity-cli", "openclaw", "hermes-agent", "opencode", "trae", "pi",
+  "claude-code", "codex", "cursor", "openclaw", "hermes-agent", "opencode", "trae",
 ];
 
 // Agent / skill values: alphanumerics plus a safe punctuation set (and the '*'
@@ -55,31 +59,20 @@ const PASSTHRU_FLAG_RE = /^--?[A-Za-z0-9][A-Za-z0-9-]*$/;
 const VALUE_FLAGS = { "--agent": "agent", "--skill": "skill" };
 
 const USAGE = [
-  "Usage: skills-setup [options] [-- <extra args forwarded to `skills add`>]",
+  "Usage: skills-setup [options]",
   "",
-  "Ensure `ve` and `arkcli` are installed, then install volcengine agent",
-  "skills from a pre-packaged bundle: download the bundle zip, extract it",
-  "(via tar or unzip), and run `npx skills add <dir>`.",
+  "Ensure `ve` and `arkcli` are installed together with their agent skills.",
+  "A newly installed ve package includes skills, so no second install runs.",
+  "An existing ve > 1.1.2 uses `ve skills update`; older versions use the",
+  "built-in compatibility flow.",
   "",
   "Options:",
-  "  --agent <name>    Target agent(s) for skills (repeatable or comma-separated).",
-  "                    Default: the built-in supported agent list (excludes",
-  "                    promptscript, which fails on global install).",
-  "  --skill <name>    Skill name(s) to install (repeatable or comma-separated).",
-  "                    Default: all skills (*).",
-  "  --bundle-url <url>  Download the skills bundle zip from this URL.",
-  "                    Default: $SKILLS_BUNDLE_URL, else the built-in URL.",
-  "  --bundle-file <path>  Use a local bundle zip instead of downloading.",
   "  --local           Install ve/arkcli into the local project (npm i) rather",
   "                    than globally (npm i -g, the default).",
-  "  --skills-project  Install skills into the current project instead of the",
-  "                    user-global scope (skills install globally by default).",
-  "  --copy            Pass --copy to `skills add` (copy instead of symlink).",
-  "  --full-depth      Pass --full-depth to `skills add`.",
-  "  --no-yes          Do not pass -y to `skills add`.",
-  "  --skip-install    Skip ve/arkcli detection & install (skills only).",
-  "  --skip-skills     Skip skills install (binaries only).",
+  "  --skip-install    Skip ve/arkcli installation.",
+  "  --skip-skills     Skip the separate skill update/compatibility step.",
   "  --force           Reinstall ve/arkcli even if already present.",
+  "  --update          Force-upgrade ve/arkcli to @latest even if present.",
   "  --dry-run         Print the planned commands without executing.",
   "  -h, --help        Show this help.",
   "",
@@ -146,6 +139,7 @@ function parseArgs(argv) {
     skipInstall: false,
     skipSkills: false,
     force: false,
+    update: false,
     dryRun: false,
     help: false,
     passthrough: [],
@@ -193,6 +187,10 @@ function parseArgs(argv) {
       options.force = true;
       continue;
     }
+    if (tok === "--update") {
+      options.update = true;
+      continue;
+    }
     if (tok === "--dry-run") {
       options.dryRun = true;
       continue;
@@ -238,9 +236,23 @@ function parseArgs(argv) {
 // ---------------------------------------------------------------------------
 
 function buildNpmInstallArgs(pkg, options) {
-  return options.scope === "local"
-    ? ["install", pkg]
-    : ["install", "-g", pkg];
+  // Always pin to `@latest` so a reinstall/update pulls the newest published
+  // version (npm otherwise treats an existing satisfying version as up-to-date).
+  const target = pkg + "@latest";
+  const args = options.scope === "local"
+    ? ["install", target]
+    : ["install", "-g", target];
+
+  // npm can reject an ark-cli update with EEXIST when its global bin already
+  // exists. Limit the overwrite escape hatch to that exact update scenario.
+  if (
+    options.update &&
+    options.scope !== "local" &&
+    pkg === "@volcengine/ark-cli"
+  ) {
+    args.push("--force");
+  }
+  return args;
 }
 
 // Build `skills add <source> ...` where source is a LOCAL directory (the
@@ -269,6 +281,27 @@ function buildSkillsAddArgs(source, options) {
 function npxArgvForSource(source, options) {
   // Leading --yes auto-confirms npx fetching the `skills` package itself.
   return ["--yes"].concat(buildSkillsAddArgs(source, options));
+}
+
+function parseSemanticVersion(value) {
+  const match = String(value || "").match(/v?(\d+)\.(\d+)\.(\d+)/);
+  if (!match) return null;
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+function compareSemanticVersions(left, right) {
+  const a = parseSemanticVersion(left);
+  const b = parseSemanticVersion(right);
+  if (!a || !b) return null;
+  for (let i = 0; i < 3; i++) {
+    if (a[i] > b[i]) return 1;
+    if (a[i] < b[i]) return -1;
+  }
+  return 0;
+}
+
+function supportsManagedSkills(version) {
+  return compareSemanticVersions(version, VE_LEGACY_SKILLS_MAX_VERSION) === 1;
 }
 
 // Resolve the bundle download URL from (in priority order): --bundle-url, the
@@ -375,6 +408,7 @@ function planSetup(options, deps) {
   deps = deps || {};
   const detections = [];
   const installs = [];
+  const vePresentAtStart = detectBinary(BINARIES[0], deps).found;
   for (const bin of BINARIES) {
     let detection;
     if (options.skipInstall) {
@@ -383,25 +417,48 @@ function planSetup(options, deps) {
       detection = detectBinary(bin, deps);
     }
     detections.push(detection);
-    if (!options.skipInstall && (options.force || !detection.found)) {
+    if (
+      !options.skipInstall &&
+      (options.force || options.update || !detection.found)
+    ) {
       installs.push({
         pkg: bin.pkg,
         cmd: "npm",
         args: buildNpmInstallArgs(bin.pkg, options),
-        reason: options.force ? "forced" : "missing",
+        reason: options.force ? "forced" : options.update ? "update" : "missing",
         label: "install " + bin.pkg,
       });
     }
   }
   let bundle = null;
-  if (!options.skipSkills) {
+  // A new @volcengine/cli installation already installs its skills. Only a ve
+  // that existed at startup needs a separate update or compatibility step.
+  if (!options.skipSkills && vePresentAtStart) {
     bundle = {
       file: options.bundleFile || null,
       url: options.bundleFile ? "" : resolveBundleUrl(options, deps.env),
       label: "skills bundle",
     };
   }
-  return { detections: detections, installs: installs, bundle: bundle };
+  return {
+    detections: detections,
+    installs: installs,
+    bundle: bundle,
+    vePresentAtStart: vePresentAtStart,
+  };
+}
+
+function veCommandForPlan(plan, platform) {
+  const localInstall = plan.installs.find(
+    (step) =>
+      step.pkg === "@volcengine/cli" && step.args.indexOf("-g") === -1
+  );
+  if (!localInstall) return "ve";
+  return path.join(
+    "node_modules",
+    ".bin",
+    platform === "win32" ? "ve.cmd" : "ve"
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -416,7 +473,26 @@ function defaultExec(cmd, args, opts) {
   // (no spaces / shell metacharacters), so the shell surface is safe. On unix
   // we spawn directly with shell:false — no shell surface at all.
   const useShell = platform === "win32";
+  if (opts.capture) {
+    return spawnSync(cmd, args, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: useShell,
+    });
+  }
   return spawnSync(cmd, args, { stdio: "inherit", shell: useShell });
+}
+
+function detectVeVersion(exec, platform, veCommand) {
+  veCommand = veCommand || "ve";
+  const res = exec(veCommand, ["version"], {
+    platform: platform,
+    capture: true,
+  }) || {};
+  if (res.error || res.status !== 0) return null;
+  const output = [res.stdout, res.stderr].filter(Boolean).join("\n");
+  const parsed = parseSemanticVersion(output);
+  return parsed ? parsed.join(".") : null;
 }
 
 // Download `url` to `destPath`. Uses the global fetch (Node >= 18).
@@ -468,7 +544,10 @@ function renderSummary(plan, steps) {
     }
     const step = installStepFor(d.pkg);
     if (step) {
-      const verb = d.found ? "reinstalled" : "installed";
+      const install = plan.installs.find((s) => s.pkg === d.pkg);
+      const reason = install ? install.reason : null;
+      const verb =
+        reason === "update" ? "updated" : d.found ? "reinstalled" : "installed";
       lines.push(
         "  " +
           mark(step.ok) +
@@ -662,6 +741,17 @@ async function runSkillsBundle(bundle, steps, deps) {
   }
 }
 
+function runManagedSkillsUpdate(steps, deps) {
+  const exec = deps.exec || defaultExec;
+  const log = deps.log || console;
+  const platform = deps.platform || process.platform;
+  const veCommand = deps.veCommand || "ve";
+  const args = ["skills", "update"];
+  log.log("\n$ " + formatCommand(veCommand, args));
+  const res = exec(veCommand, args, { platform: platform }) || {};
+  recordStep(steps, "ve skills update", veCommand, res, platform);
+}
+
 async function executePlan(plan, deps) {
   deps = deps || {};
   const exec = deps.exec || defaultExec;
@@ -674,16 +764,36 @@ async function executePlan(plan, deps) {
     recordStep(steps, step.label, step.cmd, res, platform);
   }
   if (plan.bundle) {
-    await runSkillsBundle(plan.bundle, steps, {
-      exec: exec,
-      download: deps.download,
-      log: log,
-      platform: platform,
-      mkdtemp: deps.mkdtemp,
-      existsSync: deps.existsSync,
-      rmdir: deps.rmdir,
-      addOptions: deps.addOptions,
-    });
+    const veCommand = veCommandForPlan(plan, platform);
+    log.log("\n$ " + formatCommand(veCommand, ["version"]));
+    const veVersion = detectVeVersion(exec, platform, veCommand);
+    if (supportsManagedSkills(veVersion)) {
+      log.log(
+        "Detected ve " + veVersion + "; using managed skill update."
+      );
+      runManagedSkillsUpdate(steps, {
+        exec: exec,
+        log: log,
+        platform: platform,
+        veCommand: veCommand,
+      });
+    } else {
+      log.log(
+        veVersion
+          ? "Detected ve " + veVersion + "; using legacy npx skill install."
+          : "Could not determine ve version; using legacy npx skill install."
+      );
+      await runSkillsBundle(plan.bundle, steps, {
+        exec: exec,
+        download: deps.download,
+        log: log,
+        platform: platform,
+        mkdtemp: deps.mkdtemp,
+        existsSync: deps.existsSync,
+        rmdir: deps.rmdir,
+        addOptions: deps.addOptions,
+      });
+    }
   }
   log.log("\n" + renderSummary(plan, steps));
   return { code: aggregateExitCode(steps), steps: steps };
@@ -693,20 +803,26 @@ async function executePlan(plan, deps) {
 // Entrypoint
 // ---------------------------------------------------------------------------
 
-// For dry-run: describe the bundle actions without touching the filesystem.
-function bundleDryRunLines(bundle, options) {
-  const lines = [];
+// For dry-run: describe both version-dependent paths without executing either.
+function bundleDryRunLines(bundle, options, veCommand) {
+  veCommand = veCommand || "ve";
+  const lines = [
+    "  check ve version after tool installation",
+    "  if ve > " + VE_LEGACY_SKILLS_MAX_VERSION + ":",
+    "    " + formatCommand(veCommand, ["skills", "update"]),
+    "  else:",
+  ];
   if (bundle.file) {
-    lines.push("  extract " + path.resolve(bundle.file) + " -> <tmp-dir>");
+    lines.push("    extract " + path.resolve(bundle.file) + " -> <tmp-dir>");
   } else if (bundle.url) {
-    lines.push("  download " + bundle.url + " -> <tmp-dir>/bundle.zip");
-    lines.push("  extract <tmp-dir>/bundle.zip -> <tmp-dir> (tar -xf || unzip)");
+    lines.push("    download " + bundle.url + " -> <tmp-dir>/bundle.zip");
+    lines.push("    extract <tmp-dir>/bundle.zip -> <tmp-dir> (tar -xf || unzip)");
   } else {
     lines.push(
-      "  (no bundle source — set --bundle-url, $SKILLS_BUNDLE_URL, or --bundle-file)"
+      "    (no bundle source — set --bundle-url, $SKILLS_BUNDLE_URL, or --bundle-file)"
     );
   }
-  lines.push("  " + formatCommand("npx", npxArgvForSource("<tmp-dir>", options)));
+  lines.push("    " + formatCommand("npx", npxArgvForSource("<tmp-dir>", options)));
   return lines;
 }
 
@@ -741,7 +857,8 @@ async function main(argv, deps) {
       log.log("  " + formatCommand(step.cmd, step.args));
     }
     if (plan.bundle) {
-      for (const line of bundleDryRunLines(plan.bundle, options)) {
+      const veCommand = veCommandForPlan(plan, detectDeps.platform);
+      for (const line of bundleDryRunLines(plan.bundle, options, veCommand)) {
         log.log(line);
       }
     }
@@ -772,6 +889,7 @@ module.exports = {
   BINARIES,
   SKILL_REPOS,
   DEFAULT_BUNDLE_URL,
+  VE_LEGACY_SKILLS_MAX_VERSION,
   DEFAULT_AGENTS,
   VALUE_RE,
   USAGE,
@@ -783,6 +901,9 @@ module.exports = {
   buildNpmInstallArgs,
   buildSkillsAddArgs,
   npxArgvForSource,
+  parseSemanticVersion,
+  compareSemanticVersions,
+  supportsManagedSkills,
   resolveBundleUrl,
   extractCandidates,
   formatArg,
@@ -794,12 +915,15 @@ module.exports = {
   commandExists,
   detectBinary,
   planSetup,
+  veCommandForPlan,
   defaultExec,
+  detectVeVersion,
   defaultDownload,
   aggregateExitCode,
   renderSummary,
   recordStep,
   runSkillsBundle,
+  runManagedSkillsUpdate,
   executePlan,
   bundleDryRunLines,
   main,
