@@ -67,7 +67,7 @@ func TestDeviceCodeAuthorizeDoublesIntervalAfterHTTPTimeout(t *testing.T) {
 		EndpointURL: server.URL,
 		HTTPClient:  &http.Client{Timeout: 40 * time.Millisecond},
 	})
-	resp, err := (&ConsoleLogin{UseDeviceCode: true, NoBrowser: true}).deviceCodeAuthorize(context.Background(), client)
+	resp, err := (&ConsoleLogin{NoBrowser: true}).deviceCodeAuthorize(context.Background(), client)
 	if err != nil {
 		t.Fatalf("deviceCodeAuthorize returned error: %v", err)
 	}

@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 )
 
@@ -19,13 +21,13 @@ func newLoginCmd() *cobra.Command {
 		Short: tr("Log in to Volcengine Console"),
 		Long: tr(`Authenticate with Volcengine Console and cache temporary STS credentials locally.
 
-Supports three modes:
-  - Local (default): Authorization Code + PKCE with a local callback
-  - Remote (--remote): Authorization Code + PKCE with manual code input
-  - Device code (--use-device-code): Device Authorization Grant with token polling
+Login uses the OAuth 2.0 Device Authorization Grant: the CLI prints a
+verification URL and a user code, then polls for the token until you finish
+authorizing on any device.
 
-Use --no-browser with --use-device-code to skip opening the default browser.`),
+Use --no-browser to skip opening the default browser.`),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			warnDeprecatedRemoteFlag(cmd)
 			return login.Login()
 		},
 	}
@@ -35,12 +37,27 @@ Use --no-browser with --use-device-code to skip opening the default browser.`),
 	// Register flags.
 	cmd.Flags().StringVarP(&login.Profile, "profile", "p", "default", tr("Configuration profile name"))
 	cmd.Flags().StringVarP(&login.Region, "region", "r", "", tr("Region (prompts when omitted; empty input defaults to cn-beijing)"))
-	cmd.Flags().BoolVar(&login.Remote, "remote", false, tr("Enable cross-device (remote) login mode"))
-	cmd.Flags().BoolVar(&login.UseDeviceCode, "use-device-code", false, tr("Use the OAuth 2.0 Device Authorization Grant"))
-	cmd.Flags().BoolVar(&login.NoBrowser, "no-browser", false, tr("Do not automatically open the browser during device code login"))
+	cmd.Flags().Bool("remote", false, tr("Deprecated: cross-device login is now the only mode"))
+	cmd.Flags().BoolVar(&login.NoBrowser, "no-browser", false, tr("Do not automatically open the browser during login"))
 	cmd.Flags().StringVar(&login.EndpointURL, "endpoint-url", "https://signin.volcengine.com", tr("Override signin service endpoint URL"))
 
+	// --remote shipped in released versions and is kept as a hidden no-op so
+	// existing scripts neither hit "unknown flag" nor exit non-zero. Nothing
+	// reads its value. pflag's MarkDeprecated is deliberately avoided: it
+	// prefixes the notice with an untranslated "Flag --remote has been
+	// deprecated," which would render half-English under ---lang ZH.
+	_ = cmd.Flags().MarkHidden("remote")
+
 	return cmd
+}
+
+// warnDeprecatedRemoteFlag notifies scripts that still pass --remote. It writes
+// to stderr so that callers parsing stdout are unaffected.
+func warnDeprecatedRemoteFlag(cmd *cobra.Command) {
+	if !cmd.Flags().Changed("remote") {
+		return
+	}
+	fmt.Fprintln(cmd.ErrOrStderr(), tr("Warning: --remote is deprecated and ignored; 've login' always uses cross-device device code authorization."))
 }
 
 func newLogoutCmd() *cobra.Command {

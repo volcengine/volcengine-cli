@@ -61,7 +61,7 @@ func (c *deviceCodePollControl) handleTokenError(err error) error {
 	case "access_denied":
 		return trErrorf("device authorization was denied")
 	case "expired_token", "invalid_device_code":
-		return trErrorf("device code is invalid or expired; please run 've login --use-device-code' again")
+		return trErrorf("device code is invalid or expired; please run 've login' again")
 	case "server_error", "temporarily_unavailable":
 		return c.noteTransient(err)
 	default:

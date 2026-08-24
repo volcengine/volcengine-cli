@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,12 +29,10 @@ var (
 
 // ConsoleLogin holds runtime state for the volcengine login flow.
 type ConsoleLogin struct {
-	Profile       string // profile name, default "default"
-	Region        string
-	Remote        bool   // true = cross-device authorization code mode
-	UseDeviceCode bool   // true = OAuth 2.0 Device Authorization Grant
-	NoBrowser     bool   // true = do not automatically open a browser in device code mode
-	EndpointURL   string // default "https://signin.volcengine.com"
+	Profile     string // profile name, default "default"
+	Region      string
+	NoBrowser   bool   // true = do not automatically open a browser during authorization
+	EndpointURL string // default "https://signin.volcengine.com"
 }
 
 // LoginTokenCache represents the cached login token data persisted to disk.
@@ -57,10 +54,6 @@ type LoginTokenCache struct {
 // ---------------------------------------------------------------------------
 
 func (cl *ConsoleLogin) Login() error {
-	if err := cl.validateOptions(); err != nil {
-		return err
-	}
-
 	// Apply defaults.
 	if cl.Profile == "" {
 		cl.Profile = "default"
@@ -87,13 +80,11 @@ func (cl *ConsoleLogin) Login() error {
 	}
 	cl.Region = resolvedRegion
 
-	// Create the OAuth client shared by all console login modes.
 	oauthClient := NewConsoleOAuthClient(&ConsoleOAuthClientConfig{
 		EndpointURL: cl.EndpointURL,
 	})
 
-	// Obtain the initial token with the selected OAuth flow.
-	tokenResp, clientID, err := cl.fetchInitialToken(context.Background(), oauthClient)
+	tokenResp, err := cl.deviceCodeAuthorize(context.Background(), oauthClient)
 	if err != nil {
 		return err
 	}
@@ -136,7 +127,7 @@ func (cl *ConsoleLogin) Login() error {
 		RefreshToken: tokenResp.RefreshToken,
 		IDToken:      tokenResp.IDToken,
 		Scope:        scopeAllAll,
-		ClientID:     clientID,
+		ClientID:     ConsoleClientIDCrossDevice,
 		EndpointURL:  cl.EndpointURL,
 		IssuedAt:     time.Now().UTC().Format(time.RFC3339),
 		ExpiresIn:    tokenResp.ExpiresIn,
@@ -170,66 +161,6 @@ func (cl *ConsoleLogin) Login() error {
 	expiresAt := issuedAt.Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
 	fmt.Printf(tr("STS credentials expire at: %s\n"), expiresAt.Local().Format("2006-01-02 15:04:05"))
 	return nil
-}
-
-func (cl *ConsoleLogin) validateOptions() error {
-	if cl.Remote && cl.UseDeviceCode {
-		return trErrorf("--remote and --use-device-code cannot be used together")
-	}
-	if cl.NoBrowser && !cl.UseDeviceCode {
-		return trErrorf("--no-browser requires --use-device-code")
-	}
-	return nil
-}
-
-func (cl *ConsoleLogin) fetchInitialToken(
-	ctx context.Context,
-	oauthClient *ConsoleOAuthClient,
-) (*ConsoleTokenResponse, string, error) {
-	if cl.UseDeviceCode {
-		tokenResp, err := cl.deviceCodeAuthorize(ctx, oauthClient)
-		return tokenResp, ConsoleClientIDCrossDevice, err
-	}
-
-	clientID := ConsoleClientIDSameDevice
-	if cl.Remote {
-		clientID = ConsoleClientIDCrossDevice
-	}
-
-	codeVerifier, err := generateCodeVerifier()
-	if err != nil {
-		return nil, "", trErrorf("generating code verifier: %w", err)
-	}
-	codeChallenge := generateCodeChallenge(codeVerifier)
-
-	state, err := generateState()
-	if err != nil {
-		return nil, "", trErrorf("generating state: %w", err)
-	}
-
-	var authCode string
-	var redirectURI string
-	if cl.Remote {
-		authCode, redirectURI, err = cl.remoteAuthorize(oauthClient, clientID, codeChallenge, state)
-	} else {
-		authCode, redirectURI, err = cl.localAuthorize(oauthClient, clientID, codeChallenge, state)
-	}
-	if err != nil {
-		return nil, "", err
-	}
-
-	tokenResp, err := oauthClient.ExchangeToken(ctx, &ConsoleTokenRequest{
-		GrantType:    "authorization_code",
-		Code:         authCode,
-		RedirectURI:  redirectURI,
-		ClientID:     clientID,
-		Scope:        scopeAllAll,
-		CodeVerifier: codeVerifier,
-	})
-	if err != nil {
-		return nil, "", trErrorf("exchanging authorization code for token: %w", err)
-	}
-	return tokenResp, clientID, nil
 }
 
 func (cl *ConsoleLogin) deviceCodeAuthorize(
@@ -279,7 +210,7 @@ func (cl *ConsoleLogin) deviceCodeAuthorize(
 	for {
 		now := consoleDeviceAuthorizationCurrentTime()
 		if !now.Before(deadline) {
-			return nil, trErrorf("device authorization timed out; please run 've login --use-device-code' again")
+			return nil, trErrorf("device authorization timed out; please run 've login' again")
 		}
 
 		wait := poll.interval
@@ -290,7 +221,7 @@ func (cl *ConsoleLogin) deviceCodeAuthorize(
 			return nil, trErrorf("waiting for device authorization: %w", err)
 		}
 		if !consoleDeviceAuthorizationCurrentTime().Before(deadline) {
-			return nil, trErrorf("device authorization timed out; please run 've login --use-device-code' again")
+			return nil, trErrorf("device authorization timed out; please run 've login' again")
 		}
 
 		// Poll with a single HTTP attempt: the loop itself owns the RFC 8628
@@ -374,143 +305,6 @@ func promptForConsoleLoginRegion(input io.Reader, output io.Writer, defaultRegio
 		return defaultRegion, nil
 	}
 	return line, nil
-}
-
-// ---------------------------------------------------------------------------
-// localAuthorize runs the browser-based local redirect flow.
-// Returns the authorization code and the redirect_uri used.
-// ---------------------------------------------------------------------------
-
-func (cl *ConsoleLogin) localAuthorize(
-	oauthClient *ConsoleOAuthClient,
-	clientID, codeChallenge, state string,
-) (string, string, error) {
-
-	// Start the local callback server.
-	cbServer, err := NewCallbackServer()
-	if err != nil {
-		return "", "", trErrorf("starting callback server: %w", err)
-	}
-	cbServer.Start()
-	defer cbServer.Shutdown()
-
-	redirectURI := cbServer.RedirectURI()
-
-	// Build the authorize URL.
-	authorizeURL := oauthClient.BuildAuthorizeURL(&AuthorizeParams{
-		ClientID:            clientID,
-		Scope:               scopeAllAll,
-		CodeChallenge:       codeChallenge,
-		CodeChallengeMethod: "S256",
-		State:               state,
-		RedirectURI:         redirectURI,
-	})
-
-	fmt.Println(tr("Attempting to automatically open the login page in your default browser."))
-	fmt.Println(tr("If the browser does not open, open the following URL:"))
-	fmt.Println(authorizeURL)
-
-	// Best-effort browser open.
-	_ = util.OpenBrowser(authorizeURL)
-
-	// Wait for the callback with a 10-minute timeout.
-	result, err := cbServer.WaitForCallback(10 * time.Minute)
-	if err != nil {
-		return "", "", trErrorf("waiting for authorization callback: %w", err)
-	}
-
-	// Check for errors in the result.
-	if result.Error != "" {
-		desc := result.Error
-		if result.ErrorDescription != "" {
-			desc = fmt.Sprintf("%s: %s", result.Error, result.ErrorDescription)
-		}
-		return "", "", trErrorf("authorization failed: %s", desc)
-	}
-
-	// Validate the state matches.
-	if result.State != state {
-		return "", "", trErrorf("state mismatch: expected %s, got %s (possible CSRF attack)", state, result.State)
-	}
-
-	if result.Code == "" {
-		return "", "", trErrorf("authorization callback did not include an authorization code")
-	}
-
-	return result.Code, redirectURI, nil
-}
-
-// ---------------------------------------------------------------------------
-// remoteAuthorize runs the cross-device (manual code entry) flow.
-// ---------------------------------------------------------------------------
-
-func (cl *ConsoleLogin) remoteAuthorize(
-	oauthClient *ConsoleOAuthClient,
-	clientID, codeChallenge, state string,
-) (string, string, error) {
-
-	// Default redirect_uri for cross-device flow.
-	redirectURI := strings.TrimRight(cl.EndpointURL, "/") + "/authorize/oauth/authorize"
-
-	// Build the authorize URL with the default redirect_uri for cross-device flow.
-	authorizeURL := oauthClient.BuildAuthorizeURL(&AuthorizeParams{
-		ClientID:            clientID,
-		Scope:               scopeAllAll,
-		CodeChallenge:       codeChallenge,
-		CodeChallengeMethod: "S256",
-		State:               state,
-		RedirectURI:         redirectURI,
-	})
-
-	fmt.Println(tr("Open the following URL in a browser on any device:"))
-	fmt.Println()
-	fmt.Println(authorizeURL)
-	fmt.Println()
-	fmt.Println(tr("After completing login, enter the authorization code shown in the browser:"))
-
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Print(tr("Authorization code: "))
-	rawInput, err := reader.ReadString('\n')
-	if err != nil {
-		return "", "", trErrorf("reading authorization code from stdin: %w", err)
-	}
-	rawInput = strings.TrimSpace(rawInput)
-	if rawInput == "" {
-		return "", "", trErrorf("authorization code cannot be empty")
-	}
-
-	// Base64 decode the input. The browser displays a base64-encoded string
-	// containing "code=<authcode>&state=<state>".
-	decoded, err := base64.StdEncoding.DecodeString(rawInput)
-	if err != nil {
-		// Try URL-safe base64 as a fallback.
-		decoded, err = base64.URLEncoding.DecodeString(rawInput)
-		if err != nil {
-			decoded, err = base64.RawURLEncoding.DecodeString(rawInput)
-			if err != nil {
-				return "", "", trErrorf("base64 decoding authorization response: %w", err)
-			}
-		}
-	}
-
-	// Parse the decoded query string to extract code and state.
-	params, err := url.ParseQuery(string(decoded))
-	if err != nil {
-		return "", "", trErrorf("parsing decoded authorization response: %w", err)
-	}
-
-	authCode := params.Get("code")
-	if authCode == "" {
-		return "", "", trErrorf("decoded authorization response does not contain a \"code\" parameter")
-	}
-
-	// Validate the state to prevent CSRF attacks.
-	respondedState := params.Get("state")
-	if respondedState != state {
-		return "", "", trErrorf("state mismatch: expected %s, got %s (possible CSRF attack)", state, respondedState)
-	}
-
-	return authCode, redirectURI, nil
 }
 
 // ---------------------------------------------------------------------------

@@ -16,9 +16,6 @@ const (
 	// defaultConsoleEndpoint is the default Volcengine console sign-in endpoint.
 	defaultConsoleEndpoint = "https://signin.volcengine.com"
 
-	// consoleAuthorizePath is the path appended to the endpoint for the authorization URL.
-	consoleAuthorizePath = "/authorize/oauth/authorize"
-
 	// consoleTokenPath is the path appended to the endpoint for the token URL.
 	consoleTokenPath = "/authorize/oauth/token"
 
@@ -31,10 +28,14 @@ const (
 	// consoleTokenRetryAttempts is the number of retry attempts for token exchange.
 	consoleTokenRetryAttempts = 3
 
-	// ConsoleClientIDSameDevice is the public client ID for local/same-device login mode.
+	// ConsoleClientIDSameDevice is the legacy public client ID issued by the
+	// removed authorization code flow. Login never mints it again; refresh
+	// replays whatever client ID the cache holds, so caches written by older
+	// CLI versions keep working. Kept to document that value and to pin it in
+	// the compatibility tests.
 	ConsoleClientIDSameDevice = "trn:signin:::devtools/same-device"
 
-	// ConsoleClientIDCrossDevice is the public client ID for remote/cross-device login mode.
+	// ConsoleClientIDCrossDevice is the public client ID used by device code login.
 	ConsoleClientIDCrossDevice = "trn:signin:::devtools/cross-device"
 )
 
@@ -129,33 +130,19 @@ type ConsoleOAuthClientConfig struct {
 
 // ConsoleOAuthClient wraps HTTP calls to the Volcengine console sign-in OAuth endpoints.
 // Unlike the existing OAuthClient (which talks to CloudIdentity), this client targets
-// signin.volcengine.com and implements public-client authorization code and device code flows.
+// signin.volcengine.com and implements the public-client device code flow.
 type ConsoleOAuthClient struct {
 	endpointURL            string
-	authorizeURL           string
 	tokenURL               string
 	deviceAuthorizationURL string
 	httpClient             *http.Client
 }
 
-// AuthorizeParams holds the parameters needed to build an authorization URL.
-type AuthorizeParams struct {
-	ClientID            string
-	RedirectURI         string
-	Scope               string
-	State               string
-	CodeChallenge       string
-	CodeChallengeMethod string // e.g. "S256"
-}
-
 // ConsoleTokenRequest represents the token exchange request for console OAuth.
 type ConsoleTokenRequest struct {
-	GrantType    string // "authorization_code", deviceCodeGrantType, or "refresh_token"
-	Code         string // authorization code (for auth_code grant)
-	RedirectURI  string // must match the one used in the authorize request
+	GrantType    string // deviceCodeGrantType or "refresh_token"
 	ClientID     string
 	Scope        string
-	CodeVerifier string // PKCE verifier (for auth_code grant)
 	RefreshToken string // for refresh_token grant
 	DeviceCode   string // for device code grant
 }
@@ -216,43 +203,10 @@ func NewConsoleOAuthClient(cfg *ConsoleOAuthClientConfig) *ConsoleOAuthClient {
 
 	return &ConsoleOAuthClient{
 		endpointURL:            endpoint,
-		authorizeURL:           endpoint + consoleAuthorizePath,
 		tokenURL:               endpoint + consoleTokenPath,
 		deviceAuthorizationURL: endpoint + consoleDeviceAuthorizationPath,
 		httpClient:             client,
 	}
-}
-
-// ---------------------------------------------------------------------------
-// BuildAuthorizeURL
-// ---------------------------------------------------------------------------
-
-// BuildAuthorizeURL constructs the full authorization URL with query parameters.
-// The response_type is always "code" (authorization code flow with PKCE).
-func (c *ConsoleOAuthClient) BuildAuthorizeURL(params *AuthorizeParams) string {
-	q := url.Values{}
-	q.Set("response_type", "code")
-
-	if params.ClientID != "" {
-		q.Set("client_id", params.ClientID)
-	}
-	if params.RedirectURI != "" {
-		q.Set("redirect_uri", params.RedirectURI)
-	}
-	if params.Scope != "" {
-		q.Set("scope", params.Scope)
-	}
-	if params.State != "" {
-		q.Set("state", params.State)
-	}
-	if params.CodeChallenge != "" {
-		q.Set("code_challenge", params.CodeChallenge)
-	}
-	if params.CodeChallengeMethod != "" {
-		q.Set("code_challenge_method", params.CodeChallengeMethod)
-	}
-
-	return c.authorizeURL + "?" + q.Encode()
 }
 
 // StartDeviceAuthorization starts the OAuth 2.0 Device Authorization Grant flow.
@@ -303,8 +257,7 @@ func (c *ConsoleOAuthClient) StartDeviceAuthorization(
 // ExchangeToken performs the token exchange by sending a POST request to the token
 // endpoint with application/x-www-form-urlencoded body parameters.
 //
-// For grant_type=authorization_code: code, client_id, scope, and code_verifier
-// are required; redirect_uri is included when non-empty.
+// For the device code grant: device_code and client_id are required.
 //
 // For grant_type=refresh_token: refresh_token and client_id are required.
 //
@@ -340,19 +293,6 @@ func (c *ConsoleOAuthClient) exchangeToken(ctx context.Context, req *ConsoleToke
 	}
 
 	switch req.GrantType {
-	case "authorization_code":
-		if strings.TrimSpace(req.Code) == "" {
-			return nil, trErrorf("code is required for authorization_code grant")
-		}
-		if strings.TrimSpace(req.CodeVerifier) == "" {
-			return nil, trErrorf("code_verifier is required for authorization_code grant")
-		}
-		q.Set("code", req.Code)
-		q.Set("code_verifier", req.CodeVerifier)
-		if req.RedirectURI != "" {
-			q.Set("redirect_uri", req.RedirectURI)
-		}
-
 	case "refresh_token":
 		if strings.TrimSpace(req.RefreshToken) == "" {
 			return nil, trErrorf("refresh_token is required for refresh_token grant")

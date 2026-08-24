@@ -265,7 +265,7 @@ ve sso logout
 
 ## Console Login
 
-Console Login 支持 OAuth 2.0 授权码 + PKCE 和设备码授权，并把临时 STS 凭证缓存到本地。
+Console Login 使用 OAuth 2.0 设备码授权，并把临时 STS 凭证缓存到本地。
 
 ```shell
 # 使用 default profile 登录，未指定 region 时会提示输入
@@ -274,14 +274,8 @@ ve login
 # 指定 profile 和 region
 ve login -p dev -r cn-beijing
 
-# 无浏览器、远程服务器或容器环境使用跨设备登录
-ve login -p dev -r cn-beijing --remote
-
-# 使用设备码登录，默认尝试打开浏览器，同时在终端显示 URL 和用户码
-ve login -p dev -r cn-beijing --use-device-code
-
-# 使用设备码登录，但不自动打开浏览器
-ve login -p dev -r cn-beijing --use-device-code --no-browser
+# 登录时不自动打开浏览器
+ve login -p dev -r cn-beijing --no-browser
 ```
 
 参数说明：
@@ -289,19 +283,16 @@ ve login -p dev -r cn-beijing --use-device-code --no-browser
 ```shell
 --profile, -p: profile 名称，默认 default。
 --region, -r: 地域；未指定时会提示输入，直接回车使用 cn-beijing。
---remote: 跨设备授权码登录；按终端输出 URL 在浏览器完成登录，并把授权码粘贴回终端。
---use-device-code: 使用 OAuth 2.0 设备码授权；CLI 在用户完成授权前自动轮询令牌。
---no-browser: 设备码登录时不自动打开浏览器；必须与 --use-device-code 配合使用。
+--no-browser: 登录时不自动打开浏览器。
 --endpoint-url: 登录服务地址，默认 https://signin.volcengine.com，通常无需修改。
 ```
 
-登录模式说明：
+登录流程说明：
 
-- 默认模式使用授权码 + PKCE，通过当前机器的本地 callback 接收授权结果。
-- `--remote` 仍使用授权码 + PKCE，但不启动本地 callback，由用户粘贴浏览器显示的授权码。
-- `--use-device-code` 使用设备码授权，不需要粘贴授权结果；CLI 会显示 `verification_uri` 和 `user_code` 并轮询 Token。
-- `--use-device-code` 默认尝试打开浏览器，但无论浏览器是否成功打开，终端都会显示 URL、用户码和有效期。
-- `--remote` 与 `--use-device-code` 不能同时使用；`--no-browser` 不能脱离 `--use-device-code` 单独使用。
+- CLI 发起设备码授权，输出 `verification_uri` 和 `user_code`，并在你完成授权前持续轮询 Token。
+- 授权在打开该 URL 的任意设备上完成，所以本机、无图形界面的远程服务器和容器都用同一条命令。
+- CLI 默认尝试打开浏览器，但无论浏览器是否成功打开，终端都会显示 URL、用户码和有效期。
+- `--remote` 已废弃、不再出现在帮助里，且不产生任何效果。存量脚本继续传该参数仍可正常工作：CLI 只在 stderr 打一行弃用提示，然后照常执行。
 
 登录成功后，profile 会写为 `console-login` 模式，并记录 `login-session`。使用非 `default` profile 登录后，业务命令不会自动切换 profile，需要执行：
 
@@ -351,10 +342,7 @@ ve logout --all
 
 **没有图形界面的机器怎么登录？**
 
-SSO 使用 `--no-browser`。Console Login 可以：
-
-- 使用 `--remote`，在其他设备完成授权码登录并把授权码粘贴回终端。
-- 使用 `--use-device-code --no-browser`，在其他设备输入用户码，CLI 自动轮询授权结果。
+SSO 和 Console Login 都使用 `--no-browser`。Console Login 执行 `ve login --no-browser`，在其他设备输入终端显示的用户码，CLI 会自动轮询授权结果。
 
 **Scopes 应该怎么填？**
 

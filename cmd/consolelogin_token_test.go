@@ -214,6 +214,95 @@ func TestEnsureValidLoginTokenRefreshesExpiredCredentials(t *testing.T) {
 	}
 }
 
+// Caches written by the removed authorization code flow carry the legacy
+// same-device client ID. Refresh has to replay whatever the cache holds,
+// because signin binds each refresh_token to the client that issued it.
+func TestEnsureValidLoginTokenRefreshesLegacyCacheClientIDs(t *testing.T) {
+	cases := []struct {
+		name     string
+		clientID string
+	}{
+		{name: "legacy authorization code cache", clientID: ConsoleClientIDSameDevice},
+		{name: "device code cache", clientID: ConsoleClientIDCrossDevice},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			_, cleanup := withTestConfigDir(t)
+			defer cleanup()
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if err := r.ParseForm(); err != nil {
+					t.Fatalf("ParseForm: %v", err)
+				}
+				if got := r.Form.Get("client_id"); got != tc.clientID {
+					t.Fatalf("refresh client_id = %q, want %q from the cache", got, tc.clientID)
+				}
+				if got := r.Form.Get("client_secret"); got != "" {
+					t.Fatalf("client_secret = %q, want empty for a public client", got)
+				}
+
+				resp := ConsoleTokenResponse{
+					AccessToken: string(mustMarshalAccessToken(t, STSCredentials{
+						AccessKeyID:     "ak-new",
+						SecretAccessKey: "sk-new",
+						SessionToken:    "st-new",
+					})),
+					TokenType:    "sts",
+					ExpiresIn:    900,
+					RefreshToken: "refresh-new",
+					Scope:        scopeAllAll,
+				}
+				w.Header().Set("Content-Type", "application/json")
+				if err := json.NewEncoder(w).Encode(resp); err != nil {
+					t.Fatalf("encode response: %v", err)
+				}
+			}))
+			defer server.Close()
+
+			loginSession := "legacy-session"
+			cache := &LoginTokenCache{
+				LoginSession: loginSession,
+				AccessToken: mustMarshalAccessToken(t, STSCredentials{
+					AccessKeyID:     "ak-old",
+					SecretAccessKey: "sk-old",
+					SessionToken:    "st-old",
+				}),
+				RefreshToken: "refresh-old",
+				ClientID:     tc.clientID,
+				Scope:        scopeAllAll,
+				EndpointURL:  server.URL,
+				IssuedAt:     time.Now().UTC().Add(-20 * time.Minute).Format(time.RFC3339),
+				ExpiresIn:    900,
+				TokenType:    "sts",
+			}
+			if err := writeLoginCache(cache); err != nil {
+				t.Fatalf("write login cache: %v", err)
+			}
+
+			cfg := &Configure{Profiles: map[string]*Profile{
+				"default": {Name: "default", Mode: ModeConsoleLogin, LoginSession: loginSession},
+			}}
+			creds, err := EnsureValidLoginToken(cfg, "default")
+			if err != nil {
+				t.Fatalf("EnsureValidLoginToken returned error: %v", err)
+			}
+			if creds.AccessKeyID != "ak-new" {
+				t.Fatalf("access key = %q, want refreshed ak-new", creds.AccessKeyID)
+			}
+
+			refreshed, err := readLoginCache(loginSession)
+			if err != nil {
+				t.Fatalf("read refreshed cache: %v", err)
+			}
+			if refreshed.ClientID != tc.clientID {
+				t.Fatalf("cached client_id = %q, want %q; refresh must not rewrite it", refreshed.ClientID, tc.clientID)
+			}
+		})
+	}
+}
+
 func TestEnsureValidLoginTokenReturnsHelpfulErrorWhenRefreshFails(t *testing.T) {
 	_, cleanup := withTestConfigDir(t)
 	defer cleanup()
