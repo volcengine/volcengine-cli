@@ -14,10 +14,11 @@ func itoa(i int) string { return strconv.Itoa(i) }
 
 // writeTable emits an ASCII table.
 //
-// Pipeline (all steps are presentational; json/yaml are unaffected):
+// Pipeline (every step is layout only; no response field is dropped, so the
+// rendered fields match json/yaml):
 //
-//	data → strip ResponseMetadata → sections (nested split)
-//	     → column order → [row numbers] → [verticalize] → width fit → render
+//	data → sections (nested split) → column order
+//	     → [row numbers] → [verticalize] → width fit → render
 //
 // Shape rules:
 //   - []map           → multi-column record table (+ sections for nested fields)
@@ -27,15 +28,7 @@ func itoa(i int) string { return strconv.Itoa(i) }
 //   - [][] / []scalar → projection / single column
 //   - scalar / null   → single cell
 func writeTable(w io.Writer, data interface{}, opts Options, numbered bool) error {
-	// ResponseMetadata is diagnostic, not payload: dropping it here is what
-	// makes a bare `--output table` readable. json/yaml keep the full envelope.
-	// A --query result is left untouched — see Options.Queried.
-	display := data
-	if !opts.Queried {
-		display = stripResponseMetadata(data)
-	}
-
-	sections := buildSections(display, opts, "", 0)
+	sections := buildSections(data, opts, "", 0)
 	if len(sections) == 0 {
 		_, err := io.WriteString(w, "(empty)\n")
 		return err

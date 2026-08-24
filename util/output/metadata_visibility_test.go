@@ -6,29 +6,58 @@ import (
 	"testing"
 )
 
-// Visibility of ResponseMetadata must depend only on whether a --query was
-// applied — never on the same format behaving two different ways.
+// ResponseMetadata is rendered like any other top-level field: in every format,
+// with or without a --query.
 //
-// Before Options.Queried existed, stripping happened unconditionally in the
-// renderer while --query ran before it, so `--output table` claimed the field
-// did not exist while `--query 'ResponseMetadata.RequestId' --output table`
-// happily printed its value.
+// table/text used to drop the envelope unless a query had been applied, so one
+// format answered "does this field exist?" two different ways — a bare
+// `--output table` claimed RequestId was absent while
+// `--query 'ResponseMetadata.RequestId' --output table` printed its value.
 
-// Without a query, the envelope is display noise and is dropped.
-func TestBareTableHidesResponseMetadata(t *testing.T) {
+// A bare render keeps the whole response in every format.
+func TestAllFormatsKeepResponseMetadata(t *testing.T) {
+	for _, format := range []Format{
+		FormatJSON, FormatYAML, FormatTable, FormatTableNum, FormatText,
+	} {
+		var buf bytes.Buffer
+		if err := WriteWithOptions(&buf, format, sampleEnvelope(),
+			Options{TerminalWidth: -1}); err != nil {
+			t.Fatal(err)
+		}
+		out := buf.String()
+		if !strings.Contains(out, "req-1") {
+			t.Fatalf("%s dropped RequestId:\n%s", format, out)
+		}
+		// The payload is rendered alongside the envelope, not instead of it.
+		if !strings.Contains(out, "i-1") {
+			t.Fatalf("%s dropped the payload:\n%s", format, out)
+		}
+	}
+}
+
+// The envelope reaches table as a titled section with real columns, so it is
+// readable rather than a JSON blob in a cell.
+func TestTableRendersResponseMetadataAsSection(t *testing.T) {
 	var buf bytes.Buffer
 	if err := WriteWithOptions(&buf, FormatTable, sampleEnvelope(),
 		Options{TerminalWidth: -1}); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(buf.String(), "req-1") {
-		t.Fatalf("bare table must not show RequestId:\n%s", buf.String())
+	out := buf.String()
+	if !strings.Contains(out, "ResponseMetadata\n") {
+		t.Fatalf("expected a ResponseMetadata section title:\n%s", out)
+	}
+	if !strings.Contains(out, "RequestId") {
+		t.Fatalf("expected RequestId as a column:\n%s", out)
+	}
+	if strings.Contains(out, `{"RequestId"`) {
+		t.Fatalf("envelope should not be dumped as JSON:\n%s", out)
 	}
 }
 
-// With a query, the result is exactly what the user selected: nothing is
-// removed from it, even when it looks like an envelope.
-func TestQueriedResultKeepsSelectedMetadata(t *testing.T) {
+// A --query result is rendered exactly as selected, including a selection that
+// happens to look like an envelope.
+func TestQueriedMetadataIsRendered(t *testing.T) {
 	// Simulates the output of --query 'ResponseMetadata'.
 	selected := map[string]interface{}{
 		"RequestId": "req-1",
@@ -37,7 +66,7 @@ func TestQueriedResultKeepsSelectedMetadata(t *testing.T) {
 	for _, format := range []Format{FormatTable, FormatTableNum, FormatText} {
 		var buf bytes.Buffer
 		if err := WriteWithOptions(&buf, format, selected,
-			Options{TerminalWidth: -1, Queried: true}); err != nil {
+			Options{TerminalWidth: -1}); err != nil {
 			t.Fatal(err)
 		}
 		if !strings.Contains(buf.String(), "req-1") {
@@ -46,78 +75,24 @@ func TestQueriedResultKeepsSelectedMetadata(t *testing.T) {
 	}
 }
 
-// `--query '@'` asks for the whole response verbatim; the renderer must not
-// second-guess that and delete a top-level key.
-func TestQueriedIdentityShowsWholeResponse(t *testing.T) {
-	var buf bytes.Buffer
-	if err := WriteWithOptions(&buf, FormatTable, sampleEnvelope(),
-		Options{TerminalWidth: -1, Queried: true}); err != nil {
-		t.Fatal(err)
-	}
-	out := buf.String()
-	if !strings.Contains(out, "req-1") {
-		t.Fatalf("--query '@' must keep ResponseMetadata:\n%s", out)
-	}
-	// The payload is still rendered normally alongside it.
-	if !strings.Contains(out, "i-1") {
-		t.Fatalf("payload missing:\n%s", out)
-	}
-}
-
-// The same rule applies to text, which scripts read positionally.
-func TestQueriedTextKeepsMetadata(t *testing.T) {
-	var stripped, kept bytes.Buffer
-	if err := WriteWithOptions(&stripped, FormatText, sampleEnvelope(),
-		Options{}); err != nil {
-		t.Fatal(err)
-	}
-	if err := WriteWithOptions(&kept, FormatText, sampleEnvelope(),
-		Options{Queried: true}); err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(stripped.String(), "req-1") {
-		t.Fatalf("bare text must not show RequestId:\n%s", stripped.String())
-	}
-	if !strings.Contains(kept.String(), "req-1") {
-		t.Fatalf("queried text must keep RequestId:\n%s", kept.String())
-	}
-}
-
-// json/yaml are untouched by this flag: they always carry the full response.
-func TestQueriedFlagDoesNotAffectJSONOrYAML(t *testing.T) {
-	for _, format := range []Format{FormatJSON, FormatYAML} {
-		for _, queried := range []bool{false, true} {
-			var buf bytes.Buffer
-			if err := WriteWithOptions(&buf, format, sampleEnvelope(),
-				Options{Queried: queried}); err != nil {
-				t.Fatal(err)
-			}
-			if !strings.Contains(buf.String(), "req-1") {
-				t.Fatalf("%s (queried=%v) must keep the full response:\n%s",
-					format, queried, buf.String())
-			}
-		}
-	}
-}
-
-// A metadata-only response must stay visible in both modes: it is a successful
-// write call, not an empty result.
-func TestMetadataOnlyResponseVisibleEitherWay(t *testing.T) {
+// Write APIs often return nothing but the envelope. It must render its fields
+// rather than "(empty)", which reads like a failed call.
+func TestMetadataOnlyResponseRendersFields(t *testing.T) {
 	data := map[string]interface{}{
 		"ResponseMetadata": map[string]interface{}{"RequestId": "req-1"},
 	}
-	for _, queried := range []bool{false, true} {
+	for _, format := range []Format{FormatTable, FormatTableNum, FormatText} {
 		var buf bytes.Buffer
-		if err := WriteWithOptions(&buf, FormatTable, data,
-			Options{TerminalWidth: -1, Queried: queried}); err != nil {
+		if err := WriteWithOptions(&buf, format, data,
+			Options{TerminalWidth: -1}); err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(buf.String(), "(empty)") {
-			t.Fatalf("queried=%v rendered a successful call as empty:\n%s",
-				queried, buf.String())
+		out := buf.String()
+		if strings.Contains(out, "(empty)") {
+			t.Fatalf("%s rendered a successful call as empty:\n%s", format, out)
 		}
-		if !strings.Contains(buf.String(), "req-1") {
-			t.Fatalf("queried=%v lost the RequestId:\n%s", queried, buf.String())
+		if !strings.Contains(out, "req-1") {
+			t.Fatalf("%s lost the RequestId:\n%s", format, out)
 		}
 	}
 }

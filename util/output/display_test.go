@@ -6,59 +6,7 @@ import (
 	"testing"
 )
 
-// --- 1. ResponseMetadata stripping ---------------------------------------
-
-func TestStripResponseMetadataOnlyAtTopLevel(t *testing.T) {
-	data := map[string]interface{}{
-		"ResponseMetadata": map[string]interface{}{"RequestId": "req-1"},
-		"Result": map[string]interface{}{
-			// A nested field of the same name is payload, not envelope.
-			"ResponseMetadata": "keep-me",
-		},
-	}
-	got, ok := stripResponseMetadata(data).(map[string]interface{})
-	if !ok {
-		t.Fatalf("unexpected type %T", got)
-	}
-	if _, present := got["ResponseMetadata"]; present {
-		t.Fatal("top-level ResponseMetadata should be removed")
-	}
-	inner := got["Result"].(map[string]interface{})
-	if inner["ResponseMetadata"] != "keep-me" {
-		t.Fatal("nested ResponseMetadata must be preserved")
-	}
-}
-
-// Write APIs often return nothing but ResponseMetadata. Stripping it would turn
-// a successful call into "(empty)", which reads like a failure.
-func TestStripKeepsSoleResponseMetadata(t *testing.T) {
-	data := map[string]interface{}{
-		"ResponseMetadata": map[string]interface{}{"RequestId": "req-1"},
-	}
-	var buf bytes.Buffer
-	if err := Write(&buf, FormatTable, data); err != nil {
-		t.Fatal(err)
-	}
-	out := buf.String()
-	if strings.Contains(out, "(empty)") {
-		t.Fatalf("metadata-only response must not render as empty:\n%s", out)
-	}
-	if !strings.Contains(out, "req-1") {
-		t.Fatalf("metadata-only response should still show RequestId:\n%s", out)
-	}
-}
-
-func TestTextStripsResponseMetadata(t *testing.T) {
-	var buf bytes.Buffer
-	if err := Write(&buf, FormatText, sampleEnvelope()); err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(buf.String(), "req-1") {
-		t.Fatalf("text must not contain RequestId:\n%s", buf.String())
-	}
-}
-
-// --- 2. Single-row verticalization ---------------------------------------
+// --- 1. Single-row verticalization ---------------------------------------
 
 func TestSingleWideRowIsVerticalized(t *testing.T) {
 	rows := []interface{}{
@@ -130,7 +78,7 @@ func TestTableNumSkipsVerticalization(t *testing.T) {
 	}
 }
 
-// --- 3. Terminal width fitting -------------------------------------------
+// --- 2. Terminal width fitting -------------------------------------------
 
 func TestWidthFittingWrapsWithoutLosingData(t *testing.T) {
 	rows := []interface{}{
@@ -254,7 +202,7 @@ func TestWrapToWidthKeepsEmojiGraphemeClustersIntact(t *testing.T) {
 	}
 }
 
-// --- 4. Nested sections --------------------------------------------------
+// --- 3. Nested sections --------------------------------------------------
 
 func TestNestedListBecomesOwnSection(t *testing.T) {
 	data := map[string]interface{}{
@@ -365,7 +313,7 @@ func TestNestedSectionTitleRespectsTerminalWidthWithWideRunes(t *testing.T) {
 	}
 }
 
-// --- 5. Color ------------------------------------------------------------
+// --- 4. Color ------------------------------------------------------------
 
 // Color must not change layout: a colored table aligns exactly like a plain one.
 func TestColorDoesNotAffectAlignment(t *testing.T) {

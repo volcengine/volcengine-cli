@@ -111,9 +111,6 @@ func (p apiOutputPlan) render(cfg *Configure, data interface{}) error {
 		// Reuse the same gate as colored JSON so `enableColor` / NO_COLOR /
 		// piped output behave consistently across formats.
 		Color: shouldColorTable(cfg, w),
-		// An explicit --query already selected the fields to show, so the
-		// renderer must not strip anything from its result.
-		Queried: p.query != nil,
 	})
 }
 

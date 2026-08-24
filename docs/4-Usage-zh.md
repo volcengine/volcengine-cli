@@ -370,7 +370,7 @@ ve ecs DescribeInstances \
 ve sts GetCallerIdentity --query 'Result.AccountId' --output text
 ve ecs DescribeInstances --query 'Result.Instances[*].{Id:InstanceId}' --output text | nl
 
-# 无 query 时 table 会剥离 ResponseMetadata，并把嵌套结构拆成带标题的分区。
+# 无 query 时 table 展示完整响应，并把嵌套结构拆成带标题的分区。
 ve sts GetCallerIdentity --output table
 
 # YAML
@@ -382,7 +382,7 @@ ve ecs DescribeInstances --output off
 
 说明：
 
-- **`ResponseMetadata` 剥离（展示层）**：**不带 `--query` 时**，`table` / `table-num` / `text` 在渲染前会去掉顶层 `ResponseMetadata`，让输出直接展示业务数据。**显式写了 `--query` 时不剥离**——查询结果就是你选中的内容，渲染层不再从中删字段，所以 `--query 'ResponseMetadata.RequestId'` 能正常取到值，`--query '@'` 也会如实展示完整响应。`json` / `yaml` **始终保持完整响应**（含 `RequestId`），脚本消费不受影响。仅有 `ResponseMetadata` 的响应（常见于写操作）在两种情况下都不剥离，避免看起来像空结果。嵌套字段中同名的 `ResponseMetadata` 属于业务数据，不会被删。
+- **渲染层不删任何字段**：所有格式都如实展示拿到的数据，因此 `table` / `table-num` / `text` 与 `json` / `yaml` 一样会显示 `ResponseMetadata`（含 `RequestId`），各格式对「有哪些字段」的回答完全一致。`--output` 只决定排版：`table` 把 envelope 放进独立的带标题分区，`text` 以 `RESPONSEMETADATA` 作为行前缀。只想要一部分数据时请用 `--query`：`--query 'Result'` 去掉 envelope，`--query 'ResponseMetadata.RequestId'` 只取请求 ID，`--query '@'` 表示完整响应。
 - **嵌套结构分区展示**：`table` 会把嵌套的对象/记录列表拆成带标题的独立分区（标题为字段路径，如 `Result.Instances.Tags[1]`），而不是把一坨 JSON 塞进单元格。嵌套字段**同时保留在主表列中**，单元格显示 `(see section)` 指向对应分区；若同一字段在部分记录里是标量、`null` 或空列表，这些值会照常显示在主表，不会因为别的记录是嵌套结构而丢失。分区编号从 1 开始，与 `table-num` 的 `#` 列对应，便于回溯是哪条记录。父列表只有一条记录时不加编号。纯标量列表（如 `["sg-1","sg-2"]`）仍保留在单元格内。
 - **单条记录自动转竖表**：单个对象（以及任何单行结果）渲染成一条横向记录——字段名做表头行、值做一行，与 AWS CLI 一致。仅当**已知终端宽度且**该行超出宽度时，才自动转成 `Field | Value` 两列竖表，避免横向滚屏。多行结果、以及宽度未知时（重定向、管道、探测失败）保持横表。
 - **终端宽度自适应**：输出到终端时自动探测宽度，超宽时优先压缩最宽的列并将单元格内容折成多行；不会用省略号丢弃响应值。每列保留最小可读宽度。输出重定向到文件或管道时不折行，保留完整的单行值。

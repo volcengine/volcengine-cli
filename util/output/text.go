@@ -28,14 +28,7 @@ import (
 // object field ordering. Text stays free of headers and borders so it pipes
 // cleanly into line tools (awk/grep/nl operate per line).
 func writeText(w io.Writer, data interface{}, opts Options) error {
-	// Same display-layer strip as table: text is for humans and line tools, so
-	// the ResponseMetadata envelope would only add a noise row. A --query result
-	// is left untouched — see Options.Queried.
-	display := data
-	if !opts.Queried {
-		display = stripResponseMetadata(data)
-	}
-	for _, line := range textLines(display, opts) {
+	for _, line := range textLines(data, opts) {
 		if _, err := io.WriteString(w, line+"\n"); err != nil {
 			return err
 		}

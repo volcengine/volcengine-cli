@@ -155,7 +155,7 @@ func TestTextEscapesControlCharactersInQuotedQueryAliasPrefix(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := WriteWithOptions(&buf, FormatText, result, Options{Columns: query.Columns(), Queried: true}); err != nil {
+	if err := WriteWithOptions(&buf, FormatText, result, Options{Columns: query.Columns()}); err != nil {
 		t.Fatal(err)
 	}
 	want := "NESTED\\nCOLUMN\\tOSC\\x1B]52;C;PAYLOAD\\x07BIDI\\u202E\tvalue\n"

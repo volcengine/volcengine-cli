@@ -164,10 +164,9 @@ func TestRenderAPIOutputQueryAndTable(t *testing.T) {
 	}
 }
 
-// The renderer strips ResponseMetadata only when no --query was given. These
-// two cases must agree about whether the field exists: before Options.Queried
-// was wired up, a bare table hid RequestId while an explicit query for it still
-// printed a value.
+// The renderer never removes a response field, so these three cases must agree
+// about whether ResponseMetadata exists: a bare table used to hide RequestId
+// while an explicit query for it still printed a value.
 func TestRenderAPIOutputMetadataVisibilityIsConsistent(t *testing.T) {
 	data := func() map[string]interface{} {
 		return map[string]interface{}{
@@ -180,7 +179,7 @@ func TestRenderAPIOutputMetadataVisibilityIsConsistent(t *testing.T) {
 		}
 	}
 
-	// No --query: the envelope is display noise.
+	// No --query: the full response is rendered, envelope included.
 	var bare bytes.Buffer
 	withAPIOutputWriter(t, &bare)
 	c := &Context{fixedFlags: NewFlagSet(), dynamicFlags: NewFlagSet()}
@@ -189,8 +188,8 @@ func TestRenderAPIOutputMetadataVisibilityIsConsistent(t *testing.T) {
 	if err := renderAPIOutput(c, nil, data()); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(bare.String(), "req-1") {
-		t.Fatalf("bare table must not show RequestId:\n%s", bare.String())
+	if !strings.Contains(bare.String(), "req-1") {
+		t.Fatalf("bare table must show RequestId:\n%s", bare.String())
 	}
 
 	// Explicit --query for that same field: the user asked for it, so it prints.

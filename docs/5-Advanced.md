@@ -122,7 +122,7 @@ Disable colored display:
 ve disable-color
 ```
 
-These commands update `enableColor` in the config file. Colored output affects `ve configure get`, `ve configure list`, and API responses when **`--output json` (default)** or **`--output table` / `table-num`**. It does not change response content, and nothing is colored when output is redirected, piped, or `NO_COLOR` is set. `text` / `yaml` / `off` are uncolored. See [Usage](4-Usage.md#filtering-and-output-formats) for filtering and formats (without `--query`, `table` strips `ResponseMetadata` and splits nested data into titled sections; use `--query` to select exact columns).
+These commands update `enableColor` in the config file. Colored output affects `ve configure get`, `ve configure list`, and API responses when **`--output json` (default)** or **`--output table` / `table-num`**. It does not change response content, and nothing is colored when output is redirected, piped, or `NO_COLOR` is set. `text` / `yaml` / `off` are uncolored. See [Usage](4-Usage.md#filtering-and-output-formats) for filtering and formats (without `--query`, `table` renders the full response and splits nested data into titled sections; use `--query` to select exact columns).
 
 ## Debug Logs
 

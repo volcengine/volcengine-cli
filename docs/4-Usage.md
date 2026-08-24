@@ -371,7 +371,7 @@ ve ecs DescribeInstances \
 ve sts GetCallerIdentity --query 'Result.AccountId' --output text
 ve ecs DescribeInstances --query 'Result.Instances[*].{Id:InstanceId}' --output text | nl
 
-# Without --query, table strips ResponseMetadata and splits nested data into titled sections.
+# Without --query, table renders the full response and splits nested data into titled sections.
 ve sts GetCallerIdentity --output table
 
 # YAML
@@ -383,7 +383,7 @@ ve ecs DescribeInstances --output off
 
 Notes:
 
-- **`ResponseMetadata` stripping (display layer)**: **without `--query`**, `table` / `table-num` / `text` drop the top-level `ResponseMetadata` before rendering so the output shows the payload directly. **With an explicit `--query`, nothing is stripped** — the query result is exactly what you selected, so `--query 'ResponseMetadata.RequestId'` returns its value and `--query '@'` shows the full response verbatim. `json` / `yaml` **always keep the full response** (including `RequestId`), so scripted consumers are unaffected. A response containing only `ResponseMetadata` (common for write APIs) is left intact in both cases so it does not look empty. A nested field that happens to be named `ResponseMetadata` is payload and is never removed.
+- **No field is ever dropped**: every format renders exactly the data it is given, so `ResponseMetadata` (with `RequestId`) is shown by `table` / `table-num` / `text` just as it is by `json` / `yaml`, and all formats agree about which fields exist. `--output` only changes layout: `table` gives the envelope its own titled section, `text` prefixes it as `RESPONSEMETADATA`. Use `--query` when you want less: `--query 'Result'` drops the envelope, `--query 'ResponseMetadata.RequestId'` keeps only the request id, and `--query '@'` is the full response.
 - **Nested sections**: `table` splits nested objects and record lists into separate titled sections (the title is the field path, e.g. `Result.Instances.Tags[1]`) instead of dumping JSON into a cell. A nested field **also stays as a main-table column**, where the cell reads `(see section)` and points at the matching section; when the same field is a scalar, `null` or an empty list on some records, those values are still shown in the main table rather than being dropped because another record nests it. Section numbering starts at 1 and matches the `#` column of `table-num`, so a section can be traced back to its record. No number is added when the parent list holds a single record. Lists of plain scalars (e.g. `["sg-1","sg-2"]`) stay inline in the cell.
 - **Single-record verticalization**: a single object (and any single-row result) renders as one horizontal record — a field-name header row plus a value row, matching the AWS CLI. Only when the terminal width **is known** and that row is wider than it, the record is transposed into a two-column `Field | Value` table to avoid horizontal scrolling. Multi-row results and any case where the width is unknown (redirected output, pipes, failed probe) keep the horizontal layout.
 - **Terminal width fitting**: when writing to a terminal the width is detected automatically; over-wide grids shrink the widest column first and wrap cell content onto additional physical rows without discarding response values. Every column keeps a minimum readable width. Redirected or piped output is not wrapped, so each value stays on one complete line.

@@ -110,18 +110,14 @@ func TestWritePropagatesWriterErrors(t *testing.T) {
 	}
 }
 
-// Without --query, the envelope's ResponseMetadata is dropped and nested
-// payload is split into titled sections. The section title keeps the origin
-// path visible so users still know where data came from.
-func TestTableStripsMetadataAndSplitsNestedPayload(t *testing.T) {
+// Without --query, nested payload is split into titled sections. The section
+// title keeps the origin path visible so users still know where data came from.
+func TestTableSplitsNestedPayloadIntoSections(t *testing.T) {
 	var buf bytes.Buffer
 	if err := Write(&buf, FormatTable, sampleEnvelope()); err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	if strings.Contains(out, "ResponseMetadata") || strings.Contains(out, "req-1") {
-		t.Fatalf("ResponseMetadata must not reach table output:\n%s", out)
-	}
 	if !strings.Contains(out, "Result.Instances") {
 		t.Fatalf("expected a titled section for the nested list:\n%s", out)
 	}
@@ -131,19 +127,6 @@ func TestTableStripsMetadataAndSplitsNestedPayload(t *testing.T) {
 	}
 	if strings.Contains(out, `{"InstanceId"`) {
 		t.Fatalf("nested list should not be dumped as JSON:\n%s", out)
-	}
-}
-
-// json keeps the full envelope: scripts still need RequestId.
-func TestJSONKeepsResponseMetadata(t *testing.T) {
-	for _, format := range []Format{FormatJSON, FormatYAML} {
-		var buf bytes.Buffer
-		if err := Write(&buf, format, sampleEnvelope()); err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(buf.String(), "ResponseMetadata") {
-			t.Fatalf("%s must keep ResponseMetadata:\n%s", format, buf.String())
-		}
 	}
 }
 

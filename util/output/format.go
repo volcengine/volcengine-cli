@@ -53,17 +53,6 @@ type Options struct {
 	// Color enables ANSI styling for table headers and cells. Styling never
 	// affects column widths; see style.go.
 	Color bool
-
-	// Queried tells the renderer that the data is already the result of an
-	// explicit --query.
-	//
-	// Without it, table/text strip the top-level ResponseMetadata envelope so a
-	// bare `--output table` shows the payload. That must not happen to a query
-	// result: the user selected exactly what they wanted, and dropping a key
-	// from their selection would mean `--query 'ResponseMetadata.RequestId'`
-	// prints a value that a bare table claims does not exist. Set this whenever
-	// a query was applied, even if its result happens to look like an envelope.
-	Queried bool
 }
 
 type checkedWriter struct {
