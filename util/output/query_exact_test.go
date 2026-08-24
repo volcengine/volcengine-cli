@@ -11,6 +11,36 @@ import (
 	"github.com/jmespath/go-jmespath"
 )
 
+func TestQueryFiltersExactJSONNumbers(t *testing.T) {
+	data := map[string]interface{}{
+		"Items": []interface{}{
+			map[string]interface{}{"Id": "a", "Cpu": json.Number("8")},
+			map[string]interface{}{"Id": "b", "Cpu": json.Number("4")},
+			map[string]interface{}{"Id": "c", "Cpu": json.Number("8.0")},
+		},
+	}
+	cases := []struct {
+		expr string
+		want interface{}
+	}{
+		{"Items[?Cpu > `4`].Id", []interface{}{"a", "c"}},
+		{"Items[?Cpu >= `8`].Id", []interface{}{"a", "c"}},
+		{"Items[?Cpu == `8`].Id", []interface{}{"a", "c"}},
+		{"Items[?Cpu != `8`].Id", []interface{}{"b"}},
+		{"Items[?Cpu < `8`].Id", []interface{}{"b"}},
+	}
+	for _, tc := range cases {
+		got, err := ApplyQuery(data, tc.expr)
+		if err != nil {
+			t.Errorf("filter %q failed: %v", tc.expr, err)
+			continue
+		}
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("filter %q = %#v, want %#v", tc.expr, got, tc.want)
+		}
+	}
+}
+
 func TestQueryStructuralProjectionPreservesExactJSONNumbers(t *testing.T) {
 	large := json.Number("9007199254740993")
 	decimal := json.Number("0.10000000000000001")
@@ -50,6 +80,17 @@ func TestQueryEqualityPreservesExactJSONNumbers(t *testing.T) {
 		if err != nil || got != tc.want {
 			t.Errorf("ApplyQuery(%q) = %#v, %v; want %v", tc.expr, got, err, tc.want)
 		}
+	}
+}
+
+func TestQueryNestedObjectEqualityUsesJSONNumericValue(t *testing.T) {
+	data := map[string]interface{}{
+		"Left":  map[string]interface{}{"N": json.Number("1"), "Items": []interface{}{json.Number("1e3")}},
+		"Right": map[string]interface{}{"N": json.Number("1.0"), "Items": []interface{}{json.Number("1000")}},
+	}
+	got, err := ApplyQuery(data, "Left == Right")
+	if err != nil || got != true {
+		t.Fatalf("nested numeric object equality = %#v, %v; want true", got, err)
 	}
 }
 
@@ -113,19 +154,10 @@ func TestQueryProjectionAndToStringKeepOriginalNumberTokens(t *testing.T) {
 	}
 }
 
-func TestQueryCanonicalJSONNumberHandlesHugeTokensWithoutValueExpansion(t *testing.T) {
+// Token canonicalization itself is covered by internal/jmespath; this keeps the
+// end-to-end guarantee that a huge token is never expanded into digits.
+func TestQueryHugeNumberEqualityWithoutValueExpansion(t *testing.T) {
 	hugeExponent := "1e" + strings.Repeat("9", 70000)
-	canonical, ok := canonicalJSONNumber(hugeExponent)
-	if !ok || canonical != hugeExponent {
-		t.Fatalf("huge exponent canonicalization failed: ok=%v len=%d", ok, len(canonical))
-	}
-
-	hugeMantissa := "1" + strings.Repeat("0", 70000)
-	canonical, ok = canonicalJSONNumber(hugeMantissa)
-	if !ok || canonical != "1e70000" {
-		t.Fatalf("huge mantissa canonicalization = %q, %v", canonical, ok)
-	}
-
 	got, err := ApplyQuery(map[string]interface{}{
 		"A": json.Number(hugeExponent),
 		"B": json.Number(hugeExponent),
@@ -207,8 +239,16 @@ func TestQueryAverageCannotBeRewrittenFromUnrelatedSourceNumber(t *testing.T) {
 		"Decimal": json.Number("0.10000000000000001"),
 		"Items":   []interface{}{json.Number("0.05"), json.Number("0.15")},
 	}
-	if _, err := ApplyQuery(data, "avg(Items)"); err == nil {
-		t.Fatal("avg was evaluated through an inexact float path")
+	got, err := ApplyQuery(data, "avg(Items)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != json.Number("0.1") {
+		t.Fatalf("avg(Items) = %#v, want 0.1", got)
+	}
+	eq, err := ApplyQuery(data, "avg(Items) == Decimal")
+	if err != nil || eq != false {
+		t.Fatalf("avg(Items) == Decimal = %#v, %v; want false", eq, err)
 	}
 }
 
@@ -264,14 +304,14 @@ func TestQueryBooleanAndNullEqualityStillWorksWithJSONNumbersPresent(t *testing.
 	}
 }
 
-func TestQueryRejectsEscapingNumericJSONLiterals(t *testing.T) {
+func TestQueryAllowsNumericJSONLiterals(t *testing.T) {
 	for _, expr := range []string{
 		"`9007199254740993`",
 		"`{\"N\":9007199254740993}`",
 		"`[9007199254740993,9007199254740992]`",
 		"{N:`9007199254740993`}",
 		"[`9007199254740993`]",
-		"Items[].`9007199254740993`",
+
 		"values(`{\"N\":9007199254740993}`)",
 		"to_array(`9007199254740993`)",
 		"reverse(`[9007199254740993]`)",
@@ -280,8 +320,8 @@ func TestQueryRejectsEscapingNumericJSONLiterals(t *testing.T) {
 		"not_null(Missing, `9007199254740993`)",
 		"to_string(`9007199254740993`)",
 	} {
-		if _, err := CompileQuery(expr); err == nil {
-			t.Errorf("numeric JSON literal escaped validation in %q", expr)
+		if _, err := CompileQuery(expr); err != nil {
+			t.Errorf("numeric JSON literal rejected in %q: %v", expr, err)
 		}
 	}
 }
@@ -327,10 +367,10 @@ func TestQueryAllowsNumbersDerivedWithoutReadingResponseNumbers(t *testing.T) {
 	}{
 		{"length(A) > length(B)", true},
 		{"(length(A)) >= (length(B))", true},
-		{"abs(length(Items))", float64(2)},
-		{"ceil(length(Items))", float64(2)},
-		{"floor(abs(length(Items)))", float64(2)},
-		{"to_number('42')", float64(42)},
+		{"abs(length(Items))", json.Number("2")},
+		{"ceil(length(Items))", json.Number("2")},
+		{"floor(abs(length(Items)))", json.Number("2")},
+		{"to_number('42')", json.Number("42")},
 		{"to_number('4.2e1') == length(Items)", false},
 		{"abs(to_number('-2')) == length(Items)", true},
 		{"length(`[9007199254740993]`) < length(Items)", true},
@@ -346,50 +386,59 @@ func TestQueryAllowsNumbersDerivedWithoutReadingResponseNumbers(t *testing.T) {
 	}
 }
 
-func TestQueryRejectsNumericOperationsThatMayReadResponseNumbers(t *testing.T) {
-	for _, expr := range []string{
-		"abs(N)",
-		"ceil(N)",
-		"floor(N)",
-		"to_number(N)",
-		"N > length(B)",
-		"length(A) > N",
-		"N || length(A) > length(B)",
-		"length(A) > length(B) || N",
-		"(N || length(A)) > length(B)",
-		"length(A) > (length(B) || N)",
-		"Foo | length(A) > length(B)",
-		"Items[?length(A) > length(B)]",
-		"N == length(A)",
-		"length(A) == N",
-		"N == to_number('1')",
-		"to_number('1') != N",
-	} {
-		if _, err := CompileQuery(expr); err == nil {
-			t.Errorf("potential response-number query %q was accepted", expr)
+func TestQueryNumericUnaryFunctionsStayExact(t *testing.T) {
+	data := map[string]interface{}{"N": json.Number("-2.4")}
+	cases := []struct {
+		expr string
+		want interface{}
+	}{
+		{"abs(N)", json.Number("2.4")},
+		{"ceil(N)", json.Number("-2")},
+		{"floor(N)", json.Number("-3")},
+		{"to_number(N)", json.Number("-2.4")},
+	}
+	for _, tc := range cases {
+		got, err := ApplyQuery(data, tc.expr)
+		if err != nil {
+			t.Errorf("ApplyQuery(%q) failed: %v", tc.expr, err)
+			continue
+		}
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("ApplyQuery(%q) = %#v, want %#v", tc.expr, got, tc.want)
 		}
 	}
 }
 
-func TestQueryRejectsNestedMixedNumericEquality(t *testing.T) {
-	for _, expr := range []string{
-		"{Eq:length(A)==N}",
-		"{Eq:N==length(A)}",
-		"[length(A)==N]",
-		"[N==length(A)]",
-		"not_null(length(A)==N, false)",
-		"not_null(N==length(A), false)",
-		"Flag && length(A)==N",
-		"Flag && N==length(A)",
-		"Items[?length(Tags)==Count]",
-		"Items[?Count==length(Tags)]",
-		"map(&length(Tags)==Count, Items)",
-		"map(&Count==length(Tags), Items)",
-		"map(&(length(Tags)==Count), Items)",
-		"map(&(Count==length(Tags)), Items)",
+func TestQueryComparesDerivedNumbersWithResponseNumbersExactly(t *testing.T) {
+	data := map[string]interface{}{
+		"A":    []interface{}{"x"},
+		"N":    json.Number("1"),
+		"Flag": true,
+		"Items": []interface{}{map[string]interface{}{
+			"Tags":  []interface{}{"x"},
+			"Count": json.Number("1"),
+		}},
+	}
+	for _, tc := range []struct {
+		expr string
+		want interface{}
+	}{
+		{"N == length(A)", true},
+		{"length(A) == N", true},
+		{"N == to_number('1')", true},
+		{"to_number('1') != N", false},
+		{"length(A) > N", false},
+		{"N > length(A)", false},
+		{"{Eq:length(A)==N}", map[string]interface{}{"Eq": true}},
+		{"Items[?length(Tags)==Count] | [0].Count", json.Number("1")},
 	} {
-		if _, err := CompileQuery(expr); err == nil {
-			t.Errorf("nested mixed numeric equality %q was accepted", expr)
+		got, err := ApplyQuery(data, tc.expr)
+		if err != nil {
+			t.Errorf("mixed numeric query %q failed: %v", tc.expr, err)
+			continue
+		}
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("mixed numeric query %q = %#v, want %#v", tc.expr, got, tc.want)
 		}
 	}
 }
@@ -469,19 +518,24 @@ func TestQueryAllowsNestedSafeNumericEquality(t *testing.T) {
 	}
 }
 
-func TestQuerySafeNumericFunctionsStillRejectNumericJSONLiterals(t *testing.T) {
-	for _, expr := range []string{
-		"abs(`1`)",
-		"ceil(`1.2`)",
-		"floor(`1.2`)",
-		"to_number(`42`)",
-		"length(A) > `1`",
-		"to_number('42') > `1`",
-		"length(`1`)",
-		"keys(`[1]`)",
-	} {
-		if _, err := CompileQuery(expr); err == nil {
-			t.Errorf("numeric JSON literal query %q was accepted", expr)
+func TestQueryNumericFunctionsAcceptJSONLiterals(t *testing.T) {
+	cases := []struct {
+		expr string
+		want interface{}
+	}{
+		{"abs(`-1`)", json.Number("1")},
+		{"ceil(`1.2`)", json.Number("2")},
+		{"floor(`1.2`)", json.Number("1")},
+		{"to_number(`42`)", json.Number("42")},
+	}
+	for _, tc := range cases {
+		got, err := ApplyQuery(nil, tc.expr)
+		if err != nil {
+			t.Errorf("ApplyQuery(%q) failed: %v", tc.expr, err)
+			continue
+		}
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("ApplyQuery(%q) = %#v, want %#v", tc.expr, got, tc.want)
 		}
 	}
 }
@@ -588,14 +642,29 @@ func TestQueryObjectProjectionDoesNotEvaluateSyntheticValues(t *testing.T) {
 	}
 }
 
-func TestQueryContainsRejectsNumericJSONLiterals(t *testing.T) {
-	for _, expr := range []string{
-		"contains(Result.Numbers, `9007199254740993`)",
-		"contains(`[9007199254740993]`, Result.Number)",
-		"contains(not_null(`[9007199254740993]`, 'unused'), '9007199254740992')",
-	} {
-		if _, err := CompileQuery(expr); err == nil {
-			t.Errorf("numeric JSON literal in contains escaped validation: %q", expr)
+func TestQueryContainsSupportsNumericJSONLiterals(t *testing.T) {
+	data := map[string]interface{}{
+		"Result": map[string]interface{}{
+			"Numbers": []interface{}{json.Number("9007199254740993")},
+			"Number":  json.Number("9007199254740993"),
+		},
+	}
+	cases := []struct {
+		expr string
+		want bool
+	}{
+		{"contains(Result.Numbers, `9007199254740993`)", true},
+		{"contains(`[9007199254740993]`, Result.Number)", true},
+		{"contains(not_null(`[9007199254740993]`, 'unused'), '9007199254740992')", false},
+	}
+	for _, tc := range cases {
+		got, err := ApplyQuery(data, tc.expr)
+		if err != nil {
+			t.Errorf("contains numeric literal %q failed: %v", tc.expr, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("contains numeric literal %q = %#v, want %v", tc.expr, got, tc.want)
 		}
 	}
 }
@@ -709,49 +778,37 @@ func TestQuerySortBySharedInputIsConcurrentSafe(t *testing.T) {
 	}
 }
 
-func TestQueryOrderingFunctionsRejectExactResponseNumbers(t *testing.T) {
+func TestQueryNumericAggregatesStayExact(t *testing.T) {
 	data := map[string]interface{}{
 		"Items": []interface{}{
 			map[string]interface{}{"Id": "large", "Size": json.Number("9007199254740993")},
 			map[string]interface{}{"Id": "small", "Size": json.Number("9007199254740992")},
 		},
-		"Exact": json.Number("9007199254740993"),
+		"Values": []interface{}{json.Number("8"), json.Number("4"), json.Number("6")},
+		"Exact":  json.Number("9007199254740993"),
 	}
-	for _, expr := range []string{
-		"sort_by(Items, &Size)",
-		"max_by(Items, &Size)",
-		"min_by(Items, &Size)",
-		"type(Exact)",
-	} {
-		query, err := CompileQuery(expr)
+	cases := []struct {
+		expr string
+		want interface{}
+	}{
+		{"max(Values)", json.Number("8")},
+		{"min(Values)", json.Number("4")},
+		{"sum(Values)", json.Number("18")},
+		{"avg(Values)", json.Number("6")},
+		{"max_by(Items, &Size).Id", "large"},
+		{"min_by(Items, &Size).Id", "small"},
+		{"sort_by(Items, &Size)[].Id", []interface{}{"small", "large"}},
+		{"sort(Values)", []interface{}{json.Number("4"), json.Number("6"), json.Number("8")}},
+		{"type(Exact)", "number"},
+	}
+	for _, tc := range cases {
+		got, err := ApplyQuery(data, tc.expr)
 		if err != nil {
-			t.Errorf("CompileQuery(%q): %v", expr, err)
+			t.Errorf("ApplyQuery(%q) failed: %v", tc.expr, err)
 			continue
 		}
-		if got, err := query.Search(data); err == nil {
-			t.Errorf("Search(%q) = %#v, want explicit json.Number type error", expr, got)
-		}
-	}
-}
-
-func TestQueryByFunctionsRejectSingleExactResponseNumber(t *testing.T) {
-	data := map[string]interface{}{
-		"Items": []interface{}{
-			map[string]interface{}{"Id": "large", "Size": json.Number("9007199254740993")},
-		},
-	}
-	for _, expr := range []string{
-		"sort_by(Items, &Size)",
-		"max_by(Items, &Size)",
-		"min_by(Items, &Size)",
-	} {
-		query, err := CompileQuery(expr)
-		if err != nil {
-			t.Errorf("CompileQuery(%q): %v", expr, err)
-			continue
-		}
-		if got, err := query.Search(data); err == nil {
-			t.Errorf("Search(%q) = %#v, want explicit json.Number type error", expr, got)
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("ApplyQuery(%q) = %#v, want %#v", tc.expr, got, tc.want)
 		}
 	}
 }
@@ -775,32 +832,42 @@ func TestQueryScalarOrderingAcceptsResponseStringsAndRejectsNumbersExplicitly(t 
 	numbers := map[string]interface{}{
 		"Items": []interface{}{json.Number("9007199254740993"), json.Number("9007199254740992")},
 	}
-	for _, expr := range []string{
-		"sort(Items)",
-		"max(Items)",
-		"min(Items)",
+	for _, tc := range []struct {
+		expr string
+		want interface{}
+	}{
+		{"sort(Items)", []interface{}{json.Number("9007199254740992"), json.Number("9007199254740993")}},
+		{"max(Items)", json.Number("9007199254740993")},
+		{"min(Items)", json.Number("9007199254740992")},
 	} {
-		query, err := CompileQuery(expr)
-		if err != nil {
-			t.Errorf("CompileQuery(%q): %v", expr, err)
-			continue
-		}
-		if got, err := query.Search(numbers); err == nil {
-			t.Errorf("Search(%q) = %#v, want explicit json.Number type error", expr, got)
+		got, err := ApplyQuery(numbers, tc.expr)
+		if err != nil || !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("ApplyQuery(%q) = %#v, %v; want %#v", tc.expr, got, err, tc.want)
 		}
 	}
 }
 
-func TestQueryNumericJSONLiteralsRemainRejectedInEqualityAndOrdering(t *testing.T) {
-	for _, expr := range []string{
-		"N == `1`",
-		"`[1]` == Values",
-		"Object == `{\"N\":1}`",
-		"sort(`[9007199254740993]`)",
-		"max(`[\"web\",9007199254740993]`)",
-	} {
-		if _, err := CompileQuery(expr); err == nil {
-			t.Errorf("numeric JSON literal query %q was accepted", expr)
+func TestQueryNumericJSONLiteralsCompareExactly(t *testing.T) {
+	data := map[string]interface{}{
+		"N": json.Number("1"),
+	}
+	cases := []struct {
+		expr string
+		want interface{}
+	}{
+		{"N == `1`", true},
+		{"N == `1.0`", true},
+		{"N > `0`", true},
+		{"N < `2`", true},
+	}
+	for _, tc := range cases {
+		got, err := ApplyQuery(data, tc.expr)
+		if err != nil {
+			t.Errorf("numeric literal query %q failed: %v", tc.expr, err)
+			continue
+		}
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("numeric literal query %q = %#v, want %#v", tc.expr, got, tc.want)
 		}
 	}
 }

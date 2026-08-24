@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"reflect"
 	"sort"
 	"strconv"
@@ -79,43 +80,34 @@ func (a *byExprString) Less(i, j int) bool {
 	return ith < jth
 }
 
-type byExprFloat struct {
+type byExprNumber struct {
 	intr     *treeInterpreter
 	node     ASTNode
 	items    []interface{}
 	hasError bool
 }
 
-func (a *byExprFloat) Len() int {
-	return len(a.items)
-}
-func (a *byExprFloat) Swap(i, j int) {
+func (a *byExprNumber) Len() int { return len(a.items) }
+func (a *byExprNumber) Swap(i, j int) {
 	a.items[i], a.items[j] = a.items[j], a.items[i]
 }
-func (a *byExprFloat) Less(i, j int) bool {
+func (a *byExprNumber) Less(i, j int) bool {
 	first, err := a.intr.Execute(a.node, a.items[i])
 	if err != nil {
-		a.hasError = true
-		// Return a dummy value.
-		return true
-	}
-	ith, ok := first.(float64)
-	if !ok {
 		a.hasError = true
 		return true
 	}
 	second, err := a.intr.Execute(a.node, a.items[j])
 	if err != nil {
 		a.hasError = true
-		// Return a dummy value.
 		return true
 	}
-	jth, ok := second.(float64)
+	cmp, ok := compareNumbers(first, second)
 	if !ok {
 		a.hasError = true
 		return true
 	}
-	return ith < jth
+	return cmp < 0
 }
 
 type functionCaller struct {
@@ -350,7 +342,7 @@ func (a *argSpec) typeCheck(arg interface{}) error {
 	for _, t := range a.types {
 		switch t {
 		case jpNumber:
-			if _, ok := arg.(float64); ok {
+			if isNumberValue(arg) {
 				return nil
 			}
 		case jpString:
@@ -366,7 +358,7 @@ func (a *argSpec) typeCheck(arg interface{}) error {
 				return nil
 			}
 		case jpArrayNumber:
-			if _, ok := toArrayNum(arg); ok {
+			if _, ok := arrayNumberValues(arg); ok {
 				return nil
 			}
 		case jpArrayString:
@@ -402,8 +394,15 @@ func (f *functionCaller) CallFunction(name string, arguments []interface{}, intr
 }
 
 func jpfAbs(arguments []interface{}) (interface{}, error) {
-	num := arguments[0].(float64)
-	return math.Abs(num), nil
+	switch n := arguments[0].(type) {
+	case json.Number:
+		// Dropping the sign keeps the source token exact, so abs() also answers
+		// magnitudes that exact arithmetic would refuse to expand into digits.
+		return json.Number(strings.TrimPrefix(n.String(), "-")), nil
+	case float64:
+		return json.Number(strconv.FormatFloat(math.Abs(n), 'g', -1, 64)), nil
+	}
+	return nil, errors.New("invalid type, expected number")
 }
 
 func jpfLength(arguments []interface{}) (interface{}, error) {
@@ -426,19 +425,26 @@ func jpfStartsWith(arguments []interface{}) (interface{}, error) {
 }
 
 func jpfAvg(arguments []interface{}) (interface{}, error) {
-	// We've already type checked the value so we can safely use
-	// type assertions.
-	args := arguments[0].([]interface{})
-	length := float64(len(args))
-	numerator := 0.0
-	for _, n := range args {
-		numerator += n.(float64)
+	items, ok := arrayNumberValues(arguments[0])
+	if !ok {
+		return nil, errors.New("invalid type, must be array of numbers")
 	}
-	return numerator / length, nil
+	if len(items) == 0 {
+		return nil, nil
+	}
+	total := new(big.Rat)
+	for _, item := range items {
+		n, err := numberToRat(item)
+		if err != nil {
+			return nil, err
+		}
+		total.Add(total, n)
+	}
+	total.Quo(total, new(big.Rat).SetInt64(int64(len(items))))
+	return ratToJSONNumber(total), nil
 }
 func jpfCeil(arguments []interface{}) (interface{}, error) {
-	val := arguments[0].(float64)
-	return math.Ceil(val), nil
+	return integerFromNumber(arguments[0], true)
 }
 func jpfContains(arguments []interface{}) (interface{}, error) {
 	search := arguments[0]
@@ -464,8 +470,7 @@ func jpfEndsWith(arguments []interface{}) (interface{}, error) {
 	return strings.HasSuffix(search, suffix), nil
 }
 func jpfFloor(arguments []interface{}) (interface{}, error) {
-	val := arguments[0].(float64)
-	return math.Floor(val), nil
+	return integerFromNumber(arguments[0], false)
 }
 func jpfMap(arguments []interface{}) (interface{}, error) {
 	intr := arguments[0].(*treeInterpreter)
@@ -483,32 +488,33 @@ func jpfMap(arguments []interface{}) (interface{}, error) {
 	return mapped, nil
 }
 func jpfMax(arguments []interface{}) (interface{}, error) {
-	if items, ok := toArrayNum(arguments[0]); ok {
-		if len(items) == 0 {
-			return nil, nil
-		}
-		if len(items) == 1 {
-			return items[0], nil
-		}
-		best := items[0]
-		for _, item := range items[1:] {
-			if item > best {
-				best = item
-			}
-		}
-		return best, nil
+	if items, ok := arrayNumberValues(arguments[0]); ok {
+		return extremeNumber(items, true)
 	}
-	// Otherwise we're dealing with a max() of strings.
 	items, _ := toArrayStr(arguments[0])
 	if len(items) == 0 {
 		return nil, nil
 	}
-	if len(items) == 1 {
-		return items[0], nil
-	}
 	best := items[0]
 	for _, item := range items[1:] {
 		if item > best {
+			best = item
+		}
+	}
+	return best, nil
+}
+
+func extremeNumber(items []interface{}, maximum bool) (interface{}, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+	best := items[0]
+	for _, item := range items[1:] {
+		cmp, ok := compareNumbers(item, best)
+		if !ok {
+			return nil, errors.New("invalid type, must be number")
+		}
+		if (maximum && cmp > 0) || (!maximum && cmp < 0) {
 			best = item
 		}
 	}
@@ -536,28 +542,10 @@ func jpfMaxBy(arguments []interface{}) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	if isNumberValue(start) {
+		return extremeBy(intr, arr, node, start, true)
+	}
 	switch t := start.(type) {
-	case float64:
-		if len(arr) == 1 {
-			return arr[0], nil
-		}
-		bestVal := t
-		bestItem := arr[0]
-		for _, item := range arr[1:] {
-			result, err := intr.Execute(node, item)
-			if err != nil {
-				return nil, err
-			}
-			current, ok := result.(float64)
-			if !ok {
-				return nil, errors.New("invalid type, must be number")
-			}
-			if current > bestVal {
-				bestVal = current
-				bestItem = item
-			}
-		}
-		return bestItem, nil
 	case string:
 		if len(arr) == 1 {
 			return arr[0], nil
@@ -584,36 +572,28 @@ func jpfMaxBy(arguments []interface{}) (interface{}, error) {
 	}
 }
 func jpfSum(arguments []interface{}) (interface{}, error) {
-	items, _ := toArrayNum(arguments[0])
-	sum := 0.0
-	for _, item := range items {
-		sum += item
+	items, ok := arrayNumberValues(arguments[0])
+	if !ok {
+		return nil, errors.New("invalid type, must be array of numbers")
 	}
-	return sum, nil
+	total := new(big.Rat)
+	for _, item := range items {
+		n, err := numberToRat(item)
+		if err != nil {
+			return nil, err
+		}
+		total.Add(total, n)
+	}
+	return ratToJSONNumber(total), nil
 }
 
 func jpfMin(arguments []interface{}) (interface{}, error) {
-	if items, ok := toArrayNum(arguments[0]); ok {
-		if len(items) == 0 {
-			return nil, nil
-		}
-		if len(items) == 1 {
-			return items[0], nil
-		}
-		best := items[0]
-		for _, item := range items[1:] {
-			if item < best {
-				best = item
-			}
-		}
-		return best, nil
+	if items, ok := arrayNumberValues(arguments[0]); ok {
+		return extremeNumber(items, false)
 	}
 	items, _ := toArrayStr(arguments[0])
 	if len(items) == 0 {
 		return nil, nil
-	}
-	if len(items) == 1 {
-		return items[0], nil
 	}
 	best := items[0]
 	for _, item := range items[1:] {
@@ -636,27 +616,8 @@ func jpfMinBy(arguments []interface{}) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if t, ok := start.(float64); ok {
-		if len(arr) == 1 {
-			return arr[0], nil
-		}
-		bestVal := t
-		bestItem := arr[0]
-		for _, item := range arr[1:] {
-			result, err := intr.Execute(node, item)
-			if err != nil {
-				return nil, err
-			}
-			current, ok := result.(float64)
-			if !ok {
-				return nil, errors.New("invalid type, must be number")
-			}
-			if current < bestVal {
-				bestVal = current
-				bestItem = item
-			}
-		}
-		return bestItem, nil
+	if isNumberValue(start) {
+		return extremeBy(intr, arr, node, start, false)
 	} else if t, ok := start.(string); ok {
 		if len(arr) == 1 {
 			return arr[0], nil
@@ -682,9 +643,29 @@ func jpfMinBy(arguments []interface{}) (interface{}, error) {
 		return nil, errors.New("invalid type, must be number of string")
 	}
 }
+func extremeBy(intr *treeInterpreter, arr []interface{}, node ASTNode, start interface{}, maximum bool) (interface{}, error) {
+	bestVal := start
+	bestItem := arr[0]
+	for _, item := range arr[1:] {
+		result, err := intr.Execute(node, item)
+		if err != nil {
+			return nil, err
+		}
+		cmp, ok := compareNumbers(result, bestVal)
+		if !ok {
+			return nil, errors.New("invalid type, must be number")
+		}
+		if (maximum && cmp > 0) || (!maximum && cmp < 0) {
+			bestVal = result
+			bestItem = item
+		}
+	}
+	return bestItem, nil
+}
+
 func jpfType(arguments []interface{}) (interface{}, error) {
 	arg := arguments[0]
-	if _, ok := arg.(float64); ok {
+	if isNumberValue(arg) {
 		return "number", nil
 	}
 	if _, ok := arg.(string); ok {
@@ -721,14 +702,13 @@ func jpfValues(arguments []interface{}) (interface{}, error) {
 	return collected, nil
 }
 func jpfSort(arguments []interface{}) (interface{}, error) {
-	if items, ok := toArrayNum(arguments[0]); ok {
-		d := sort.Float64Slice(items)
-		sort.Stable(d)
-		final := make([]interface{}, len(d))
-		for i, val := range d {
-			final[i] = val
-		}
-		return final, nil
+	if items, ok := arrayNumberValues(arguments[0]); ok {
+		sorted := append([]interface{}(nil), items...)
+		sort.SliceStable(sorted, func(i, j int) bool {
+			cmp, ok := compareNumbers(sorted[i], sorted[j])
+			return ok && cmp < 0
+		})
+		return sorted, nil
 	}
 	// Otherwise we're dealing with sort()'ing strings.
 	items, _ := toArrayStr(arguments[0])
@@ -757,11 +737,11 @@ func jpfSortBy(arguments []interface{}) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, ok := start.(float64); ok {
+	if isNumberValue(start) {
 		if len(arr) == 1 {
 			return arr, nil
 		}
-		sortable := &byExprFloat{intr, node, arr, false}
+		sortable := &byExprNumber{intr, node, arr, false}
 		sort.Stable(sortable)
 		if sortable.hasError {
 			return nil, errors.New("error in sort_by comparison")
@@ -824,30 +804,17 @@ func jpfToString(arguments []interface{}) (interface{}, error) {
 	return string(result), nil
 }
 func jpfToNumber(arguments []interface{}) (interface{}, error) {
-	arg := arguments[0]
-	if v, ok := arg.(float64); ok {
-		return v, nil
-	}
-	if v, ok := arg.(string); ok {
-		conv, err := strconv.ParseFloat(v, 64)
-		if err != nil {
+	switch arg := arguments[0].(type) {
+	case json.Number, float64:
+		return arg, nil
+	case string:
+		if _, ok := CanonicalJSONNumber(arg); !ok {
 			return nil, nil
 		}
-		return conv, nil
-	}
-	if _, ok := arg.([]interface{}); ok {
+		return json.Number(arg), nil
+	default:
 		return nil, nil
 	}
-	if _, ok := arg.(map[string]interface{}); ok {
-		return nil, nil
-	}
-	if arg == nil {
-		return nil, nil
-	}
-	if arg == true || arg == false {
-		return nil, nil
-	}
-	return nil, errors.New("unknown type")
 }
 func jpfNotNull(arguments []interface{}) (interface{}, error) {
 	for _, arg := range arguments {

@@ -15,7 +15,16 @@ Local fixes relative to v0.4.0:
 - `sort_by()` sorts a shallow copy instead of mutating the caller's response
   slice, so concurrent searches can safely share immutable input;
 - `sort_by()`, `max_by()`, and `min_by()` validate an expression key even for
-  a one-element array, keeping type errors independent of response length.
+  a one-element array, keeping type errors independent of response length;
+- JSON literals are decoded with `UseNumber()`, and numeric `==` / `!=` / `<` /
+  `>` / `<=` / `>=` compare exact JSON decimal values instead of `float64`;
+- `max` / `min` / `sum` / `avg` / `abs` / `ceil` / `floor` / `to_number` /
+  `sort` and `*_by` over numbers use exact decimal comparison/arithmetic
+  instead of `float64`. Results keep every digit of a finite decimal
+  expansion; only `avg()` can produce a repeating decimal, which is rounded to
+  at least `roundedSignificantDigits` significant digits. Arithmetic that would
+  have to expand an exponent beyond `maxArithmeticExponent` into digits fails
+  explicitly, while comparison, sorting, and `abs()` stay exact for any token.
 
 Keep this package as a frozen upstream snapshot. Apply only relevant upstream
 correctness or security fixes, and preserve this provenance note and LICENSE.

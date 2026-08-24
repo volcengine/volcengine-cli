@@ -3,6 +3,7 @@ package jmespath
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 )
@@ -317,8 +318,7 @@ func (p *Parser) led(tokenType tokType, node ASTNode) (ASTNode, error) {
 func (p *Parser) nud(token token) (ASTNode, error) {
 	switch token.tokenType {
 	case tJSONLiteral:
-		var parsed interface{}
-		err := json.Unmarshal([]byte(token.value), &parsed)
+		parsed, err := unmarshalJSONLiteral(token.value)
 		if err != nil {
 			return ASTNode{}, err
 		}
@@ -600,4 +600,20 @@ func (p *Parser) syntaxErrorToken(msg string, t token) SyntaxError {
 		Expression: p.expression,
 		Offset:     t.position,
 	}
+}
+
+func unmarshalJSONLiteral(raw string) (interface{}, error) {
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.UseNumber()
+	var parsed interface{}
+	if err := decoder.Decode(&parsed); err != nil {
+		return nil, err
+	}
+	if err := decoder.Decode(new(interface{})); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("invalid JSON literal")
+		}
+		return nil, err
+	}
+	return parsed, nil
 }

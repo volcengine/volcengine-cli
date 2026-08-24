@@ -228,8 +228,6 @@ func queryHint(expr string, err error) string {
 	msg := err.Error()
 
 	switch {
-	case strings.Contains(msg, "exact JSON-number semantics cannot be guaranteed"):
-		return "use field selection, projections, exact equality, and string filters; process numeric ordering or calculations with an exact-number-aware JSON tool"
 	case strings.Contains(msg, "unknown function: "):
 		name := strings.TrimPrefix(msg, "unknown function: ")
 		if suggestion := nearestFunction(name); suggestion != "" {

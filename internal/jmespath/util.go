@@ -48,7 +48,36 @@ func isFalse(value interface{}) bool {
 // It will take two arbitrary objects and recursively determine
 // if they are equal.
 func objsEqual(left interface{}, right interface{}) bool {
-	return reflect.DeepEqual(left, right)
+	if cmp, ok := compareNumbers(left, right); ok {
+		return cmp == 0
+	}
+	switch l := left.(type) {
+	case map[string]interface{}:
+		r, ok := right.(map[string]interface{})
+		if !ok || len(l) != len(r) {
+			return false
+		}
+		for key, lv := range l {
+			rv, ok := r[key]
+			if !ok || !objsEqual(lv, rv) {
+				return false
+			}
+		}
+		return true
+	case []interface{}:
+		r, ok := right.([]interface{})
+		if !ok || len(l) != len(r) {
+			return false
+		}
+		for i := range l {
+			if !objsEqual(l[i], r[i]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return reflect.DeepEqual(left, right)
+	}
 }
 
 // SliceParam refers to a single part of a slice.
@@ -135,25 +164,6 @@ func capSlice(length int, actual int, step int) int {
 		}
 	}
 	return actual
-}
-
-// ToArrayNum converts an empty interface type to a slice of float64.
-// If any element in the array cannot be converted, then nil is returned
-// along with a second value of false.
-func toArrayNum(data interface{}) ([]float64, bool) {
-	// Is there a better way to do this with reflect?
-	if d, ok := data.([]interface{}); ok {
-		result := make([]float64, len(d))
-		for i, el := range d {
-			item, ok := el.(float64)
-			if !ok {
-				return nil, false
-			}
-			result[i] = item
-		}
-		return result, true
-	}
-	return nil, false
 }
 
 // ToArrayStr converts an empty interface type to a slice of strings.

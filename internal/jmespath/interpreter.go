@@ -45,23 +45,19 @@ func (intr *treeInterpreter) Execute(node ASTNode, value interface{}) (interface
 		case tNE:
 			return !objsEqual(left, right), nil
 		}
-		leftNum, ok := left.(float64)
-		if !ok {
-			return nil, nil
-		}
-		rightNum, ok := right.(float64)
+		cmp, ok := compareNumbers(left, right)
 		if !ok {
 			return nil, nil
 		}
 		switch node.value {
 		case tGT:
-			return leftNum > rightNum, nil
+			return cmp > 0, nil
 		case tGTE:
-			return leftNum >= rightNum, nil
+			return cmp >= 0, nil
 		case tLT:
-			return leftNum < rightNum, nil
+			return cmp < 0, nil
 		case tLTE:
-			return leftNum <= rightNum, nil
+			return cmp <= 0, nil
 		}
 	case ASTExpRef:
 		return expRef{ref: node.children[0]}, nil

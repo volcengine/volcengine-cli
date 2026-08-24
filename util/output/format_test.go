@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -643,7 +644,7 @@ func TestApplyQueryPreservesJSONNumbersInStructuralProjection(t *testing.T) {
 	}
 }
 
-func TestApplyQueryRejectsUnsafeJSONNumberOperations(t *testing.T) {
+func TestApplyQueryNumericFiltersStayExact(t *testing.T) {
 	account := json.Number("2106494982")
 	data := map[string]interface{}{
 		"Result": map[string]interface{}{
@@ -655,15 +656,23 @@ func TestApplyQueryRejectsUnsafeJSONNumberOperations(t *testing.T) {
 		},
 	}
 
-	for _, expr := range []string{
-		"Result.AccountId == `2106494982`",
-		"Result.AccountId != `2106494982`",
-		"Result.Items[?Cpu == `8`].Id",
-		"Result.Items[?Cpu != `8`].Id",
-		"Result.Items[?Cpu > `4`].Id",
+	for _, tc := range []struct {
+		expr string
+		want interface{}
+	}{
+		{"Result.AccountId == `2106494982`", true},
+		{"Result.AccountId != `2106494982`", false},
+		{"Result.Items[?Cpu == `8`].Id", []interface{}{"a"}},
+		{"Result.Items[?Cpu != `8`].Id", []interface{}{"b"}},
+		{"Result.Items[?Cpu > `4`].Id", []interface{}{"a"}},
 	} {
-		if _, err := ApplyQuery(data, expr); err == nil {
-			t.Errorf("unsafe numeric query %q was accepted", expr)
+		got, err := ApplyQuery(data, tc.expr)
+		if err != nil {
+			t.Errorf("numeric filter %q failed: %v", tc.expr, err)
+			continue
+		}
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("numeric filter %q = %#v, want %#v", tc.expr, got, tc.want)
 		}
 	}
 
@@ -683,8 +692,9 @@ func TestApplyQueryLargeIntegerOperationsRemainExact(t *testing.T) {
 		"SameLeft":  json.Number("9007199254740993"),
 		"Different": json.Number("9007199254740992"),
 	}
-	if _, err := ApplyQuery(data, "N > `0`"); err == nil {
-		t.Fatal("unsafe large-integer ordering query was accepted")
+	got, err := ApplyQuery(data, "N > `0`")
+	if err != nil || got != true {
+		t.Fatalf("N > `0` = %#v, %v; want true", got, err)
 	}
 	for _, tc := range []struct {
 		expr string

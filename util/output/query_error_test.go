@@ -266,24 +266,19 @@ func TestQueryValidationSkipsQuotedContent(t *testing.T) {
 	}
 }
 
-func TestUnsafeNumericQueriesAreRejected(t *testing.T) {
+func TestNumericQueriesCompile(t *testing.T) {
 	for _, expr := range []string{
-		"N == `9007199254740993`",
-		"`9007199254740993` == N",
-		"N != (`0.10000000000000001`)",
-		"(`-1`) != N",
-		"`true` == `1`",
-		"`0` != `null`",
-		"'text' == `1`",
-		"N > `0`",
-		"Items[?Cpu != `8`]",
+		"abs(N)",
+		"ceil(N)",
+		"floor(N)",
+		"to_number(N)",
 		"avg(Items)",
-		"contains(Items, `8`)",
-		"contains(not_null(`[9007199254740993]`, 'unused'), '9007199254740992')",
+		"sum(Items)",
+		"max(Items)",
+		"Items[?Cpu > `4`]",
 	} {
-		msg := compileErr(t, expr)
-		if !strings.Contains(msg, "exact JSON-number semantics") {
-			t.Errorf("%q did not explain the exact-number restriction:\n%s", expr, msg)
+		if _, err := CompileQuery(expr); err != nil {
+			t.Errorf("numeric query %q rejected: %v", expr, err)
 		}
 	}
 }
