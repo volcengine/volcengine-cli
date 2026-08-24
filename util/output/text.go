@@ -10,19 +10,20 @@ import (
 //
 // It mirrors the AWS CLI text formatter: ANY response is recursively flattened
 // into TSV lines, so a bare `--output text` (no --query) never prints a JSON
-// blob. Nested objects and lists are prefixed with the UPPERCASED field name
-// they came from (the "identifier"), which keeps otherwise-ambiguous nested
-// records traceable to their source key.
+// blob. Nested objects and lists are prefixed with their UPPERCASED field path
+// (`RESULT.INSTANCELIST`), naming the same node as the matching table section
+// title, so a line can be traced back to its origin without counting lines.
 //
 // Shape rules:
 //   - map               → one TSV row of its scalar fields; each nested field
-//     recurses on its own line(s), prefixed with the UPPERCASED key
+//     recurses on its own line(s), prefixed with the UPPERCASED path
 //   - []map             → one row per object, sharing the union of scalar keys
-//     (missing field → None); nested fields recurse, prefixed with the key
+//     (missing field → None); nested fields recurse, prefixed with the path
 //   - [][] / [] mixed   → scalar siblings join into one row; child lists/objects
 //     recurse; empty lists/objects produce no phantom rows
 //   - []scalar          → a single TSV row (values joined by Tab)
 //   - scalar / null     → single line
+//   - past maxNestDepth → the remainder as compact JSON, as table does
 //
 // The --query multiselect-hash column order (opts.Columns) is still honored for
 // object field ordering. Text stays free of headers and borders so it pipes
@@ -38,20 +39,72 @@ func writeText(w io.Writer, data interface{}, opts Options) error {
 
 func textLines(data interface{}, opts Options) []string {
 	var out []string
-	formatText(data, "", nil, opts, &out)
+	formatText(data, textNode{}, nil, opts, &out)
 	return out
 }
 
-// formatText dispatches by JSON kind. identifier is the UPPERCASED-on-write key
-// name a nested value was reached through; the empty string means "top level"
-// (no prefix). scalarKeys, when non-nil, is the shared column set computed for a
-// list of objects so every row lines up even when a field is missing.
-func formatText(item interface{}, identifier string, scalarKeys []string, opts Options, out *[]string) {
+// textNode locates the value being formatted inside the response.
+//
+// path is the dotted field path the value was reached through and becomes the
+// UPPERCASED row prefix; the empty path means "top level" (no prefix).
+//
+// index/total record the value's position in its parent list. They exist so the
+// nested rows of one record can be told apart from another's: without them the
+// TAGS lines of every instance carry the same label and are distinguishable
+// only by line order.
+type textNode struct {
+	path string
+	// index is 1-based. Both are 0 when the value is not a list element.
+	index, total int
+	// depth counts the nested fields descended through, counted the way
+	// buildSections counts it so both formats stop flattening at the same node.
+	depth int
+}
+
+// prefix is the row label. Response keys are untrusted terminal text, so
+// controls are escaped here exactly as they are in values.
+func (n textNode) prefix() string {
+	if n.path == "" {
+		return ""
+	}
+	return escapeCellString(strings.ToUpper(n.path))
+}
+
+// child is the node reached by descending into key.
+//
+// The parent's list position is appended, so `RESULT.INSTANCELIST.TAGS[2]` names
+// the tags of the second record and matches how table titles that section. A
+// parent list holding a single element adds no index, keeping the common
+// one-record response unadorned.
+func (n textNode) child(key string) textNode {
+	path := joinTitle(n.path, key)
+	if n.total > 1 {
+		path += "[" + itoa(n.index) + "]"
+	}
+	return textNode{path: path, depth: n.depth + 1}
+}
+
+// element is the node for list[i] of a list of length total. The path is left
+// alone: all records of one list share a row label, so a script can still
+// select every record with a single exact-match comparison on the first column.
+// A list element sits at the depth of its list, again matching buildSections.
+func (n textNode) element(i, total int) textNode {
+	return textNode{path: n.path, index: i + 1, total: total, depth: n.depth}
+}
+
+// formatText dispatches by JSON kind. scalarKeys, when non-nil, is the shared
+// column set computed for a list of objects so every row lines up even when a
+// field is missing.
+func formatText(item interface{}, node textNode, scalarKeys []string, opts Options, out *[]string) {
+	if node.depth > maxNestDepth {
+		formatScalarList([]interface{}{item}, node, out)
+		return
+	}
 	switch v := item.(type) {
 	case map[string]interface{}:
-		formatDict(v, identifier, scalarKeys, opts, out)
+		formatDict(v, node, scalarKeys, opts, out)
 	case []interface{}:
-		formatList(v, identifier, opts, out)
+		formatList(v, node, opts, out)
 	default:
 		*out = append(*out, scalarString(item))
 	}
@@ -60,7 +113,7 @@ func formatText(item interface{}, identifier string, scalarKeys []string, opts O
 // formatList flattens a list. A list with any object shares one column set
 // across its objects; a list with nested lists emits its scalar siblings on one
 // row and recurses into the nested lists; a pure scalar list joins into a row.
-func formatList(list []interface{}, identifier string, opts Options, out *[]string) {
+func formatList(list []interface{}, node textNode, opts Options, out *[]string) {
 	if len(list) == 0 {
 		return
 	}
@@ -69,42 +122,40 @@ func formatList(list []interface{}, identifier string, opts Options, out *[]stri
 		keys := listScalarKeys(list, orderedKeys)
 		listOpts := opts
 		listOpts.Columns = orderedKeys
-		for _, element := range list {
+		for i, element := range list {
 			if !isStructuredValue(element) {
-				formatScalarList([]interface{}{element}, identifier, out)
+				formatScalarList([]interface{}{element}, node, out)
 				continue
 			}
-			formatText(element, identifier, keys, listOpts, out)
+			formatText(element, node.element(i, len(list)), keys, listOpts, out)
 		}
 		return
 	}
 	if listHasList(list) {
 		var scalars []interface{}
-		var nested []interface{}
 		for _, element := range list {
-			if isStructuredValue(element) {
-				nested = append(nested, element)
-			} else {
+			if !isStructuredValue(element) {
 				scalars = append(scalars, element)
 			}
 		}
 		if len(scalars) > 0 {
-			formatScalarList(scalars, identifier, out)
+			formatScalarList(scalars, node, out)
 		}
-		for _, element := range nested {
-			formatText(element, identifier, nil, opts, out)
+		for i, element := range list {
+			if isStructuredValue(element) {
+				formatText(element, node.element(i, len(list)), nil, opts, out)
+			}
 		}
 		return
 	}
-	formatScalarList(list, identifier, out)
+	formatScalarList(list, node, out)
 }
 
-// formatScalarList writes a flat list. With an identifier every value gets its
-// own prefixed line; without one the values join into a single Tab-separated
-// row.
-func formatScalarList(elements []interface{}, identifier string, out *[]string) {
-	if identifier != "" {
-		prefix := escapeCellString(strings.ToUpper(identifier))
+// formatScalarList writes a flat list. Below the top level every value gets its
+// own prefixed line; at the top level the values join into a single
+// Tab-separated row.
+func formatScalarList(elements []interface{}, node textNode, out *[]string) {
+	if prefix := node.prefix(); prefix != "" {
 		for _, item := range elements {
 			*out = append(*out, prefix+"\t"+scalarString(item))
 		}
@@ -117,19 +168,19 @@ func formatScalarList(elements []interface{}, identifier string, out *[]string) 
 	*out = append(*out, strings.Join(cols, "\t"))
 }
 
-// formatDict writes an object's scalar fields as one row (prefixed by the
-// identifier when nested), then recurses into each structured field using that
-// field's key as the next identifier.
-func formatDict(m map[string]interface{}, identifier string, scalarKeys []string, opts Options, out *[]string) {
+// formatDict writes an object's scalar fields as one row (prefixed by its path
+// when nested), then recurses into each structured field under that field's
+// path.
+func formatDict(m map[string]interface{}, node textNode, scalarKeys []string, opts Options, out *[]string) {
 	scalars, nested := partitionDict(m, scalarKeys, opts)
 	if len(scalars) > 0 {
-		if identifier != "" {
-			scalars = append([]string{escapeCellString(strings.ToUpper(identifier))}, scalars...)
+		if prefix := node.prefix(); prefix != "" {
+			scalars = append([]string{prefix}, scalars...)
 		}
 		*out = append(*out, strings.Join(scalars, "\t"))
 	}
 	for _, field := range nested {
-		formatText(field.value, field.key, nil, opts, out)
+		formatText(field.value, node.child(field.key), nil, opts, out)
 	}
 }
 

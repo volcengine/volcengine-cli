@@ -224,7 +224,9 @@ func TestTextHeterogeneousScalarAndStructuredColumnRecurses(t *testing.T) {
 	if err := Write(&buf, FormatText, data); err != nil {
 		t.Fatal(err)
 	}
-	want := "i-1\tplain\ni-2\tNone\nVALUE\tnested\n"
+	// VALUE[2] names the record the nested object came from, matching the
+	// Value[2] section title table gives the same data.
+	want := "i-1\tplain\ni-2\tNone\nVALUE[2]\tnested\n"
 	if got := buf.String(); got != want {
 		t.Fatalf("heterogeneous object column = %q, want %q", got, want)
 	}

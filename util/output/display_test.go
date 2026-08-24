@@ -264,6 +264,31 @@ func TestDeepNestingTerminates(t *testing.T) {
 	}
 }
 
+// text stops descending where table does, so a response nested past the cap
+// cannot grow the row label one segment per level. Without the cap the label
+// grew without bound (a 2000-deep response produced a single 16KB label) and
+// building it cost one string per level.
+func TestDeepNestingKeepsTextLabelBounded(t *testing.T) {
+	labelAtDepth := func(depth int) string {
+		deep := interface{}(map[string]interface{}{"leaf": "v"})
+		for i := 0; i < depth; i++ {
+			deep = map[string]interface{}{"n": deep}
+		}
+		var buf bytes.Buffer
+		if err := Write(&buf, FormatText, deep); err != nil {
+			t.Fatal(err)
+		}
+		label, _, found := strings.Cut(buf.String(), "\t")
+		if !found {
+			t.Fatalf("depth %d produced no labelled row: %q", depth, buf.String())
+		}
+		return label
+	}
+	if shallow, deeper := labelAtDepth(40), labelAtDepth(400); shallow != deeper {
+		t.Fatalf("label grows with depth: %q vs %q", shallow, deeper)
+	}
+}
+
 func TestNestedSectionTitleEscapesTerminalControls(t *testing.T) {
 	key := "Tags\nnext\t\x1b[31mred\x1b[0m\a\u009b2J"
 	data := map[string]interface{}{

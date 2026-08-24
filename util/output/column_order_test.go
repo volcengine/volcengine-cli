@@ -193,7 +193,9 @@ func TestTextKeepsQueryNestedOrderForMixedStructuredColumn(t *testing.T) {
 		Options{Columns: []string{"Z", "NestedA", "Mixed"}}); err != nil {
 		t.Fatalf("WriteWithOptions: %v", err)
 	}
-	want := "z-1\tplain\nNESTEDA\ta-1\nz-2\tNone\nNESTEDA\ta-2\nMIXED\tmixed-2\n"
+	// The [n] suffix is the 1-based record the nested value belongs to, so the
+	// two NestedA lines are not interchangeable.
+	want := "z-1\tplain\nNESTEDA[1]\ta-1\nz-2\tNone\nNESTEDA[2]\ta-2\nMIXED[2]\tmixed-2\n"
 	if got := buf.String(); got != want {
 		t.Fatalf("text nested subsequence order = %q, want %q", got, want)
 	}

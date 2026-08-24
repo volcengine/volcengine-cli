@@ -46,6 +46,16 @@ func allScalars(list []interface{}) bool {
 // meaning null/absent) and from "(empty)".
 const nestedPlaceholder = "(see section)"
 
+// maxNestDepth caps how far table and text descend into nested fields before
+// rendering the remainder as compact JSON. Real responses stay well inside it;
+// the cap keeps a pathological response from exhausting the stack, and keeps
+// text row labels from growing one path segment per level.
+//
+// Both renderers share the value so they stop at the same node: past this depth
+// table prints compact JSON in a cell and text prints it in a field, rather than
+// one format flattening deeper than the other.
+const maxNestDepth = 8
+
 // orderedSubset returns the members of want, ordered as they appear in order.
 func orderedSubset(order, want []string) []string {
 	wanted := make(map[string]struct{}, len(want))
@@ -93,8 +103,7 @@ func splitNestedKeys(list []interface{}, keys []string) (scalar, nested []string
 // further sections, titled with the field path so the origin stays clear.
 // depth caps recursion so a pathological response cannot exhaust the stack.
 func buildSections(data interface{}, opts Options, title string, depth int) []section {
-	const maxDepth = 8
-	if depth > maxDepth {
+	if depth > maxNestDepth {
 		return []section{{title: title, headers: []string{"Value"},
 			rows: [][]string{{scalarString(data)}}}}
 	}
