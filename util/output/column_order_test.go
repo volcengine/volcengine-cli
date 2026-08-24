@@ -193,11 +193,37 @@ func TestTextKeepsQueryNestedOrderForMixedStructuredColumn(t *testing.T) {
 		Options{Columns: []string{"Z", "NestedA", "Mixed"}}); err != nil {
 		t.Fatalf("WriteWithOptions: %v", err)
 	}
-	// The [n] suffix is the 1-based record the nested value belongs to, so the
-	// two NestedA lines are not interchangeable.
-	want := "z-1\tplain\nNESTEDA[1]\ta-1\nz-2\tNone\nNESTEDA[2]\ta-2\nMIXED[2]\tmixed-2\n"
+	// Both records use the same NESTEDA label; each nested line follows the
+	// record row it belongs to, which is what attributes it. Mixed is an object
+	// on the second record, so its column points at that line rather than
+	// claiming the field is absent.
+	want := "z-1\tplain\nNESTEDA\ta-1\n" +
+		"z-2\t" + nestedPlaceholder + "\nNESTEDA\ta-2\nMIXED\tmixed-2\n"
 	if got := buf.String(); got != want {
 		t.Fatalf("text nested subsequence order = %q, want %q", got, want)
+	}
+}
+
+// The hint describes the one level the multiselect hash projected. text used to
+// carry it further down, so a nested object that happened to have the same key
+// set was ordered by the hint while the section table built for it stayed
+// alphabetical — two column orders for one value.
+func TestTextColumnHintDoesNotReachNestedObjects(t *testing.T) {
+	data := map[string]interface{}{
+		"Key": "outer",
+		"Value": map[string]interface{}{
+			"Key": "inner", "Value": "leaf",
+		},
+	}
+	var buf bytes.Buffer
+	if err := WriteWithOptions(&buf, FormatText, data,
+		Options{Columns: []string{"Value", "Key"}}); err != nil {
+		t.Fatal(err)
+	}
+	// Nested object stays alphabetical: Key ("inner") before Value ("leaf").
+	want := "outer\nVALUE\tinner\tleaf\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("nested order = %q, want %q", got, want)
 	}
 }
 

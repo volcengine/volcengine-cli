@@ -2,6 +2,7 @@ package output
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -24,6 +25,51 @@ func TestStdoutForWidthUnwrapsWrapper(t *testing.T) {
 	if got := stdoutForWidth(&checkedWriter{Writer: &bytes.Buffer{}}); got != nil {
 		t.Fatalf("buffer should yield nil, got %v", got)
 	}
+	// The chain the renderers actually receive must resolve too. Buffering the
+	// output added a layer that carries no Unwrap of its own, which would end
+	// the walk early and disable column fitting on a real terminal.
+	buffered, _ := renderWriters(os.Stdout)
+	if got := stdoutForWidth(buffered); got != os.Stdout {
+		t.Fatalf("production writer chain hides os.Stdout, got %v", got)
+	}
+}
+
+// The renderers write a line at a time; without buffering that is one syscall
+// per line at an unbuffered os.Stdout.
+func TestRenderedOutputIsBatchedIntoFewWrites(t *testing.T) {
+	list := make([]interface{}, 0, 500)
+	for i := 0; i < 500; i++ {
+		list = append(list, map[string]interface{}{
+			"Id": "i-" + itoa(i), "Status": "RUNNING", "Zone": "cn-beijing-a",
+		})
+	}
+
+	for _, format := range []Format{FormatText, FormatTable} {
+		counter := &writeCounter{}
+		if err := WriteWithOptions(counter, format, list,
+			Options{TerminalWidth: -1}); err != nil {
+			t.Fatal(err)
+		}
+		if counter.lines < 500 {
+			t.Fatalf("%s wrote %d bytes, expected a large rendering",
+				format, counter.bytes)
+		}
+		if counter.writes > 32 {
+			t.Fatalf("%s made %d write calls for %d bytes, expected them batched",
+				format, counter.writes, counter.bytes)
+		}
+	}
+}
+
+type writeCounter struct {
+	writes, bytes, lines int
+}
+
+func (c *writeCounter) Write(p []byte) (int, error) {
+	c.writes++
+	c.bytes += len(p)
+	c.lines += bytes.Count(p, []byte("\n"))
+	return len(p), nil
 }
 
 // Unknown width (buffer, pipe, failed probe) must keep the horizontal layout.
@@ -224,11 +270,78 @@ func TestTextHeterogeneousScalarAndStructuredColumnRecurses(t *testing.T) {
 	if err := Write(&buf, FormatText, data); err != nil {
 		t.Fatal(err)
 	}
-	// VALUE[2] names the record the nested object came from, matching the
-	// Value[2] section title table gives the same data.
-	want := "i-1\tplain\ni-2\tNone\nVALUE[2]\tnested\n"
+	// The column must not read None: the field exists on i-2, it is just
+	// rendered on the VALUE line that follows. None is reserved for a field
+	// that is genuinely absent or null.
+	want := "i-1\tplain\ni-2\t" + nestedPlaceholder + "\nVALUE\tnested\n"
 	if got := buf.String(); got != want {
 		t.Fatalf("heterogeneous object column = %q, want %q", got, want)
+	}
+}
+
+// A field can be a string on one record and a list on the next. table renders
+// that list inline in the cell, so text must show it too: reporting None would
+// claim a field that is right there in --output json does not exist.
+func TestTextSharedColumnKeepsScalarListValue(t *testing.T) {
+	data := []interface{}{
+		map[string]interface{}{"Id": "i-1", "Sg": "sg-only"},
+		map[string]interface{}{"Id": "i-2", "Sg": []interface{}{"sg-1", "sg-2"}},
+	}
+
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatText, data); err != nil {
+		t.Fatal(err)
+	}
+	want := "i-1\tsg-only\ni-2\t[\"sg-1\",\"sg-2\"]\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("shared column = %q, want %q", got, want)
+	}
+}
+
+// A cell may only point at the lines below once those lines exist. Nesting that
+// bottoms out in empty containers flattens to nothing, so the pointer would name
+// a line the reader can never find.
+func TestTextNeverPointsAtLinesItDoesNotEmit(t *testing.T) {
+	for _, contentFree := range []string{`{"inner":{}}`, `[{}]`, `[[]]`} {
+		var value interface{}
+		if err := json.Unmarshal([]byte(contentFree), &value); err != nil {
+			t.Fatal(err)
+		}
+		data := []interface{}{
+			map[string]interface{}{"Id": "i-1", "B": "scalar"},
+			map[string]interface{}{"Id": "i-2", "B": value},
+		}
+
+		var buf bytes.Buffer
+		if err := Write(&buf, FormatText, data); err != nil {
+			t.Fatal(err)
+		}
+		out := buf.String()
+		if strings.Contains(out, nestedPlaceholder) {
+			t.Fatalf("%s: cell points at lines that were never emitted:\n%s",
+				contentFree, out)
+		}
+		// The value still has to be visible, shape and all.
+		if !strings.Contains(out, contentFree) {
+			t.Fatalf("%s: value lost from the row:\n%s", contentFree, out)
+		}
+	}
+}
+
+// The pointer must still be used when the lines really do follow.
+func TestTextPointsAtNestedLinesWhenTheyExist(t *testing.T) {
+	data := []interface{}{
+		map[string]interface{}{"Id": "i-1", "B": "scalar"},
+		map[string]interface{}{"Id": "i-2", "B": map[string]interface{}{"Inner": "v"}},
+	}
+	var buf bytes.Buffer
+	if err := Write(&buf, FormatText, data); err != nil {
+		t.Fatal(err)
+	}
+	// Columns are alphabetical, so B comes before Id.
+	want := "scalar\ti-1\n" + nestedPlaceholder + "\ti-2\nB\tv\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("text = %q, want %q", got, want)
 	}
 }
 

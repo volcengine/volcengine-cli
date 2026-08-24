@@ -2,6 +2,8 @@ package output
 
 import (
 	"bytes"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -72,22 +74,26 @@ func TestTextRecordRowsShareOneLabel(t *testing.T) {
 	}
 }
 
-// A nested value carries the position of the record it belongs to, so the tags
-// of instance 1 and instance 2 are not interchangeable.
-func TestTextNestedRowsCarryRecordPosition(t *testing.T) {
-	out := textOf(t, nestedListResponse())
-	for _, want := range []string{
-		"RESULT.INSTANCELIST.TAGS[1]\tenv\tprod\n",
-		"RESULT.INSTANCELIST.TAGS[2]\tenv\ttest\n",
-	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("missing %q:\n%s", want, out)
-		}
+// A nested value is attributed by line order, the way the AWS CLI text
+// formatter does it: the tags of an instance are emitted immediately after that
+// instance's own row, so a script tracks the last record row it saw.
+func TestTextNestedLinesFollowTheirRecordRow(t *testing.T) {
+	want := "RESULT.INSTANCELIST\ti-1\n" +
+		"RESULT.INSTANCELIST.TAGS\tenv\tprod\n" +
+		"RESULT.INSTANCELIST\ti-2\n" +
+		"RESULT.INSTANCELIST.TAGS\tenv\ttest\n"
+	if got := textOf(t, nestedListResponse()); got != want {
+		t.Fatalf("text = %q, want %q", got, want)
 	}
 }
 
 // text labels and table section titles must name the same node, differing only
-// in case. Otherwise the two formats describe the same nesting two ways.
+// in case and in the record number. Otherwise the two formats describe the same
+// nesting two ways.
+//
+// Only table numbers its sections: it prints every record before any nested
+// section, so a section has no row to sit next to and needs the number to stay
+// traceable. text has that adjacency and keeps the label stable instead.
 func TestTextLabelsMatchTableSectionTitles(t *testing.T) {
 	data := nestedListResponse()
 
@@ -102,18 +108,13 @@ func TestTextLabelsMatchTableSectionTitles(t *testing.T) {
 		if line == "" || strings.HasPrefix(line, "+") || strings.HasPrefix(line, "|") {
 			continue
 		}
-		titles[strings.ToUpper(line)] = struct{}{}
+		titles[stripRecordNumber(strings.ToUpper(line))] = struct{}{}
 	}
 	if len(titles) == 0 {
 		t.Fatalf("no table section titles found:\n%s", table.String())
 	}
 
-	labels := map[string]struct{}{}
-	for _, line := range strings.Split(strings.TrimSuffix(textOf(t, data), "\n"), "\n") {
-		if label, _, found := strings.Cut(line, "\t"); found {
-			labels[label] = struct{}{}
-		}
-	}
+	labels := labelsOf(textOf(t, data))
 	for title := range titles {
 		if _, ok := labels[title]; !ok {
 			t.Fatalf("table section %q has no matching text label %v", title, labels)
@@ -121,10 +122,24 @@ func TestTextLabelsMatchTableSectionTitles(t *testing.T) {
 	}
 }
 
-// A parent list of one element adds no position, keeping the common
-// single-record response unadorned.
-func TestTextSingleRecordNeedsNoPosition(t *testing.T) {
-	data := map[string]interface{}{
+// stripRecordNumber drops the trailing "[n]" a table section title carries.
+func stripRecordNumber(title string) string {
+	open := strings.LastIndexByte(title, '[')
+	if open < 0 || !strings.HasSuffix(title, "]") {
+		return title
+	}
+	if _, err := strconv.Atoi(title[open+1 : len(title)-1]); err != nil {
+		return title
+	}
+	return title[:open]
+}
+
+// A label must not depend on how many records came back. It used to carry the
+// record number as soon as a list held more than one element, so
+// `$1 == "RESULT.INSTANCELIST.TAGS"` matched a one-record response and then
+// silently matched nothing once a second instance existed.
+func TestTextLabelsDoNotDependOnRecordCount(t *testing.T) {
+	single := map[string]interface{}{
 		"Result": map[string]interface{}{
 			"InstanceList": []interface{}{
 				map[string]interface{}{
@@ -136,10 +151,25 @@ func TestTextSingleRecordNeedsNoPosition(t *testing.T) {
 			},
 		},
 	}
-	out := textOf(t, data)
-	if !strings.Contains(out, "RESULT.INSTANCELIST.TAGS\tenv\tprod\n") {
-		t.Fatalf("single record should carry no [n]:\n%s", out)
+	oneRecord := labelsOf(textOf(t, single))
+	twoRecords := labelsOf(textOf(t, nestedListResponse()))
+	if !reflect.DeepEqual(oneRecord, twoRecords) {
+		t.Fatalf("labels changed with the record count: one=%v two=%v",
+			oneRecord, twoRecords)
 	}
+	if _, ok := oneRecord["RESULT.INSTANCELIST.TAGS"]; !ok {
+		t.Fatalf("expected a plain path label, got %v", oneRecord)
+	}
+}
+
+func labelsOf(text string) map[string]struct{} {
+	labels := map[string]struct{}{}
+	for _, line := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
+		if label, _, found := strings.Cut(line, "\t"); found {
+			labels[label] = struct{}{}
+		}
+	}
+	return labels
 }
 
 // Response keys reach the terminal inside the label now, so a key carrying a Tab

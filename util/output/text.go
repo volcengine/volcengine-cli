@@ -12,22 +12,27 @@ import (
 // into TSV lines, so a bare `--output text` (no --query) never prints a JSON
 // blob. Nested objects and lists are prefixed with their UPPERCASED field path
 // (`RESULT.INSTANCELIST`), naming the same node as the matching table section
-// title, so a line can be traced back to its origin without counting lines.
+// title, so a line can be traced back to its origin without counting lines. The
+// label is the path only: unlike a table section title it carries no record
+// number, so it does not change when the response returns one record or ten.
 //
 // Shape rules:
 //   - map               → one TSV row of its scalar fields; each nested field
 //     recurses on its own line(s), prefixed with the UPPERCASED path
 //   - []map             → one row per object, sharing the union of scalar keys
-//     (missing field → None); nested fields recurse, prefixed with the path
+//     (missing field → None); nested fields recurse, prefixed with the path. A
+//     shared column that is structured on some record shows the value inline
+//     or points at the lines below — see partitionDict
 //   - [][] / [] mixed   → scalar siblings join into one row; child lists/objects
 //     recurse; empty lists/objects produce no phantom rows
 //   - []scalar          → a single TSV row (values joined by Tab)
 //   - scalar / null     → single line
 //   - past maxNestDepth → the remainder as compact JSON, as table does
 //
-// The --query multiselect-hash column order (opts.Columns) is still honored for
-// object field ordering. Text stays free of headers and borders so it pipes
-// cleanly into line tools (awk/grep/nl operate per line).
+// The --query multiselect-hash column order (opts.Columns) is honored for the
+// level the hash projected, and dropped below it, exactly as buildSections does.
+// Text stays free of headers and borders so it pipes cleanly into line tools
+// (awk/grep/nl operate per line).
 func writeText(w io.Writer, data interface{}, opts Options) error {
 	for _, line := range textLines(data, opts) {
 		if _, err := io.WriteString(w, line+"\n"); err != nil {
@@ -47,15 +52,8 @@ func textLines(data interface{}, opts Options) []string {
 //
 // path is the dotted field path the value was reached through and becomes the
 // UPPERCASED row prefix; the empty path means "top level" (no prefix).
-//
-// index/total record the value's position in its parent list. They exist so the
-// nested rows of one record can be told apart from another's: without them the
-// TAGS lines of every instance carry the same label and are distinguishable
-// only by line order.
 type textNode struct {
 	path string
-	// index is 1-based. Both are 0 when the value is not a list element.
-	index, total int
 	// depth counts the nested fields descended through, counted the way
 	// buildSections counts it so both formats stop flattening at the same node.
 	depth int
@@ -72,24 +70,18 @@ func (n textNode) prefix() string {
 
 // child is the node reached by descending into key.
 //
-// The parent's list position is appended, so `RESULT.INSTANCELIST.TAGS[2]` names
-// the tags of the second record and matches how table titles that section. A
-// parent list holding a single element adds no index, keeping the common
-// one-record response unadorned.
+// The label is the field path alone, never the position of the record it came
+// from: a label that carried `[2]` would depend on how many records the response
+// happened to contain, so `$1 == "RESULT.INSTANCELIST.TAGS"` would match a
+// one-record response and silently match nothing once a second record appeared.
+//
+// Attribution comes from line order instead, as it does in the AWS CLI text
+// formatter: a record's nested lines are emitted immediately after that record's
+// own row, so a script tracks the last record row it saw. `--output table` still
+// numbers its sections, because a table prints every record before any nested
+// section and so has no adjacency to rely on.
 func (n textNode) child(key string) textNode {
-	path := joinTitle(n.path, key)
-	if n.total > 1 {
-		path += "[" + itoa(n.index) + "]"
-	}
-	return textNode{path: path, depth: n.depth + 1}
-}
-
-// element is the node for list[i] of a list of length total. The path is left
-// alone: all records of one list share a row label, so a script can still
-// select every record with a single exact-match comparison on the first column.
-// A list element sits at the depth of its list, again matching buildSections.
-func (n textNode) element(i, total int) textNode {
-	return textNode{path: n.path, index: i + 1, total: total, depth: n.depth}
+	return textNode{path: joinTitle(n.path, key), depth: n.depth + 1}
 }
 
 // formatText dispatches by JSON kind. scalarKeys, when non-nil, is the shared
@@ -122,12 +114,12 @@ func formatList(list []interface{}, node textNode, opts Options, out *[]string) 
 		keys := listScalarKeys(list, orderedKeys)
 		listOpts := opts
 		listOpts.Columns = orderedKeys
-		for i, element := range list {
+		for _, element := range list {
 			if !isStructuredValue(element) {
 				formatScalarList([]interface{}{element}, node, out)
 				continue
 			}
-			formatText(element, node.element(i, len(list)), keys, listOpts, out)
+			formatText(element, node, keys, listOpts, out)
 		}
 		return
 	}
@@ -141,9 +133,12 @@ func formatList(list []interface{}, node textNode, opts Options, out *[]string) 
 		if len(scalars) > 0 {
 			formatScalarList(scalars, node, out)
 		}
-		for i, element := range list {
+		for _, element := range list {
 			if isStructuredValue(element) {
-				formatText(element, node.element(i, len(list)), nil, opts, out)
+				// List nesting is transparent flattening, not a step down into
+				// a field: `[[{...}]]` still renders the rows the query
+				// projected, so the column-order hint stays in effect.
+				formatText(element, node, nil, opts, out)
 			}
 		}
 		return
@@ -180,7 +175,10 @@ func formatDict(m map[string]interface{}, node textNode, scalarKeys []string, op
 		*out = append(*out, strings.Join(scalars, "\t"))
 	}
 	for _, field := range nested {
-		formatText(field.value, node.child(field.key), nil, opts, out)
+		// The column-order hint describes the one level the --query multiselect
+		// hash projected, so it is dropped on the way down. buildSections does
+		// the same, keeping the two formats on the same key order.
+		formatText(field.value, node.child(field.key), nil, Options{}, out)
 	}
 }
 
@@ -194,6 +192,13 @@ type textField struct {
 // listed key is emitted in order so rows align, with missing fields shown as
 // None; the remaining keys recurse. Otherwise the object's own keys are used,
 // honoring the --query column order.
+//
+// A shared column is not necessarily scalar in every record: a field can be a
+// string on one instance and a list on the next. That cell must still show the
+// value, and must not read None, which is how this row reports a field that is
+// genuinely absent or null. It points at the flattened lines below only when
+// those lines exist (see producesTextLines); otherwise the value is rendered
+// inline, which is also what table puts in the same cell.
 func partitionDict(m map[string]interface{}, scalarKeys []string, opts Options) (scalars []string, nested []textField) {
 	if scalarKeys == nil {
 		for _, key := range applyColumnOrder(sortedMapKeys(m), opts.Columns) {
@@ -213,8 +218,8 @@ func partitionDict(m map[string]interface{}, scalarKeys []string, opts Options) 
 		switch {
 		case !ok:
 			scalars = append(scalars, noneValue)
-		case isStructuredValue(value):
-			scalars = append(scalars, noneValue)
+		case isNested(value) && producesTextLines(value):
+			scalars = append(scalars, nestedPlaceholder)
 			nestedKeys = append(nestedKeys, key)
 		default:
 			scalars = append(scalars, scalarString(value))
@@ -279,6 +284,34 @@ func listScalarKeys(list []interface{}, orderedKeys []string) []string {
 		keys = append(keys, key)
 	}
 	return orderedSubset(orderedKeys, keys)
+}
+
+// producesTextLines reports whether flattening v emits at least one line.
+//
+// text has no cell to park an empty container in: nesting that bottoms out in
+// `{}` or `[]` alone flattens to nothing at all. A cell may only point at the
+// lines below (nestedPlaceholder) once those lines are known to exist, otherwise
+// the row would name a line the reader can never find. Such a value is rendered
+// inline instead, which at least shows its shape.
+func producesTextLines(v interface{}) bool {
+	switch x := v.(type) {
+	case map[string]interface{}:
+		for _, field := range x {
+			if producesTextLines(field) {
+				return true
+			}
+		}
+		return false
+	case []interface{}:
+		for _, element := range x {
+			if producesTextLines(element) {
+				return true
+			}
+		}
+		return false
+	default:
+		return true
+	}
 }
 
 func isStructuredValue(v interface{}) bool {

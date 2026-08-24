@@ -2,6 +2,7 @@
 package output
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"strings"
@@ -76,6 +77,26 @@ func (w *checkedWriter) Write(p []byte) (int, error) {
 // width probe fail and silently disable column fitting.
 func (w *checkedWriter) Unwrap() io.Writer { return w.Writer }
 
+// bufferedWriter batches the renderers' line-at-a-time writes.
+//
+// text and table emit one write per rendered line straight at an unbuffered
+// os.Stdout, so a 20k-record response costs tens of thousands of syscalls. It
+// also keeps the Unwrap chain intact, which bufio.Writer alone would break and
+// silently disable terminal-width fitting.
+type bufferedWriter struct {
+	*bufio.Writer
+	under io.Writer
+}
+
+func (w *bufferedWriter) Unwrap() io.Writer { return w.under }
+
+// renderWriters builds the writer chain every renderer sees. Tests use it too,
+// so a change to the chain cannot quietly cut the width-detection path.
+func renderWriters(w io.Writer) (*bufferedWriter, *checkedWriter) {
+	checked := &checkedWriter{Writer: w}
+	return &bufferedWriter{Writer: bufio.NewWriter(checked), under: checked}, checked
+}
+
 // Write formats data to w according to format, using default options.
 func Write(w io.Writer, format Format, data interface{}) error {
 	return WriteWithOptions(w, format, data, Options{})
@@ -86,26 +107,31 @@ func WriteWithOptions(w io.Writer, format Format, data interface{}, opts Options
 	if w == nil {
 		return fmt.Errorf("output writer is nil")
 	}
-	writer := &checkedWriter{Writer: w}
+	buffered, checked := renderWriters(w)
 	var err error
 	switch format {
 	case FormatJSON:
-		err = writeJSON(writer, data)
+		err = writeJSON(buffered, data)
 	case FormatTable:
-		err = writeTable(writer, data, opts, false)
+		err = writeTable(buffered, data, opts, false)
 	case FormatTableNum:
-		err = writeTable(writer, data, opts, true)
+		err = writeTable(buffered, data, opts, true)
 	case FormatText:
-		err = writeText(writer, data, opts)
+		err = writeText(buffered, data, opts)
 	case FormatYAML:
-		err = writeYAML(writer, data)
+		err = writeYAML(buffered, data)
 	case FormatOff:
 		return nil
 	default:
 		return fmt.Errorf("unsupported output format %q, supported: %s", format, supportedFormatsMessage())
 	}
-	if writer.err != nil {
-		return writer.err
+	// Flush even after a rendering error: the lines already produced belong on
+	// stdout, and the flush is what surfaces a write failure the buffer hid.
+	if flushErr := buffered.Flush(); err == nil {
+		err = flushErr
+	}
+	if checked.err != nil {
+		return checked.err
 	}
 	return err
 }
