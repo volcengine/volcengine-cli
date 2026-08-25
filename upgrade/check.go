@@ -54,20 +54,7 @@ const failureBackoff = 15 * time.Minute
 
 // ConfigDirFunc returns the CLI config directory (default ~/.volcengine/).
 // Overridable in tests. Prefer util.GetConfigFileDir from callers when wiring.
-var (
-	ConfigDirFunc = defaultConfigDir
-
-	// noticeCacheProcessLock serializes every in-process cache read-modify-write
-	// section. A channel keeps acquisition timeout-aware; sync.Mutex.Lock cannot
-	// be bounded when a cache writer gets stuck in filesystem I/O.
-	// OS file locks provide cross-process exclusion, but their treatment of locks
-	// opened through multiple descriptors in one process is platform-dependent.
-	noticeCacheProcessLock = make(chan struct{}, 1)
-
-	// renameCheckCacheFile is a test seam for verifying that a failed atomic
-	// replacement leaves the previous cache intact.
-	renameCheckCacheFile = replaceCheckCacheFile
-)
+var ConfigDirFunc = defaultConfigDir
 
 func defaultConfigDir() (string, error) {
 	home, err := os.UserHomeDir()
@@ -128,7 +115,7 @@ var rootBoolFlags = map[string]struct{}{
 // treat their values as the root subcommand (e.g. ve --lang ZH upgrade).
 // Keep in sync with:
 //   - cmd/parser publicSystemFlags / allowedLegacyFixedFlags
-//   - cmd/reservedDynamicFlags (double-dash reserved controls: --header, --body, --api-param)
+//   - cmd/reservedDynamicFlags (double-dash reserved controls: --header, --body)
 var rootValueFlags = map[string]struct{}{
 	"--lang":      {},
 	"--profile":   {},
@@ -142,9 +129,8 @@ var rootValueFlags = map[string]struct{}{
 	"---version":  {},
 	"---method":   {},
 	// Double-dash reserved CLI controls (cmd.reservedDynamicFlags).
-	"--header":    {},
-	"--body":      {},
-	"--api-param": {},
+	"--header": {},
+	"--body":   {},
 }
 
 // ShouldSkipBackgroundCheck returns true when the current invocation should not
@@ -319,13 +305,6 @@ func noticeAlreadyClaimedToday(c versionCheckCache, currentVersion string, now t
 // Bounded so a stuck holder cannot hang every ve process on the notice path.
 const noticeCacheLockWait = 500 * time.Millisecond
 
-// Invalidation runs after a successful pinned upgrade when the latest-version
-// refresh failed. Give an active cache writer longer to finish so a transient
-// contention does not leave a misleading fresh cache behind.
-const invalidateCheckCacheLockWait = 2 * time.Second
-
-var acquireNoticeCacheFileLock = acquireExclusiveFileLockWithWait
-
 // noticeCacheLockPath is a sibling lock file for version_check.json cross-process claim.
 // The lock file is never unlinked: flock/LockFileEx bind to the open inode/handle;
 // deleting a held lock path lets another process create a new inode and dual-hold.
@@ -337,65 +316,29 @@ func noticeCacheLockPath() (string, error) {
 	return path + ".lock", nil
 }
 
-// withNoticeCacheLock serializes fn in-process and, when possible, holds an
-// exclusive cross-process lock on the notice cache.
+// withNoticeCacheLock runs fn under an exclusive lock on the notice cache when
+// possible (best-effort, not a hard mutex guarantee).
 //
 // Waits up to noticeCacheLockWait using non-blocking lock attempts.
-// A busy-lock timeout must not run fn: doing so would bypass a known holder and
-// permit lost read-modify-write updates. If file locking is unavailable for a
-// non-contention reason (permissions, unsupported filesystem, missing config
-// dir), fn still runs under the process mutex as a best-effort fallback.
+// If the lock cannot be acquired (timeout, permissions, missing config dir),
+// fn still runs unlocked: prefer a possible duplicate notice over permanently
+// hiding upgrades or hanging the CLI. On normal local disks concurrent ve
+// processes serialize and meet the once-per-day contract (14_upgrade_e2e-10).
 //
 // Not re-entrant: do not call writeCheckCache / SaveCheckCache / this helper
-// again from inside fn. Locked sections must use writeCheckCacheUnlocked only.
+// again from inside fn — nested acquire will busy-wait then fall back to the
+// unlocked path. Locked sections must use writeCheckCacheUnlocked only.
 func withNoticeCacheLock(fn func() error) error {
-	return withNoticeCacheLockWait(noticeCacheLockWait, fn)
-}
-
-func withNoticeCacheLockWait(wait time.Duration, fn func() error) error {
-	deadline := time.Now().Add(wait)
-	if !acquireNoticeCacheProcessLock(wait) {
-		return fmt.Errorf("timed out waiting for in-process notice cache lock")
-	}
-	defer func() { <-noticeCacheProcessLock }()
-
 	lockPath, err := noticeCacheLockPath()
 	if err != nil {
 		return fn()
 	}
-	remaining := time.Until(deadline)
-	if remaining < 0 {
-		remaining = 0
-	}
-	lock, err := acquireNoticeCacheFileLock(lockPath, remaining)
+	lock, err := acquireExclusiveFileLockWithWait(lockPath, noticeCacheLockWait)
 	if err != nil {
-		if isUpgradeLockBusy(err) {
-			return fmt.Errorf("timed out waiting for notice cache lock %s: %w", lockPath, err)
-		}
 		return fn()
 	}
 	defer lock.release()
 	return fn()
-}
-
-func acquireNoticeCacheProcessLock(wait time.Duration) bool {
-	// Preserve one immediate acquisition attempt even for a zero timeout.
-	select {
-	case noticeCacheProcessLock <- struct{}{}:
-		return true
-	default:
-	}
-	if wait <= 0 {
-		return false
-	}
-	timer := time.NewTimer(wait)
-	defer timer.Stop()
-	select {
-	case noticeCacheProcessLock <- struct{}{}:
-		return true
-	case <-timer.C:
-		return false
-	}
 }
 
 // acquireExclusiveFileLockWithWait polls a non-blocking exclusive lock until
@@ -425,27 +368,23 @@ func acquireExclusiveFileLockWithWait(lockPath string, wait time.Duration) (*upg
 //
 // Cross-process: claim is serialized with a file lock so concurrent ve processes
 // (see 14_upgrade_e2e-10) observe at most one winner per current+day when the
-// lock is acquired. If a busy lock times out, the caller may still print without
-// updating the cache so upgrades are not hidden, but it must not bypass the lock
-// holder and clobber its cache update.
+// lock is acquired. If locking fails, claim still proceeds unlocked (may
+// double-print) so upgrades are never permanently hidden.
 // Best-effort write: a disk error still returns true so a transient FS issue does
 // not permanently hide upgrades, at the cost of possible re-print on the next command.
 func tryClaimUpgradeNotice(latest, current string) bool {
 	current = NormalizeVersion(current)
 	now := time.Now()
 	var shouldPrint bool
-	err := withNoticeCacheLock(func() error {
+	_ = withNoticeCacheLock(func() error {
 		shouldPrint = claimUpgradeNoticeLocked(latest, current, now)
 		return nil
 	})
-	if err != nil {
-		return true
-	}
 	return shouldPrint
 }
 
-// claimUpgradeNoticeLocked must run under withNoticeCacheLock. It re-reads the
-// cache so concurrent waiters see the winner's stamp.
+// claimUpgradeNoticeLocked must run under withNoticeCacheLock (or unlocked
+// fallback). It re-reads the cache so concurrent waiters see the winner's stamp.
 func claimUpgradeNoticeLocked(latest, current string, now time.Time) bool {
 	c, ok := loadCheckCacheFile()
 	if ok && noticeAlreadyClaimedToday(c, current, now) {
@@ -470,27 +409,15 @@ func claimUpgradeNoticeLocked(latest, current string, now time.Time) bool {
 	return true
 }
 
-// InvalidateCheckCache removes the version check cache on a best-effort basis.
+// InvalidateCheckCache removes the version check cache (best-effort).
 // Does not delete the sibling .lock file: unlinking a held lock path allows a
 // second process to create a new inode and take a concurrent "exclusive" lock.
 func InvalidateCheckCache() {
-	_ = invalidateCheckCache()
-}
-
-// invalidateCheckCache exposes maintenance failures to the upgrade path without
-// changing the long-standing exported best-effort API above.
-func invalidateCheckCache() error {
-	return withNoticeCacheLockWait(invalidateCheckCacheLockWait, func() error {
-		path, err := CheckCachePath()
-		if err != nil {
-			return err
-		}
-		err = os.Remove(path)
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	})
+	path, err := CheckCachePath()
+	if err != nil {
+		return
+	}
+	_ = os.Remove(path)
 }
 
 func writeCheckCache(c versionCheckCache) error {
@@ -507,9 +434,9 @@ func writeCheckCacheUnlocked(c versionCheckCache) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
-	// Refuse existing non-regular paths (symlink/FIFO/dir). Atomic rename below
-	// replaces a raced symlink rather than following it, but reject an existing
-	// one explicitly instead of silently changing its directory entry.
+	// Refuse existing non-regular paths (symlink/FIFO/dir). WriteFile still
+	// follows links if the path is replaced after Lstat; this is best-effort
+	// hardening for a single-user config dir, not a full O_NOFOLLOW open.
 	if err := rejectNonRegularPath(path); err != nil {
 		return err
 	}
@@ -517,44 +444,14 @@ func writeCheckCacheUnlocked(c versionCheckCache) error {
 	if err != nil {
 		return err
 	}
-	dir := filepath.Dir(path)
-	tmp, err := ioutil.TempFile(dir, "."+filepath.Base(path)+".tmp-*")
-	if err != nil {
+	// Direct write under the exclusive lock (or rare unlocked fallback). Avoid
+	// remove-then-rename, which can delete the only good cache if rename fails
+	// (Windows AV/ACL) and reopen multi-claim when waiters see a missing stamp.
+	if err := ioutil.WriteFile(path, data, 0600); err != nil {
 		return err
 	}
-	tmpPath := tmp.Name()
-	tmpOpen := true
-	defer func() {
-		if tmpOpen {
-			_ = tmp.Close()
-		}
-		_ = os.Remove(tmpPath)
-	}()
-
-	if err := tmp.Chmod(0600); err != nil {
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		tmpOpen = false
-		return err
-	}
-	tmpOpen = false
-
-	// Recheck immediately before replacement. Rename is same-directory and
-	// therefore atomic: readers observe either the complete old JSON or the
-	// complete new JSON. A failed replacement leaves the old cache untouched.
-	if err := rejectNonRegularPath(path); err != nil {
-		return err
-	}
-	if err := renameCheckCacheFile(tmpPath, path); err != nil {
-		return err
-	}
+	// WriteFile only applies mode on create; re-tighten existing files.
+	_ = os.Chmod(path, 0600)
 	return nil
 }
 

@@ -73,27 +73,21 @@ func initRootCmd() {
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Fprintln(cmd.OutOrStdout(), clientVersion)
 		},
-	}, newColorCommand("enable-color", true), newColorCommand("disable-color", false))
-}
-
-func newColorCommand(use string, enabled bool) *cobra.Command {
-	return &cobra.Command{
-		Use:    use,
-		Hidden: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			tx, err := configForWrite()
-			if err != nil {
-				return err
-			}
-			cfg := tx.config
-			cfg.EnableColor = enabled
-			if err := writeConfigTransaction(tx); err != nil {
-				return err
-			}
-			setRuntimeConfigTransaction(tx)
-			return nil
+	}, &cobra.Command{
+		Use: "enable-color",
+		Run: func(cmd *cobra.Command, args []string) {
+			config.EnableColor = true
+			WriteConfigToFile(config)
 		},
-	}
+		Hidden: true,
+	}, &cobra.Command{
+		Use: "disable-color",
+		Run: func(cmd *cobra.Command, args []string) {
+			config.EnableColor = false
+			WriteConfigToFile(config)
+		},
+		Hidden: true,
+	})
 }
 
 func Execute() {

@@ -255,12 +255,17 @@ func newConfigureSsoSessionCmd() *cobra.Command {
 		Use: "sso-session",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// 初始化配置对象与会话映射，保证后续读写安全。
-			tx, err := configForWrite()
-			if err != nil {
-				return err
+			cfg := ctx.config
+			if cfg == nil {
+				cfg = &Configure{
+					Profiles:   make(map[string]*Profile),
+					SsoSession: make(map[string]*SsoSession),
+				}
+				ctx.config = cfg
 			}
-			cfg := tx.config
-			setRuntimeConfigTransaction(tx)
+			if cfg.SsoSession == nil {
+				cfg.SsoSession = make(map[string]*SsoSession)
+			}
 
 			// 确定要操作的会话名称；若未传参则进入交互式选择/创建流程。
 			var existingSession *SsoSession
@@ -295,6 +300,7 @@ func newConfigureSsoSessionCmd() *cobra.Command {
 			}
 			// 采集并规范化 scopes：支持参数输入或交互式输入，并去重校验。
 			var scopes []string
+			var err error
 			if len(ssoSessionFlags.RegistrationScopes) == 0 {
 				showDefault := existingSession == nil
 				scopes, err = promptForRegistrationScopesWithDefault(defaultScopes, showDefault)
@@ -450,12 +456,20 @@ func newConfigureSsoCmd() *cobra.Command {
 		Use: "sso",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// 加载并初始化配置，保证 profiles 与 sso-session 映射存在。
-			tx, err := configForWrite()
-			if err != nil {
-				return err
+			cfg := ctx.config
+			if cfg == nil {
+				cfg = &Configure{
+					Profiles:   make(map[string]*Profile),
+					SsoSession: make(map[string]*SsoSession),
+				}
+				ctx.config = cfg
 			}
-			cfg := tx.config
-			setRuntimeConfigTransaction(tx)
+			if cfg.Profiles == nil {
+				cfg.Profiles = make(map[string]*Profile)
+			}
+			if cfg.SsoSession == nil {
+				cfg.SsoSession = make(map[string]*SsoSession)
+			}
 
 			// 读取 CLI 标志位，控制设备码流程与浏览器自动打开行为。
 			noBrowser, err := cmd.Flags().GetBool("no-browser")
@@ -739,10 +753,6 @@ func buildPromptFuncMap() template.FuncMap {
 // createSsoSessionInSso 在 SSO 会话不存在时创建新会话并写入配置文件。
 // 该流程采用交互式输入，完成 StartURL、Region 与 Scopes 的采集与校验。
 func createSsoSessionInSso(sessionName string, cfg *Configure) (*SsoSession, error) {
-	tx, err := prepareConfigForMutation(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to prepare config update: %w", err)
-	}
 	newSession := &SsoSession{
 		Name: sessionName,
 	}
@@ -771,7 +781,7 @@ func createSsoSessionInSso(sessionName string, cfg *Configure) (*SsoSession, err
 	cfg.SsoSession[sessionName] = newSession
 
 	// 写入配置文件，确保会话持久化。
-	err = writeConfigTransaction(tx)
+	err = WriteConfigToFile(cfg)
 	if err != nil {
 		return nil, trErrorf("failed to save SSO session configuration: %v", err)
 	}

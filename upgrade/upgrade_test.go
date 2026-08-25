@@ -557,24 +557,8 @@ func TestRefreshVersionCacheAfterInstall_PinInvalidatesOnResolveFail(t *testing.
 	SetCheckHTTPClient(&http.Client{Timeout: 50 * time.Millisecond})
 	defer SetCheckHTTPClient(&http.Client{Timeout: CheckHTTPTimeout})
 
-	if err := refreshVersionCacheAfterInstall(true, "1.0.40"); err != nil {
-		t.Fatal(err)
-	}
+	refreshVersionCacheAfterInstall(true, "1.0.40")
 	if _, ok := LoadCheckCache(); ok {
 		t.Fatal("expected cache invalidated when pin install cannot re-resolve latest")
-	}
-}
-
-func TestRefreshVersionCacheAfterInstallBestEffortWarns(t *testing.T) {
-	wantErr := fmt.Errorf("config unavailable")
-	origConfigDir := ConfigDirFunc
-	ConfigDirFunc = func() (string, error) { return "", wantErr }
-	defer func() { ConfigDirFunc = origConfigDir }()
-
-	var stderr bytes.Buffer
-	refreshVersionCacheAfterInstallBestEffort(&stderr, false, "9.9.9")
-	if !strings.Contains(stderr.String(), "Warning: failed to refresh version-check cache") ||
-		!strings.Contains(stderr.String(), wantErr.Error()) {
-		t.Fatalf("stderr=%q, want observable cache warning", stderr.String())
 	}
 }

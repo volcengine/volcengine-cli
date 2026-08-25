@@ -8,7 +8,6 @@ CLI 的基本调用格式：
 
 ```shell
 ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
-                      [--api-param Name=Value ...]
                       [--profile name] [--region region] [--endpoint endpoint] [--lang language]
                       [--version api-version] [--method GET|POST] [--force]
                       [--output json|table|table-num|text|yaml|off] [--query jmespath]
@@ -16,15 +15,15 @@ ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json
 
 参数分几类：
 
-- **API 业务参数**：双横线 `--Param value`，进入请求体/查询参数（保留名 `body` / `header` / `api-param` 除外）
+- **API 业务参数**：双横线 `--Param value`，进入请求体/查询参数（保留名 `body` / `header` 除外）
 - **对外系统参数**（放在 Action 后）：`--profile` / `--region` / `--endpoint` / `--lang` / `--version` / `--method` / `--force` / `--output` / `--query`
-- **双横线保留控制参数**：`--header`（HTTP 头）、`--body`（JSON 请求体）、仅限 force 的 `--api-param Name=Value`（显式业务参数）；这些控制参数自身**不是**业务参数
+- **双横线保留控制参数**：`--header`（HTTP 头）和 `--body`（JSON 请求体）；这些控制参数自身**不是**业务参数
 
 API 调用中的系统参数统一使用双横线并放在 Action 后。若当前 Action 暴露了大小写完全相同的业务参数，双横线优先按 API 参数解析。
 
 ### 参数前缀规范
 
-CLI 对外只有一种参数前缀：**双横线 `--name`**。系统参数、API 业务参数、保留控制参数（`--header` / `--body` / `--api-param`）一律使用双横线。
+CLI 对外只有一种参数前缀：**双横线 `--name`**。系统参数、API 业务参数、保留控制参数（`--header` / `--body`）一律使用双横线。
 
 - 帮助信息、命令补全、报错文案和文档示例只出现 `--name` 一种写法。
 - 冲突判定区分大小写，并以当前 Action 实际暴露的参数为准：`--Region`、`--Lang` 等不同大小写始终是业务参数。
@@ -121,7 +120,6 @@ Action 后如果当前 Action 暴露了大小写完全相同的参数，双横�
 | --- | --- |
 | `--header Name=Value` | 追加 HTTP 请求头，**可重复**；不进入请求体。`Content-Type` 优先于元数据；同名多次时以最后一次为准 |
 | `--body json` | JSON 请求体（`application/json` 风格）；不能与其他 API 业务参数混用 |
-| `--api-param Name=Value` | 显式添加 API 业务参数，**可重复且仅可配合 `--force` 使用**；主要用于未收录接口中名为 `query`、`output` 等与系统参数同名的业务参数 |
 
 ```shell
 ve sts GetCallerIdentity --header X-Custom-Trace=abc
@@ -129,9 +127,6 @@ ve newsvc Act --force --version 2024-01-01 --endpoint open.volcengineapi.com \
   --header Content-Type=application/json \
   --header X-Feature=on \
   --body '{"k":1}'
-ve newsvc Search --force --version 2024-01-01 --endpoint open.volcengineapi.com \
-  --query 'Result.Items' --output table \
-  --api-param 'query=server-side-filter' --api-param 'output=compact'
 ```
 
 规则补充：
@@ -140,9 +135,7 @@ ve newsvc Search --force --version 2024-01-01 --endpoint open.volcengineapi.com 
 - 无元数据且仅有 `--body` 时，默认 `Content-Type=application/json`
 - `--header` 与 `--body` 可同时使用；`--header` 不算 flattened 业务参数，不会与 `--body` 冲突
 - 不允许覆盖：`Host`、`Authorization`、`Content-Length`（与传输/签名冲突）
-- `--api-param` 只按第一个 `=` 拆分；参数名会去除两端空白但保留原始大小写，参数值允许为空。名称重复，或与直接传入的同大小写 `--Name value` 冲突时会明确报错，不会静默覆盖
-- `--api-param` 在构造请求前展开，JSON 与 query/form 调用均可使用，控制参数自身不会进入请求
-- 保留名：`--header`、`--body`、`--api-param` 不能再作为普通 API 参数名使用
+- 保留名：`--header`、`--body` 不能再作为普通 API 参数名使用
 
 示例：
 
@@ -171,7 +164,7 @@ ve sts GetCallerIdentity --region cn-beijing --endpoint sts.volcengineapi.com
 
 其他 Action 若未来暴露同名业务参数，同样遵循「双横线优先业务参数」规则。
 
-对于未收录 Action，CLI 无法通过元数据识别同名冲突，因此 `--query`、`--output` 仍保留其对外系统语义。配合 `--force` 时，可用 `--api-param query=<value>`、`--api-param output=<value>` 显式传递同名业务参数，从而在一次调用中无歧义地同时使用系统值和业务值。该显式入口也可用于已收录 Action 的 `--force` 调用，但不能覆盖直接传入的同大小写业务参数。
+对于未收录 Action，CLI 无法通过元数据识别同名冲突，因此 `--query`、`--output` 仍保留其对外系统语义。
 
 ### 显示语言
 
@@ -272,19 +265,6 @@ ve newservice DescribeNewResource \
   --force
 ```
 
-如果未收录的 query/form 接口包含名为 `query`、`output` 的业务参数，可保留公共参数作为响应控制，并通过仅限 force 的显式入口传业务值：
-
-```shell
-ve newservice Search \
-  --version 2024-01-01 \
-  --endpoint open.volcengineapi.com \
-  --force \
-  --query 'Result.Items' \
-  --output table \
-  --api-param 'query=status=active' \
-  --api-param 'output='
-```
-
 ## 常用调用场景
 
 使用默认 profile：
@@ -340,7 +320,7 @@ region not set, please set it via profile, --region flag, or VOLCENGINE_REGION e
 ```
 
 对外系统参数（双横线）：`--profile`、`--region`、`--endpoint`、`--lang`、`--force`、`--version`、`--method`、`--output`、`--query`。
-双横线保留控制参数：`--header`、`--body`、`--api-param`（见上文「双横线保留控制参数」）。
+双横线保留控制参数：`--header`、`--body`（见上文「双横线保留控制参数」）。
 
 ## 过滤与输出格式
 

@@ -143,7 +143,7 @@ func RunWindowsUpgradeHelper(opts WindowsUpgradeHelperOptions) error {
 		fmt.Fprintf(stderr, "Warning: failed to schedule upgrade temporary-file cleanup: %v\n", cleanupErr)
 	}
 
-	refreshVersionCacheAfterInstallBestEffort(stderr, opts.ExplicitTarget, opts.ExpectedVersion)
+	refreshVersionCacheAfterInstall(opts.ExplicitTarget, opts.ExpectedVersion)
 	fmt.Fprintf(stdout, "\nSuccessfully upgraded Volcengine CLI from %s to %s!\n", opts.CurrentVersion, opts.ExpectedVersion)
 	return nil
 }

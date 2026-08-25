@@ -3,11 +3,10 @@ package cmd
 // Copyright 2022 Beijing Volcanoengine Technology Ltd.  All Rights Reserved.
 
 type Context struct {
-	fixedFlags        *FlagSet
-	dynamicFlags      *FlagSet
-	config            *Configure
-	configTransaction *configTransaction
-	debugLogger       *DebugLogger
+	fixedFlags   *FlagSet
+	dynamicFlags *FlagSet
+	config       *Configure
+	debugLogger  *DebugLogger
 }
 
 func NewContext() *Context {
@@ -19,5 +18,4 @@ func NewContext() *Context {
 
 func (c *Context) SetConfig(cfg *Configure) {
 	c.config = cfg
-	c.configTransaction = nil
 }

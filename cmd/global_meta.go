@@ -8,6 +8,7 @@ var (
 )
 
 func init() {
+	config = LoadConfig()
 	ctx = NewContext()
-	setRuntimeConfigTransaction(loadConfigTransaction())
+	ctx.SetConfig(config)
 }

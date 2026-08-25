@@ -33,22 +33,11 @@ func (p *Parser) ReadArgs(ctx *Context) ([]string, error) {
 	if ctx == nil || ctx.fixedFlags == nil || ctx.dynamicFlags == nil {
 		return nil, fmt.Errorf("invalid context for parsing arguments")
 	}
-	var (
-		positional []string
-		err        error
-	)
 	if len(p.args)%2 == 0 && p.hasFlagSyntaxAtPairStarts() {
-		positional, err = p.readPairedArgs(ctx)
-	} else {
-		positional, err = p.readLegacyArgs(ctx)
+		return p.readPairedArgs(ctx)
 	}
-	if err != nil {
-		return positional, err
-	}
-	if ctx.dynamicFlags.GetByName("api-param") != nil && !isForceEnabled(ctx) {
-		return positional, trErrorf("--api-param is only available with --force")
-	}
-	return positional, nil
+
+	return p.readLegacyArgs(ctx)
 }
 
 func (p *Parser) hasFlagSyntaxAtPairStarts() bool {

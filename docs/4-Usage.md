@@ -8,7 +8,6 @@ Basic command format:
 
 ```shell
 ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
-                      [--api-param Name=Value ...]
                       [--profile name] [--region region] [--endpoint endpoint] [--lang language]
                       [--version api-version] [--method GET|POST] [--force]
                       [--output json|table|table-num|text|yaml|off] [--query jmespath]
@@ -16,15 +15,15 @@ ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json
 
 Argument kinds:
 
-- **API parameters**: double-dash `--Param value` (enter request body/query; reserved names `body` / `header` / `api-param` excluded)
+- **API parameters**: double-dash `--Param value` (enter request body/query; reserved names `body` / `header` excluded)
 - **Public system flags** (after the action): `--profile` / `--region` / `--endpoint` / `--lang` / `--version` / `--method` / `--force` / `--output` / `--query`
-- **Reserved double-dash controls**: `--header` (HTTP headers), `--body` (JSON body), and force-only `--api-param Name=Value` (explicit API parameter); the controls themselves are **not** API parameters
+- **Reserved double-dash controls**: `--header` (HTTP headers) and `--body` (JSON body); the controls themselves are **not** API parameters
 
 System flags in API calls use double hyphens and are placed after the action. If an action exposes an exact-name API parameter (case-sensitive), the double-dash form is parsed as the API parameter.
 
 ### Flag Prefix Contract
 
-The CLI has exactly one public flag prefix: **double dash `--name`**. System flags, API parameters and the reserved controls (`--header` / `--body` / `--api-param`) all use double dashes.
+The CLI has exactly one public flag prefix: **double dash `--name`**. System flags, API parameters and the reserved controls (`--header` / `--body`) all use double dashes.
 
 - Help output, shell completion, error messages and documentation examples show the `--name` form only.
 - Conflicts are case-sensitive and resolved against the parameters the current action actually exposes: `--Region` and `--Lang` are always API parameters.
@@ -122,7 +121,6 @@ Names with different casing, such as `--Region` or `--Endpoint`, are always API 
 | --- | --- |
 | `--header Name=Value` | Add an HTTP request header; **repeatable**; never enters the request body. `Content-Type` overrides metadata; last value wins for the same name |
 | `--body json` | JSON request body for `application/json` style calls; mutually exclusive with other API parameters |
-| `--api-param Name=Value` | Add an explicit API business parameter; **repeatable and available only with `--force`**. Primarily resolves system-name conflicts such as an unlisted API's business parameters named `query` or `output` |
 
 ```shell
 ve sts GetCallerIdentity --header X-Custom-Trace=abc
@@ -130,9 +128,6 @@ ve newsvc Act --force --version 2024-01-01 --endpoint open.volcengineapi.com \
   --header Content-Type=application/json \
   --header X-Feature=on \
   --body '{"k":1}'
-ve newsvc Search --force --version 2024-01-01 --endpoint open.volcengineapi.com \
-  --query 'Result.Items' --output table \
-  --api-param 'query=server-side-filter' --api-param 'output=compact'
 ```
 
 Notes:
@@ -141,9 +136,7 @@ Notes:
 - With `--body` and no metadata, Content-Type defaults to `application/json`
 - `--header` can be used with `--body`; headers are not flattened API params and do not conflict with `--body`
 - Blocked header names: `Host`, `Authorization`, `Content-Length` (transport/signing)
-- `--api-param` splits on the first `=` only, trims the parameter name while preserving its case, and permits an empty value. Duplicate names or a same-case collision with a direct `--Name value` are errors rather than last-value-wins
-- `--api-param` is expanded before request construction, works for both JSON and query/form calls, and never enters the request itself
-- Reserved names: `--header`, `--body`, and `--api-param` cannot be used as ordinary API parameter names
+- Reserved names: `--header` and `--body` cannot be used as ordinary API parameter names
 
 Examples:
 
@@ -172,7 +165,7 @@ Known exact-name conflicts include:
 
 The same rule applies if other actions later expose colliding names: the double-dash form after that action is the API parameter.
 
-For an unlisted action, metadata cannot declare a collision, so `--query` and `--output` retain their public system meanings. With `--force`, pass same-named business parameters explicitly as `--api-param query=<value>` and `--api-param output=<value>`; both system and business values can then be used in one call without ambiguity. This explicit route also works with a bundled action when `--force` is set, but it cannot override a directly supplied same-case API parameter.
+For an unlisted action, metadata cannot declare a collision, so `--query` and `--output` retain their public system meanings.
 
 ### Display Language
 
@@ -273,19 +266,6 @@ ve newservice DescribeNewResource \
   --force
 ```
 
-For an unlisted query/form API whose business parameters are named `query` and `output`, keep the public flags as response controls and use the explicit force-only business-parameter route:
-
-```shell
-ve newservice Search \
-  --version 2024-01-01 \
-  --endpoint open.volcengineapi.com \
-  --force \
-  --query 'Result.Items' \
-  --output table \
-  --api-param 'query=status=active' \
-  --api-param 'output='
-```
-
 ## Common Scenarios
 
 Use current profile:
@@ -341,7 +321,7 @@ region not set, please set it via profile, --region flag, or VOLCENGINE_REGION e
 ```
 
 Public system flags (double-dash): `--profile`, `--region`, `--endpoint`, `--lang`, `--force`, `--version`, `--method`, `--output`, `--query`.
-Reserved double-dash controls: `--header`, `--body`, `--api-param` (see “Reserved Double-Dash Controls” above).
+Reserved double-dash controls: `--header`, `--body` (see “Reserved Double-Dash Controls” above).
 
 ## Filtering and Output Formats
 

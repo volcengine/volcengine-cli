@@ -1,124 +1,11 @@
 package cmd
 
 import (
-	"encoding/json"
-	"errors"
 	"io/ioutil"
 	"os"
 	"strings"
 	"testing"
-	"time"
 )
-
-func TestCredentialCacheLockSerializesWriter(t *testing.T) {
-	_, cleanup := withTestConfigDir(t)
-	defer cleanup()
-	cachePath, err := loginCacheFilePath("shared-session")
-	if err != nil {
-		t.Fatal(err)
-	}
-	holder, err := acquireCredentialCacheLock(cachePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	done := make(chan error, 1)
-	go func() {
-		done <- writeLoginCache(&LoginTokenCache{
-			LoginSession: "shared-session",
-			AccessToken:  json.RawMessage(`{"AccessKeyId":"new"}`),
-		})
-	}()
-	select {
-	case err := <-done:
-		_ = holder.release()
-		t.Fatalf("writer bypassed held cache lock: %v", err)
-	case <-time.After(100 * time.Millisecond):
-	}
-	if err := holder.release(); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("writer did not resume after cache lock release")
-	}
-}
-
-func TestLogoutSingleProfileConfigConflictKeepsCacheAndRestoresMemory(t *testing.T) {
-	_, cleanup := withTestConfigDir(t)
-	defer cleanup()
-	oldConfig, oldCtx, oldTx := config, ctx.config, ctx.configTransaction
-	oldWriter := writeLogoutConfigTransaction
-	defer func() {
-		config, ctx.config, ctx.configTransaction = oldConfig, oldCtx, oldTx
-		writeLogoutConfigTransaction = oldWriter
-	}()
-
-	cfg := &Configure{Profiles: map[string]*Profile{
-		"default": {Name: "default", Mode: ModeConsoleLogin, LoginSession: "session-1"},
-	}}
-	if err := WriteConfigToFile(cfg); err != nil {
-		t.Fatal(err)
-	}
-	tx := loadConfigTransaction()
-	cfg = tx.config
-	setRuntimeConfigTransaction(tx)
-	cache := &LoginTokenCache{LoginSession: "session-1", AccessToken: json.RawMessage(`{"AccessKeyId":"ak"}`)}
-	if err := writeLoginCache(cache); err != nil {
-		t.Fatal(err)
-	}
-	cachePath, _ := loginCacheFilePath("session-1")
-	wantErr := errors.New("injected concurrent config conflict")
-	writeLogoutConfigTransaction = func(*configTransaction) error { return wantErr }
-
-	err := (&ConsoleLogout{Profile: "default"}).Logout()
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("logout error = %v, want conflict", err)
-	}
-	if cfg.Profiles["default"].LoginSession != "session-1" {
-		t.Fatalf("memory login session not restored: %#v", cfg.Profiles["default"])
-	}
-	if _, err := os.Stat(cachePath); err != nil {
-		t.Fatalf("cache removed before failed config transaction: %v", err)
-	}
-}
-
-func TestCommitConsoleLoginHardConfigFailureRestoresCacheAndMemory(t *testing.T) {
-	_, cleanup := withTestConfigDir(t)
-	defer cleanup()
-	oldWriter := writeLoginConfigTransaction
-	defer func() { writeLoginConfigTransaction = oldWriter }()
-
-	cfg := &Configure{Profiles: map[string]*Profile{
-		"default": {Name: "default", Mode: ModeConsoleLogin, LoginSession: "old"},
-	}}
-	if err := WriteConfigToFile(cfg); err != nil {
-		t.Fatal(err)
-	}
-	tx := loadConfigTransaction()
-	cfg = tx.config
-	before := normalizedConfigCopy(cfg)
-	cfg.Profiles["default"].LoginSession = "new"
-	newCache := &LoginTokenCache{LoginSession: "new", AccessToken: json.RawMessage(`{"AccessKeyId":"new"}`)}
-	wantErr := errors.New("injected config failure")
-	writeLoginConfigTransaction = func(*configTransaction) error { return wantErr }
-
-	err := commitConsoleLogin(tx, before, newCache)
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("commit error = %v, want config failure", err)
-	}
-	if cfg.Profiles["default"].LoginSession != "old" {
-		t.Fatalf("memory config not restored: %#v", cfg.Profiles["default"])
-	}
-	newPath, _ := loginCacheFilePath("new")
-	if _, err := os.Stat(newPath); !os.IsNotExist(err) {
-		t.Fatalf("new cache survived failed config commit: %v", err)
-	}
-}
 
 func TestLogoutSingleProfile_NoConfig(t *testing.T) {
 	cl := &ConsoleLogout{Profile: "nonexistent"}
@@ -177,9 +64,6 @@ func TestLogoutAll_NoConfig(t *testing.T) {
 }
 
 func TestRemoveLoginCache_NonExistent(t *testing.T) {
-	_, cleanup := withTestConfigDir(t)
-	defer cleanup()
-
 	// removeLoginCache should be idempotent — removing a non-existent file is not an error.
 	err := removeLoginCache("non-existent-session-id-12345")
 	if err != nil {

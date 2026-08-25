@@ -147,8 +147,7 @@ func collectRequestHeaders(c *Context) ([]requestHeader, error) {
 	return out, nil
 }
 
-// parseHeaderKV splits "Name=Value" on the first '=' so header values may
-// contain additional '=' characters without being corrupted.
+// parseHeaderKV splits "Name=Value" on the first '=' (aliyun-cli compatible).
 func parseHeaderKV(s string) (name, value string, err error) {
 	s = strings.TrimSpace(s)
 	idx := strings.Index(s, "=")
