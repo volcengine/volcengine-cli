@@ -366,7 +366,7 @@ func (p *Parser) nud(token token) (ASTNode, error) {
 		if tokenType == tNumber || tokenType == tColon {
 			right, err := p.parseIndexExpression()
 			if err != nil {
-				return ASTNode{}, nil
+				return ASTNode{}, err
 			}
 			return p.projectIfSlice(ASTNode{nodeType: ASTIdentity}, right)
 		} else if tokenType == tStar && p.lookahead(1) == tRbracket {

@@ -329,13 +329,54 @@ func (e *functionEntry) resolveArgs(arguments []interface{}) ([]interface{}, err
 			if err != nil {
 				return nil, err
 			}
+			arguments[i] = spec.normalizeArray(userArg)
 		}
 		return arguments, nil
 	}
 	if len(arguments) < len(e.arguments) {
 		return nil, errors.New("Invalid arity.")
 	}
+	// Only the final spec is variadic, so leading arguments pair up with their
+	// own spec and every remaining one is checked against the variadic spec.
+	// Without this the handlers would assert the argument type and panic.
+	variadic := len(e.arguments) - 1
+	for i, userArg := range arguments {
+		spec := e.arguments[variadic]
+		if i < variadic {
+			spec = e.arguments[i]
+		}
+		if err := spec.typeCheck(userArg); err != nil {
+			return nil, err
+		}
+		arguments[i] = spec.normalizeArray(userArg)
+	}
 	return arguments, nil
+}
+
+// normalizeArray converts a named slice type such as []string into
+// []interface{}. The jpArray check admits any slice through isSliceType, while
+// the array handlers index their argument as []interface{}, so user-supplied Go
+// slices have to be widened here rather than asserted there.
+func (a *argSpec) normalizeArray(arg interface{}) interface{} {
+	if _, ok := arg.([]interface{}); ok {
+		return arg
+	}
+	accepted := false
+	for _, t := range a.types {
+		if t == jpArray {
+			accepted = true
+			break
+		}
+	}
+	if !accepted || !isSliceType(arg) {
+		return arg
+	}
+	v := reflect.ValueOf(arg)
+	general := make([]interface{}, v.Len())
+	for i := 0; i < v.Len(); i++ {
+		general[i] = v.Index(i).Interface()
+	}
+	return general
 }
 
 func (a *argSpec) typeCheck(arg interface{}) error {
@@ -373,7 +414,35 @@ func (a *argSpec) typeCheck(arg interface{}) error {
 			}
 		}
 	}
-	return fmt.Errorf("Invalid type for: %v, expected: %#v", arg, a.types)
+	return fmt.Errorf("Invalid type for: %s, expected: %s", describeArgValue(arg), a.typeNames())
+}
+
+// describeArgValue renders the offending value for an error message. An API
+// response can carry a large array, and what the reader needs is the type
+// mismatch rather than the payload, so long values are cut short.
+func describeArgValue(arg interface{}) string {
+	const limit = 96
+	s := fmt.Sprintf("%v", arg)
+	if len(s) <= limit {
+		return s
+	}
+	cut := s[:limit]
+	// Land on a rune boundary so a multi-byte field value stays printable.
+	for len(cut) > 0 && !utf8.ValidString(cut) {
+		cut = cut[:len(cut)-1]
+	}
+	return cut + "..."
+}
+
+// typeNames lists the accepted types for an error message. Formatting the
+// slice with %#v would print Go syntax, which means nothing to someone writing
+// a --query expression.
+func (a *argSpec) typeNames() string {
+	names := make([]string, len(a.types))
+	for i, t := range a.types {
+		names[i] = string(t)
+	}
+	return strings.Join(names, " or ")
 }
 
 func (f *functionCaller) CallFunction(name string, arguments []interface{}, intr *treeInterpreter) (interface{}, error) {

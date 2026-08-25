@@ -141,11 +141,19 @@ func TestQueryErrorCatchesWrongArity(t *testing.T) {
 	}
 }
 
-// "a | [0" compiles but fails at evaluation with "Unknown AST node".
+// An index left unclosed must be rejected before the request is sent, naming
+// the delimiter that is missing rather than the token type the parser uses.
 func TestQueryErrorCatchesIncompleteExpression(t *testing.T) {
-	msg := compileErr(t, "Result.Instances | [0")
-	if !strings.Contains(msg, "incomplete") {
-		t.Fatalf("expected an incompleteness message:\n%s", msg)
+	for _, expr := range []string{
+		"Result.Instances | [0",
+		"[0",
+		"[0[]",
+		"[0[?Status=='Running']",
+	} {
+		msg := compileErr(t, expr)
+		if !strings.Contains(msg, "expected ']'") {
+			t.Errorf("%q: expected an unclosed-index message:\n%s", expr, msg)
+		}
 	}
 }
 

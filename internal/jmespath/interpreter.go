@@ -326,6 +326,11 @@ func (intr *treeInterpreter) fieldFromStruct(key string, value interface{}) (int
 			return nil, nil
 		}
 		rv = rv.Elem()
+		// A pointer to anything other than a struct has no fields to look up;
+		// FieldByName would panic on it.
+		if rv.Kind() != reflect.Struct {
+			return nil, nil
+		}
 		v := rv.FieldByName(fieldName)
 		if !v.IsValid() {
 			return nil, nil
