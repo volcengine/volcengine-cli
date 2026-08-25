@@ -278,7 +278,7 @@ func TestDeepNestingKeepsTextLabelBounded(t *testing.T) {
 		if err := Write(&buf, FormatText, deep); err != nil {
 			t.Fatal(err)
 		}
-		label, _, found := strings.Cut(buf.String(), "\t")
+		label, _, found := cutOnce(buf.String(), "\t")
 		if !found {
 			t.Fatalf("depth %d produced no labelled row: %q", depth, buf.String())
 		}

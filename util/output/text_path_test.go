@@ -165,11 +165,20 @@ func TestTextLabelsDoNotDependOnRecordCount(t *testing.T) {
 func labelsOf(text string) map[string]struct{} {
 	labels := map[string]struct{}{}
 	for _, line := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
-		if label, _, found := strings.Cut(line, "\t"); found {
+		if label, _, found := cutOnce(line, "\t"); found {
 			labels[label] = struct{}{}
 		}
 	}
 	return labels
+}
+
+// cutOnce is strings.Cut, kept local so these tests compile on Go 1.17.
+func cutOnce(s, sep string) (before, after string, found bool) {
+	i := strings.Index(s, sep)
+	if i < 0 {
+		return s, "", false
+	}
+	return s[:i], s[i+len(sep):], true
 }
 
 // Response keys reach the terminal inside the label now, so a key carrying a Tab
