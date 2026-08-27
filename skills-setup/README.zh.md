@@ -40,8 +40,8 @@ npx -y @volcengine/skills-setup
 
 1. 启动时不存在 `ve`：通过 npm 安装 `@volcengine/cli`，skill 由该 CLI 包一并
    安装，不再重复执行 skill 安装命令。
-2. 启动时存在 `ve`，且版本 `> 1.1.2`：运行 `ve skills update`；该命令同时
-   支持首次安装和后续更新。
+2. 启动时存在 `ve`，且版本 `>= 1.1.3`：运行 `ve skills update`；该命令同时
+   支持首次安装和后续更新（`ve skills` 从 v1.1.3 开始提供）。
 3. 启动时存在 `ve`，且版本 `<= 1.1.2` 或无法识别：自动使用原有的 bundle +
    `npx skills` 兼容链路。该链路完全由 `skills-setup` 管理。
 
