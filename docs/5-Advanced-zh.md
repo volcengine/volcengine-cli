@@ -122,7 +122,7 @@ ve enable-color
 ve disable-color
 ```
 
-这两个命令会修改配置文件中的 `enableColor`。彩色输出影响 `ve configure get`、`ve configure list` 和 API 响应 JSON 的展示，不改变响应内容。
+这两个命令会修改配置文件中的 `enableColor`。彩色输出影响 `ve configure get`、`ve configure list`，以及 API 在 **`--output json`（默认）** 和 **`--output table` / `table-num`** 时的响应展示，不改变响应内容；输出重定向、管道或设置 `NO_COLOR` 时一律不着色。`text` / `yaml` / `off` 不着色。过滤与多格式输出见 [使用指南](4-Usage-zh.md#过滤与输出格式)（不带 `--query` 时 `table` 展示完整响应并把嵌套结构拆成带标题的分区；需要精确选列请用 `--query`）。
 
 ## Debug 日志
 
@@ -350,7 +350,7 @@ VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity
 对外系统参数：
 
 ```text
---profile, --region, --endpoint, --lang, --force, --version, --method
+--profile, --region, --endpoint, --lang, --force, --version, --method, --output, --query
 ```
 
 双横线保留控制参数：

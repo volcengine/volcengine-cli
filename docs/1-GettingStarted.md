@@ -8,7 +8,7 @@ This guide explains how to install `ve`, put it on your PATH, and make a minimal
 
 ## Requirements
 
-- Go 1.12+ is recommended.
+- Go 1.17 or later is required only when building from source. Prebuilt Release and npm installations do not require Go.
 - Starting from v1.0.20, the command prefix changed from `volcengine-cli` to `ve`. Earlier versions are not affected. After upgrading to v1.0.20 or later, update scripts that still call `volcengine-cli`.
 
 ## Install
@@ -138,6 +138,14 @@ Call an API:
 ```shell
 ve sts GetCallerIdentity
 ```
+
+Select a response field and print it as plain text:
+
+```shell
+ve sts GetCallerIdentity --query 'Result.AccountId' --output text
+```
+
+See [Filtering and Output Formats](4-Usage.md#filtering-and-output-formats) for the supported formats and query safety rules.
 
 Override region for one invocation:
 

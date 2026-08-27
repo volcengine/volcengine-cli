@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -146,7 +147,7 @@ func TestCallSdkPreservesLargeJSONInteger(t *testing.T) {
 		}
 		gotBody = string(body)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"ResponseMetadata":{"RequestId":"req-json-number","Action":"GetAccountSummary","Version":"2018-01-01","Service":"iam","Region":"cn-beijing"},"Result":{"Ok":true}}`))
+		_, _ = w.Write([]byte(`{"ResponseMetadata":{"RequestId":"req-json-number","Action":"GetAccountSummary","Version":"2018-01-01","Service":"iam","Region":"cn-beijing"},"Result":{"Id":9223372036854775807}}`))
 	}))
 	defer server.Close()
 
@@ -169,17 +170,25 @@ func TestCallSdkPreservesLargeJSONInteger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseJSONBody: %v", err)
 	}
-	if _, err := sdk.CallSdk(SdkClientInfo{
+	output, err := sdk.CallSdk(SdkClientInfo{
 		ServiceName: "iam",
 		Action:      "GetAccountSummary",
 		Version:     "2018-01-01",
 		Method:      "POST",
 		ContentType: "application/json",
-	}, input); err != nil {
+	}, input)
+	if err != nil {
 		t.Fatalf("CallSdk: %v", err)
 	}
 	if gotBody != wantBody {
 		t.Fatalf("request body = %q, want %q", gotBody, wantBody)
+	}
+	result, ok := (*output)["Result"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("Result = %#v, want map", (*output)["Result"])
+	}
+	if got, ok := result["Id"].(json.Number); !ok || got.String() != "9223372036854775807" {
+		t.Fatalf("response Result.Id = %#v, want exact json.Number", result["Id"])
 	}
 }
 

@@ -130,7 +130,7 @@ func TestParserRejectsUnsupportedFixedFlags(t *testing.T) {
 				t.Fatalf("error missing supported system flags list: %q", err.Error())
 			}
 			hint := parts[1]
-			for _, alias := range []string{"---profile", "---region", "---endpoint", "---lang", "---force", "---version", "---method"} {
+			for _, alias := range []string{"---profile", "---region", "---endpoint", "---lang", "---force", "---version", "---method", "---output", "---query"} {
 				if strings.Contains(hint, alias) {
 					t.Fatalf("supported flag hint exposes historical alias %q: %q", alias, hint)
 				}
@@ -256,6 +256,27 @@ func TestParserForceFlagWithoutValueBeforeDynamicFlag(t *testing.T) {
 	}
 	if ctx.dynamicFlags.GetByName("SomeParam").GetValue() != "value" {
 		t.Fatalf("expected SomeParam=value, got %q", ctx.dynamicFlags.GetByName("SomeParam").GetValue())
+	}
+}
+
+func TestParserKeepsQueryAndOutputAsSystemFlags(t *testing.T) {
+	parser := NewParser([]string{
+		"--query", "Result.Id",
+		"--output", "text",
+	})
+	ctx := NewContext()
+
+	if _, err := parser.ReadArgs(ctx); err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+	if ctx.dynamicFlags.GetByName("query") != nil || ctx.dynamicFlags.GetByName("output") != nil {
+		t.Fatal("unknown-action --query/--output must remain system flags")
+	}
+	if got := ctx.fixedFlags.GetByName("query"); got == nil || got.GetValue() != "Result.Id" {
+		t.Fatalf("system query = %#v", got)
+	}
+	if got := ctx.fixedFlags.GetByName("output"); got == nil || got.GetValue() != "text" {
+		t.Fatalf("system output = %#v", got)
 	}
 }
 

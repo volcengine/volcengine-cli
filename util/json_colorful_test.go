@@ -3,9 +3,11 @@ package util
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"testing"
 )
 
@@ -90,6 +92,56 @@ func TestColorfulJson(t *testing.T) {
 	checkValid(nestedArray)
 
 	checkValid(complicated)
+}
+
+func TestWriteJsonColorOutputRemainsValidAfterRemovingANSI(t *testing.T) {
+	data := map[string]interface{}{
+		"control": "a\x1bb\nc",
+		"quoted":  `"value"`,
+		"html":    "<x>",
+		"number":  json.Number("9223372036854775807"),
+		"boolean": true,
+		"null":    nil,
+	}
+	var output bytes.Buffer
+	if err := WriteJson(&output, data, true); err != nil {
+		t.Fatal(err)
+	}
+	stripped := regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAll(output.Bytes(), nil)
+	if !json.Valid(stripped) {
+		t.Fatalf("colored output is not valid JSON after ANSI removal:\n%s", stripped)
+	}
+	if !bytes.Contains(stripped, []byte(`"a\u001bb\nc"`)) {
+		t.Fatalf("control characters were not JSON-escaped: %q", stripped)
+	}
+}
+
+func TestWriteJsonPropagatesWriterErrors(t *testing.T) {
+	writerErr := errors.New("write failed")
+	writer := writerFunc(func([]byte) (int, error) {
+		return 0, writerErr
+	})
+	if err := WriteJson(writer, map[string]interface{}{"A": "b"}, true); !errors.Is(err, writerErr) {
+		t.Fatalf("error = %v, want %v", err, writerErr)
+	}
+}
+
+func TestWriteJsonDetectsShortWrite(t *testing.T) {
+	writer := writerFunc(func(p []byte) (int, error) {
+		if len(p) == 0 {
+			return 0, nil
+		}
+		return 1, nil
+	})
+	if err := WriteJson(writer, map[string]interface{}{"A": "b"}, true); !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("error = %v, want io.ErrShortWrite", err)
+	}
+}
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) {
+	return f(p)
 }
 
 func checkValid(data interface{}) {

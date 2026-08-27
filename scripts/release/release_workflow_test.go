@@ -2,7 +2,6 @@ package release
 
 import (
 	"io/ioutil"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -20,45 +19,31 @@ func repoRootForTest(t *testing.T) string {
 	return filepath.Dir(filepath.Dir(filepath.Dir(currentFile)))
 }
 
-func TestReleasePublishesStablePointersAfterNPM(t *testing.T) {
-	repoRoot := repoRootForTest(t)
-	workflowPath := filepath.Join(repoRoot, ".github", "workflows", "release.yml")
+func readReleaseWorkflow(t *testing.T) string {
+	t.Helper()
+	workflowPath := filepath.Join(repoRootForTest(t), ".github", "workflows", "release.yml")
 	data, err := ioutil.ReadFile(workflowPath)
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
 	}
 	// Normalize newlines so Windows CRLF checkouts match LF-oriented assertions.
 	workflow := strings.ReplaceAll(string(data), "\r\n", "\n")
-	workflow = strings.ReplaceAll(workflow, "\r", "\n")
+	return strings.ReplaceAll(workflow, "\r", "\n")
+}
+
+func TestReleasePublishesStablePointersAfterNPM(t *testing.T) {
+	workflow := readReleaseWorkflow(t)
 
 	if strings.Contains(workflow, "\nconcurrency:\n") {
 		t.Fatal("the whole release workflow must not be serialized because GitHub cancels older pending runs")
 	}
-	promoteJobStart := strings.Index(workflow, "\n  promote:\n")
-	if promoteJobStart < 0 {
-		t.Fatal("release workflow missing promote job")
-	}
-	releaseJob := workflow[:promoteJobStart]
-	promoteJob := workflow[promoteJobStart:]
-	for _, want := range []string{
-		"needs: release",
-		"concurrency:\n      group: release-channel-${{ contains(needs.release.outputs.version, '-') && 'next' || 'latest' }}",
-		"cancel-in-progress: false",
-	} {
-		if !strings.Contains(promoteJob, want) {
-			t.Fatalf("promote job missing serialization guard %q", want)
-		}
-	}
-	if strings.Contains(releaseJob, "group: release-channel") {
-		t.Fatal("immutable release assets must not be subject to channel-promotion concurrency")
-	}
 
 	steps := []string{
+		"- name: Extract version",
 		"- name: Upload release assets to TOS",
 		"- name: Verify public TOS download",
 		"- name: Test npm package",
 		"- name: Publish npm package",
-		"- name: Promote npm channel",
 		"- name: Publish version manifest to TOS root",
 	}
 	lastIndex := -1
@@ -73,54 +58,48 @@ func TestReleasePublishesStablePointersAfterNPM(t *testing.T) {
 		lastIndex = index
 	}
 
+	versionStart := strings.Index(workflow, "- name: Extract version")
 	npmPublishStart := strings.Index(workflow, "- name: Publish npm package")
-	promoteStart := strings.Index(workflow, "- name: Promote npm channel")
 	stablePublishStart := strings.Index(workflow, "- name: Publish version manifest to TOS root")
-	npmPublishStep := workflow[npmPublishStart:promoteStart]
+
+	versionStep := workflow[versionStart:strings.Index(workflow, "- name: Run GoReleaser")]
 	for _, want := range []string{
+		`npm_tag="latest"`,
+		`if [[ "$version" == *-* ]]; then`,
+		`npm_tag="next"`,
+		`echo "npm_tag=$npm_tag" >> "$GITHUB_OUTPUT"`,
+	} {
+		if !strings.Contains(versionStep, want) {
+			t.Fatalf("version step must route prereleases off latest, missing %q", want)
+		}
+	}
+
+	npmPublishStep := workflow[npmPublishStart:stablePublishStart]
+	for _, want := range []string{
+		`NPM_TAG: ${{ steps.version.outputs.npm_tag }}`,
 		`package_spec="@volcengine/cli@${VERSION}"`,
 		`npm_version_or_empty "$package_spec"`,
-		`npm publish --access public --tag "$staging_tag"`,
-		`trap 'status=$?; cleanup_staging_tag || true; exit "$status"' EXIT`,
+		`npm publish --access public --tag "$NPM_TAG"`,
+		`npm dist-tag add "$package_spec" "$NPM_TAG"`,
 		`return 1`,
 	} {
 		if !strings.Contains(npmPublishStep, want) {
 			t.Fatalf("npm package publication step missing guard %q", want)
 		}
 	}
-	if strings.Contains(npmPublishStep, "npm dist-tag add") {
-		t.Fatal("immutable npm publication must not move latest/next")
+	if strings.Contains(workflow, "--tag staging") {
+		t.Fatal("publication must target the real channel instead of parking on a staging dist-tag")
+	}
+	if strings.Contains(npmPublishStep, "npm dist-tag rm") {
+		t.Fatal("publication must not delete dist-tags because automation tokens are denied DELETE")
 	}
 
-	promoteStep := workflow[promoteStart:stablePublishStart]
-	for _, want := range []string{
-		"id: promote",
-		`npm view "@volcengine/cli@${VERSION}" versions --json`,
-		`--select-channel "$npm_tag"`,
-		`package_spec="@volcengine/cli@${promote_version}"`,
-		`published_version="$(npm_version_or_empty "$package_spec")"`,
-		`current_npm_version="$(npm_version_or_empty "@volcengine/cli@${npm_tag}")"`,
-		`release_version_guard.py`,
-		`echo "advance_channel=${advance_channel}" >> "$GITHUB_OUTPUT"`,
-		`echo "promote_version=${promote_version}" >> "$GITHUB_OUTPUT"`,
-		`npm dist-tag add "$package_spec" "$npm_tag"`,
-		`exit 1`,
-	} {
-		if !strings.Contains(promoteStep, want) {
-			t.Fatalf("npm channel promotion step missing guard %q", want)
-		}
+	stableStep := workflow[stablePublishStart:]
+	if !strings.Contains(stableStep, "if: ${{ steps.version.outputs.npm_tag == 'latest' }}") {
+		t.Fatal("stable pointer publication must be limited to stable releases")
 	}
-	if strings.Contains(promoteStep, `npm view "@volcengine/cli" versions --json`) {
-		t.Fatal("version discovery must not depend on latest existing before the first publish")
-	}
-
-	stableStep := workflow[lastIndex:]
-	stableCondition := "if: ${{ !contains(steps.promote.outputs.promote_version, '-') && steps.promote.outputs.advance_channel == 'true' }}"
-	if !strings.Contains(stableStep, stableCondition) {
-		t.Fatal("stable pointer publication must require a stable version and the monotonic version guard")
-	}
-	if !strings.Contains(stableStep, "VERSION: ${{ steps.promote.outputs.promote_version }}") {
-		t.Fatal("stable manifest must publish the version selected by the channel promotion guard")
+	if !strings.Contains(stableStep, "VERSION: ${{ steps.version.outputs.version }}") {
+		t.Fatal("stable manifest must publish the version built by this run")
 	}
 	manifestUpload := `s3 cp version_manifest.json "${root_dest}version_manifest.json"`
 	latestUpload := `s3 cp latest "${root_dest}latest"`
@@ -134,100 +113,21 @@ func TestReleasePublishesStablePointersAfterNPM(t *testing.T) {
 	}
 }
 
-func TestReleaseVersionGuard(t *testing.T) {
-	if _, err := exec.LookPath("python3"); err != nil {
-		t.Skipf("python3 is not available: %v", err)
-	}
-	script := filepath.Join(repoRootForTest(t), "scripts", "release_version_guard.py")
+// The channel move now happens inside the single release job, so a leftover
+// promote job would publish the same version twice.
+func TestReleaseHasNoPromoteJob(t *testing.T) {
+	workflow := readReleaseWorkflow(t)
 
-	tests := []struct {
-		name      string
-		candidate string
-		current   []string
-		want      string
-		wantError bool
-	}{
-		{name: "first stable release", candidate: "1.0.50", want: "true"},
-		{name: "same stable release recovery", candidate: "1.0.50", current: []string{"npm:latest=1.0.50", "tos:stable=1.0.50"}, want: "true"},
-		{name: "new stable release", candidate: "1.0.51", current: []string{"npm:latest=1.0.50", "tos:stable=1.0.50"}, want: "true"},
-		{name: "older than npm stable", candidate: "1.0.50", current: []string{"npm:latest=1.0.51"}, want: "false"},
-		{name: "older than TOS stable", candidate: "1.0.50", current: []string{"tos:stable=1.0.51"}, want: "false"},
-		{name: "older prerelease", candidate: "1.0.51-rc.1", current: []string{"npm:next=1.0.51-rc.2"}, want: "false"},
-		{name: "stable after prerelease", candidate: "1.0.51", current: []string{"npm:latest=1.0.51-rc.2"}, want: "true"},
-		{name: "numeric prerelease precedence", candidate: "1.0.51-rc.9", current: []string{"npm:next=1.0.51-rc.10"}, want: "false"},
-		{name: "invalid current fails closed", candidate: "1.0.51", current: []string{"npm:latest=invalid"}, wantError: true},
+	if strings.Contains(workflow, "\n  promote:\n") {
+		t.Fatal("release workflow must not keep a separate promote job")
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			args := []string{script, "--candidate", tt.candidate}
-			for _, current := range tt.current {
-				args = append(args, "--current", current)
-			}
-			output, err := exec.Command("python3", args...).CombinedOutput()
-			if tt.wantError {
-				if err == nil {
-					t.Fatalf("guard succeeded, want error:\n%s", output)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("guard failed: %v\n%s", err, output)
-			}
-			lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-			if got := lines[len(lines)-1]; got != tt.want {
-				t.Fatalf("guard result = %q, want %q\n%s", got, tt.want, output)
-			}
-		})
-	}
-}
-
-func TestReleaseVersionGuardSelectsHighestChannelVersion(t *testing.T) {
-	if _, err := exec.LookPath("python3"); err != nil {
-		t.Skipf("python3 is not available: %v", err)
-	}
-	script := filepath.Join(repoRootForTest(t), "scripts", "release_version_guard.py")
-
-	tests := []struct {
-		name     string
-		channel  string
-		versions string
-		want     string
-	}{
-		{
-			name:     "latest ignores prereleases and input order",
-			channel:  "latest",
-			versions: `["1.0.52-rc.1", "1.0.50", "1.0.52", "1.0.51"]`,
-			want:     "1.0.52",
-		},
-		{
-			name:     "next selects highest prerelease",
-			channel:  "next",
-			versions: `["1.0.52-rc.9", "1.0.51", "1.0.52-rc.10", "1.0.52-beta.1"]`,
-			want:     "1.0.52-rc.10",
-		},
-		{
-			name:     "stable outranks same version prerelease",
-			channel:  "latest",
-			versions: `["1.0.52-rc.2", "1.0.52"]`,
-			want:     "1.0.52",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			output, err := exec.Command(
-				"python3",
-				script,
-				"--select-channel", tt.channel,
-				"--versions-json", tt.versions,
-			).CombinedOutput()
-			if err != nil {
-				t.Fatalf("select channel failed: %v\n%s", err, output)
-			}
-			if got := strings.TrimSpace(string(output)); got != tt.want {
-				t.Fatalf("selected version = %q, want %q", got, tt.want)
-			}
-		})
+	for _, unwanted := range []string{
+		"steps.promote.outputs",
+		"needs.release.outputs",
+		"release_version_guard.py",
+	} {
+		if strings.Contains(workflow, unwanted) {
+			t.Fatalf("release workflow still references removed promotion machinery %q", unwanted)
+		}
 	}
 }

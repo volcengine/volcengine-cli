@@ -1,5 +1,4 @@
-// Package release holds repository-level tests for the release pipeline:
-// the GitHub Actions workflow (.github/workflows/release.yml) and the
-// channel version guard (scripts/release_version_guard.py). It has no
-// production code; the tests read those files relative to the repo root.
+// Package release holds repository-level tests for the release pipeline's
+// GitHub Actions workflow (.github/workflows/release.yml). It has no
+// production code; the tests read that file relative to the repo root.
 package release

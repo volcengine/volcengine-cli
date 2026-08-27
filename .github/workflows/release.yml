@@ -1,14 +1,11 @@
-# This GitHub action can publish assets for release when a tag is created.
-# Currently its setup to run on any tag that matches the pattern "v*" (ie. v0.1.0).
+# This GitHub action publishes release assets and the npm installer when a
+# semantic version tag is created, for example v1.2.3.
 #
-# This uses an action (hashicorp/ghaction-import-gpg) that assumes you set your
-# private key in the `GPG_PRIVATE_KEY` secret and passphrase in the `PASSPHRASE`
-# secret. If you would rather own your own GPG handling, please fork this action
-# or use an alternative one for key handling.
-#
-# You will need to pass the `--batch` flag to `gpg` in your signing step
-# in `goreleaser` to indicate this is being used in a non-interactive mode.
-#
+# Flow (Volcengine TOS/npm defaults):
+#   1) GoReleaser builds the archives and uploads versioned TOS assets.
+#   2) npm publish goes straight to the target channel: latest for stable tags,
+#      next for prereleases.
+#   3) Stable releases then write the TOS root version_manifest.json + latest.
 name: release
 
 on:
@@ -22,8 +19,6 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
     defaults:
       run:
         shell: bash
@@ -54,7 +49,14 @@ jobs:
             echo "Invalid release tag: $tag" >&2
             exit 1
           fi
+          # A prerelease must never land on latest, or `npm i @volcengine/cli`
+          # would resolve to an rc.
+          npm_tag="latest"
+          if [[ "$version" == *-* ]]; then
+            npm_tag="next"
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "npm_tag=$npm_tag" >> "$GITHUB_OUTPUT"
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v3.0.0
@@ -156,6 +158,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
+          NPM_TAG: ${{ steps.version.outputs.npm_tag }}
         run: |
           : "${NODE_AUTH_TOKEN:?missing secret NPM_TOKEN}"
 
@@ -181,133 +184,16 @@ jobs:
           package_spec="@volcengine/cli@${VERSION}"
           published_version="$(npm_version_or_empty "$package_spec")"
 
-          staging_tag=""
-          cleanup_staging_tag() {
-            if [[ -n "$staging_tag" ]]; then
-              npm dist-tag rm "@volcengine/cli" "$staging_tag"
-            fi
-          }
-          trap 'status=$?; cleanup_staging_tag || true; exit "$status"' EXIT
-
-          if [[ "$published_version" != "$VERSION" ]]; then
-            staging_tag="release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-            npm publish --access public --tag "$staging_tag"
-          fi
-          cleanup_staging_tag
-          staging_tag=""
-          trap - EXIT
-
-  promote:
-    needs: release
-    runs-on: ubuntu-latest
-    concurrency:
-      group: release-channel-${{ contains(needs.release.outputs.version, '-') && 'next' || 'latest' }}
-      cancel-in-progress: false
-    defaults:
-      run:
-        shell: bash
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          registry-url: https://registry.npmjs.org
-
-      - name: Install AWS CLI
-        run: |
-          python3 -m pip install --user --upgrade awscli
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Promote npm channel
-        id: promote
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.TOS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.TOS_SECRET_ACCESS_KEY }}
-          VERSION: ${{ needs.release.outputs.version }}
-          TOS_BUCKET: ${{ vars.TOS_BUCKET }}
-          TOS_PREFIX: ${{ vars.TOS_PREFIX }}
-          TOS_REGION: ${{ vars.TOS_REGION }}
-          TOS_S3_ENDPOINT: ${{ vars.TOS_S3_ENDPOINT }}
-        run: |
-          : "${NODE_AUTH_TOKEN:?missing secret NPM_TOKEN}"
-
-          npm_version_or_empty() {
-            local package_spec="$1"
-            local error_file
-            local version
-            error_file="$(mktemp)"
-            if version="$(npm view "$package_spec" version 2>"$error_file")"; then
-              rm -f "$error_file"
-              printf '%s' "$version"
-              return
-            fi
-            if grep -Eq 'E404|No match found|is not in this registry' "$error_file"; then
-              rm -f "$error_file"
-              return
-            fi
-            cat "$error_file" >&2
-            rm -f "$error_file"
-            return 1
-          }
-
-          npm_tag="latest"
-          if [[ "$VERSION" == *-* ]]; then
-            npm_tag="next"
-          fi
-
-          published_versions_json="$(npm view "@volcengine/cli@${VERSION}" versions --json)"
-          promote_version="$(python3 scripts/release_version_guard.py \
-            --select-channel "$npm_tag" \
-            --versions-json "$published_versions_json")"
-          package_spec="@volcengine/cli@${promote_version}"
-          published_version="$(npm_version_or_empty "$package_spec")"
-          if [[ "$published_version" != "$promote_version" ]]; then
-            echo "${package_spec} must exist before channel promotion" >&2
-            exit 1
-          fi
-
-          current_npm_version="$(npm_version_or_empty "@volcengine/cli@${npm_tag}")"
-          current_tos_version=""
-          if [[ "$npm_tag" == "latest" ]]; then
-            : "${AWS_ACCESS_KEY_ID:?missing secret TOS_ACCESS_KEY_ID}"
-            : "${AWS_SECRET_ACCESS_KEY:?missing secret TOS_SECRET_ACCESS_KEY}"
-            export AWS_DEFAULT_REGION="${TOS_REGION:-cn-beijing}"
-            bucket="${TOS_BUCKET:-eps-common-public}"
-            prefix="${TOS_PREFIX:-ve}"
-            endpoint="${TOS_S3_ENDPOINT:-https://tos-s3-cn-beijing.volces.com}"
-            manifest_error="$(mktemp)"
-            if current_manifest="$(aws --endpoint-url "$endpoint" s3 cp \
-              "s3://${bucket}/${prefix}/version_manifest.json" - 2>"$manifest_error")"; then
-              rm -f "$manifest_error"
-              current_tos_version="$(python3 -c \
-                'import json,sys; print(json.load(sys.stdin).get("latest", ""))' \
-                <<<"$current_manifest")"
-            elif grep -Eq '404|NoSuchKey|Not Found' "$manifest_error"; then
-              rm -f "$manifest_error"
-            else
-              cat "$manifest_error" >&2
-              rm -f "$manifest_error"
-              exit 1
-            fi
-          fi
-
-          advance_channel="$(python3 scripts/release_version_guard.py \
-            --candidate "$promote_version" \
-            --current "npm:${npm_tag}=${current_npm_version}" \
-            --current "tos:stable=${current_tos_version}")"
-          echo "advance_channel=${advance_channel}" >> "$GITHUB_OUTPUT"
-          echo "promote_version=${promote_version}" >> "$GITHUB_OUTPUT"
-          if [[ "$advance_channel" == "true" ]]; then
-            npm dist-tag add "$package_spec" "$npm_tag"
+          if [[ "$published_version" == "$VERSION" ]]; then
+            # Re-run after a partial failure: the version is already on the
+            # registry, so only point the channel at it.
+            npm dist-tag add "$package_spec" "$NPM_TAG"
+          else
+            npm publish --access public --tag "$NPM_TAG"
           fi
 
       - name: Publish version manifest to TOS root
-        if: ${{ !contains(steps.promote.outputs.promote_version, '-') && steps.promote.outputs.advance_channel == 'true' }}
+        if: ${{ steps.version.outputs.npm_tag == 'latest' }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.TOS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.TOS_SECRET_ACCESS_KEY }}
@@ -319,7 +205,7 @@ jobs:
           TOS_REGION: ${{ vars.TOS_REGION }}
           TOS_S3_ENDPOINT: ${{ vars.TOS_S3_ENDPOINT }}
           TOS_PUBLIC_BASE_URL: ${{ vars.TOS_PUBLIC_BASE_URL }}
-          VERSION: ${{ steps.promote.outputs.promote_version }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           : "${AWS_ACCESS_KEY_ID:?missing secret TOS_ACCESS_KEY_ID}"
           : "${AWS_SECRET_ACCESS_KEY:?missing secret TOS_SECRET_ACCESS_KEY}"
@@ -331,8 +217,6 @@ jobs:
           public_base="${TOS_PUBLIC_BASE_URL:-https://cloudcache.volccdn.com}"
           cdn_base="${public_base%/}/${prefix}"
           root_dest="s3://${bucket}/${prefix}/"
-
-          aws configure set default.s3.addressing_style virtual
 
           VERSION="$VERSION" CDN_BASE="$cdn_base" python3 - <<'PY'
           import json, os
