@@ -10,6 +10,7 @@
 
 - 仅从源码编译时需要 Go 1.17 或更高版本；使用 Release 预编译包或 npm 安装时不需要 Go。
 - 从 v1.0.20 开始，命令前缀由 `volcengine-cli` 更新为 `ve`。低版本不受影响；升级到 v1.0.20 及以后版本后，请同步更新脚本中的命令前缀。
+- 从 v1.1.3 开始，`ve` 才支持安装和管理 Skill（`ve skills` 系列命令，以及 npm 安装时自动安装核心 Skill）。v1.1.3 之前的版本没有该能力，需要使用 Skill 时请先升级。
 
 ## 安装
 
@@ -27,6 +28,10 @@ npm install -g @volcengine/cli
 ve version
 ve --help
 ```
+
+从 v1.1.3 开始，npm 安装或升级 CLI 时会自动安装火山引擎的核心 Skill；v1.1.3 之前的版本不会安装 Skill。
+Skill 安装失败不影响 CLI 本身安装，若需要暂时跳过可设置 `VOLCENGINE_CLI_SKIP_SKILLS=1`。
+安装完成后可用 `ve skills install`、`ve skills update`、`ve skills uninstall` 管理核心 Skill（同样要求 v1.1.3 及以上）。
 
 **npm 安装**请通过 npm 升级，以保持包元数据一致：
 

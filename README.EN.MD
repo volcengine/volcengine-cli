@@ -13,6 +13,8 @@ To help us improve your experience with Volcengine SKILL & CLI, we invite you to
 
 Starting from v1.0.20, the Volcengine CLI command prefix changed from `volcengine-cli` to `ve`. Earlier versions are not affected. After upgrading to v1.0.20 or later, update scripts that still call `volcengine-cli`.
 
+Starting from v1.1.3, `ve` can install and manage Skills (the `ve skills` commands, and the automatic core Skill installation performed by the npm package). Versions earlier than v1.1.3 do not support Skills, so upgrade to v1.1.3 or later first.
+
 ### Overview
 
 Volcengine CLI is a command-line tool for calling and managing Volcengine OpenAPI. You can use it to configure credentials, switch profiles, discover services and actions, call APIs, and obtain temporary credentials through SSO or Console Login.
@@ -30,9 +32,9 @@ ve version
 
 The npm package requires Node.js >= 14 and provides the `ve` command.
 
-Installing or upgrading the CLI with npm also installs the core Volcengine Skills. A Skill installation
-failure does not fail the CLI installation. Set `VOLCENGINE_CLI_SKIP_SKILLS=1` to skip Skill installation
-temporarily.
+Starting from v1.1.3, installing or upgrading the CLI with npm also installs the core Volcengine Skills;
+versions earlier than v1.1.3 install no Skills. A Skill installation failure does not fail the CLI
+installation. Set `VOLCENGINE_CLI_SKIP_SKILLS=1` to skip Skill installation temporarily.
 
 You can also download from Release:
 
@@ -64,6 +66,8 @@ ve upgrade
 - **Homebrew**: runs `brew update`, then `brew upgrade volcengine-cli`
 
 ### Skill Management
+
+> Skill installation and management require **v1.1.3 or later**. Run `ve version` to check, and upgrade with `ve upgrade` or `npm install -g @volcengine/cli@latest` if you are on an older version.
 
 Core Skills are installed under `~/.agents/skills` and `~/.claude/skills`. When OpenClaw, Hermes Agent, or Trae
 is detected, Skills are also installed in its dedicated directory. Codex, Cursor, and OpenCode can read

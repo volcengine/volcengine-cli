@@ -44,8 +44,9 @@ re-run):
 1. `ve` is missing at startup: npm installs `@volcengine/cli`, whose package
    installs the skills as part of that installation. No second skill install is
    run.
-2. `ve` exists and its version is `> 1.1.2`: run `ve skills update`, which
-   handles both first-time installation and later updates.
+2. `ve` exists and its version is `>= 1.1.3`: run `ve skills update`, which
+   handles both first-time installation and later updates (`ve skills` was
+   introduced in v1.1.3).
 3. `ve` exists and its version is `<= 1.1.2` or cannot be determined: use the
    existing bundle + `npx skills` compatibility path automatically. This path
    is fully managed by `skills-setup`.

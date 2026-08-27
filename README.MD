@@ -13,6 +13,8 @@
 
 从 v1.0.20 开始，火山引擎 CLI 命令前缀由 `volcengine-cli` 更新为 `ve`。低版本不受影响；升级到 v1.0.20 及以后版本后，请同步更新脚本中的命令前缀。
 
+从 v1.1.3 开始，`ve` 才支持安装和管理 Skill（`ve skills` 系列命令，以及 npm 安装时自动安装核心 Skill）。v1.1.3 之前的版本没有该能力，请先升级到 v1.1.3 及以上版本再使用。
+
 ### 概述
 
 火山引擎 CLI 是用于调用和管理火山引擎 OpenAPI 的命令行工具。你可以通过它配置凭证、切换 profile、查询服务接口、调用 API，并使用 SSO 或 Console Login 获取临时凭证。
@@ -30,8 +32,8 @@ ve version
 
 npm 包要求 Node.js >= 14，安装后提供 `ve` 命令入口。
 
-通过 npm 安装或升级 CLI 时，会自动安装火山引擎的核心 Skill。Skill 安装失败不影响 CLI 本身安装。
-若需要暂时跳过 Skill 安装，可设置 `VOLCENGINE_CLI_SKIP_SKILLS=1`。
+从 v1.1.3 开始，通过 npm 安装或升级 CLI 时，会自动安装火山引擎的核心 Skill；v1.1.3 之前的版本不会安装 Skill。
+Skill 安装失败不影响 CLI 本身安装。若需要暂时跳过 Skill 安装，可设置 `VOLCENGINE_CLI_SKIP_SKILLS=1`。
 
 也可以从 Release 下载：
 
@@ -63,6 +65,8 @@ ve upgrade
 - **Homebrew**：依次执行 `brew update` 与 `brew upgrade volcengine-cli`
 
 ### Skill 管理
+
+> Skill 安装与管理能力从 **v1.1.3** 开始提供。请先执行 `ve version` 确认版本；低于 v1.1.3 时，先通过 `ve upgrade` 或 `npm install -g @volcengine/cli@latest` 升级。
 
 核心 Skill 安装到 `~/.agents/skills` 和 `~/.claude/skills`；检测到 OpenClaw、Hermes Agent 或 Trae 时，
 也会安装到对应的 Skill 目录。Codex、Cursor 和 OpenCode 可直接读取 `~/.agents/skills`。完整 Skill 清单和使用介绍请参阅
