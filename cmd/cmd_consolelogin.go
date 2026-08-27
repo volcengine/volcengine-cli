@@ -42,8 +42,10 @@ Use --no-browser to skip opening the default browser.`),
 	cmd.Flags().StringVar(&login.EndpointURL, "endpoint-url", "https://signin.volcengine.com", tr("Override signin service endpoint URL"))
 
 	// --remote shipped in released versions and is kept as a hidden no-op so
-	// existing scripts neither hit "unknown flag" nor exit non-zero. Nothing
-	// reads its value. pflag's MarkDeprecated is deliberately avoided: it
+	// invocations do not fail with "unknown flag". This preserves flag parsing
+	// compatibility only; scripts that automate the old authorization-code
+	// prompts or stdin input must migrate to the device-code flow. Nothing reads
+	// its value. pflag's MarkDeprecated is deliberately avoided: it
 	// prefixes the notice with an untranslated "Flag --remote has been
 	// deprecated," which would render half-English under ---lang ZH.
 	_ = cmd.Flags().MarkHidden("remote")

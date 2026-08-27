@@ -292,7 +292,7 @@ How login works:
 - The CLI starts a Device Authorization Grant, prints `verification_uri` and `user_code`, and polls the token endpoint until you finish authorizing.
 - Because authorization happens on whichever device opens the URL, the same command works on a laptop, a headless server, or inside a container.
 - The CLI tries to open a browser by default, but always prints the URL, user code, and expiry even when the browser opens successfully.
-- `--remote` is deprecated, hidden from help, and ignored. Existing scripts that pass it still work: the CLI prints a deprecation notice on stderr and keeps going.
+- `--remote` is deprecated, hidden from help, and ignored. It remains accepted only for command-line compatibility, so invocations do not fail with an unknown-flag error. Scripts that automate the previous authorization-code prompts or stdin input must be updated for the device-code flow.
 
 After login, the profile is written as `console-login` mode with a `login-session`. Logging into a non-`default` profile does not switch active profile automatically:
 

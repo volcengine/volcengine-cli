@@ -292,7 +292,7 @@ ve login -p dev -r cn-beijing --no-browser
 - CLI 发起设备码授权，输出 `verification_uri` 和 `user_code`，并在你完成授权前持续轮询 Token。
 - 授权在打开该 URL 的任意设备上完成，所以本机、无图形界面的远程服务器和容器都用同一条命令。
 - CLI 默认尝试打开浏览器，但无论浏览器是否成功打开，终端都会显示 URL、用户码和有效期。
-- `--remote` 已废弃、不再出现在帮助里，且不产生任何效果。存量脚本继续传该参数仍可正常工作：CLI 只在 stderr 打一行弃用提示，然后照常执行。
+- `--remote` 已废弃、不再出现在帮助里，且不产生任何效果。CLI 仅为命令行参数兼容而继续接受它，避免因未知参数直接失败；依赖旧版授权码提示或 stdin 输入的自动化脚本需要适配新的设备码流程。
 
 登录成功后，profile 会写为 `console-login` 模式，并记录 `login-session`。使用非 `default` profile 登录后，业务命令不会自动切换 profile，需要执行：
 
