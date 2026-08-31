@@ -265,7 +265,7 @@ ve sso logout
 
 ## Console Login
 
-Console Login 通过火山引擎控制台完成 OAuth 2.0 + PKCE 登录，并把临时 STS 凭证缓存到本地。
+Console Login 使用 OAuth 2.0 设备码授权，并把临时 STS 凭证缓存到本地。
 
 ```shell
 # 使用 default profile 登录，未指定 region 时会提示输入
@@ -274,8 +274,8 @@ ve login
 # 指定 profile 和 region
 ve login -p dev -r cn-beijing
 
-# 无浏览器、远程服务器或容器环境使用跨设备登录
-ve login -p dev -r cn-beijing --remote
+# 登录时不自动打开浏览器
+ve login -p dev -r cn-beijing --no-browser
 ```
 
 参数说明：
@@ -283,9 +283,16 @@ ve login -p dev -r cn-beijing --remote
 ```shell
 --profile, -p: profile 名称，默认 default。
 --region, -r: 地域；未指定时会提示输入，直接回车使用 cn-beijing。
---remote: 跨设备登录；按终端输出 URL 在浏览器完成登录，并把授权码粘贴回终端。
+--no-browser: 登录时不自动打开浏览器。
 --endpoint-url: 登录服务地址，默认 https://signin.volcengine.com，通常无需修改。
 ```
+
+登录流程说明：
+
+- CLI 发起设备码授权，输出 `verification_uri` 和 `user_code`，并在你完成授权前持续轮询 Token。
+- 授权在打开该 URL 的任意设备上完成，所以本机、无图形界面的远程服务器和容器都用同一条命令。
+- CLI 默认尝试打开浏览器，但无论浏览器是否成功打开，终端都会显示 URL、用户码和有效期。
+- `--remote` 已废弃、不再出现在帮助里，且不产生任何效果。CLI 仅为命令行参数兼容而继续接受它，避免因未知参数直接失败；依赖旧版授权码提示或 stdin 输入的自动化脚本需要适配新的设备码流程。
 
 登录成功后，profile 会写为 `console-login` 模式，并记录 `login-session`。使用非 `default` profile 登录后，业务命令不会自动切换 profile，需要执行：
 
@@ -335,7 +342,7 @@ ve logout --all
 
 **没有图形界面的机器怎么登录？**
 
-SSO 使用 `--no-browser`；Console Login 使用 `--remote`。
+SSO 和 Console Login 都使用 `--no-browser`。Console Login 执行 `ve login --no-browser`，在其他设备输入终端显示的用户码，CLI 会自动轮询授权结果。
 
 **Scopes 应该怎么填？**
 

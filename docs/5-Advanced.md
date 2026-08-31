@@ -415,8 +415,10 @@ ve sso login --sso-session my-sso --no-browser
 Console Login:
 
 ```shell
-ve login --profile dev --region cn-beijing --remote
+ve login --profile dev --region cn-beijing --no-browser
 ```
+
+Console Login always uses the Device Authorization Grant. With `--no-browser` the CLI only prints the verification URL and user code, then polls for completion while you authorize on another device.
 
 ### Why does `--body` return `json format error`?
 

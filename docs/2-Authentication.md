@@ -265,7 +265,7 @@ Logout does not delete SSO profiles, delete sso-session configuration, or clear 
 
 ## Console Login
 
-Console Login uses Volcengine Console OAuth 2.0 + PKCE and caches temporary STS credentials locally.
+Console Login uses the OAuth 2.0 Device Authorization Grant and caches temporary STS credentials locally.
 
 ```shell
 # Log in with the default profile. If region is omitted, the CLI prompts for it
@@ -274,8 +274,8 @@ ve login
 # Specify profile and region
 ve login -p dev -r cn-beijing
 
-# Use cross-device login for headless servers or containers
-ve login -p dev -r cn-beijing --remote
+# Log in without automatically opening a browser
+ve login -p dev -r cn-beijing --no-browser
 ```
 
 Options:
@@ -283,9 +283,16 @@ Options:
 ```shell
 --profile, -p: Profile name. Defaults to default.
 --region, -r: Region. When omitted, the CLI prompts and uses cn-beijing if you press Enter.
---remote: Cross-device login. Open the printed URL in a browser and paste the authorization code back into the terminal.
+--no-browser: Do not automatically open a browser during login.
 --endpoint-url: Sign-in service endpoint. Defaults to https://signin.volcengine.com and normally does not need changes.
 ```
+
+How login works:
+
+- The CLI starts a Device Authorization Grant, prints `verification_uri` and `user_code`, and polls the token endpoint until you finish authorizing.
+- Because authorization happens on whichever device opens the URL, the same command works on a laptop, a headless server, or inside a container.
+- The CLI tries to open a browser by default, but always prints the URL, user code, and expiry even when the browser opens successfully.
+- `--remote` is deprecated, hidden from help, and ignored. It remains accepted only for command-line compatibility, so invocations do not fail with an unknown-flag error. Scripts that automate the previous authorization-code prompts or stdin input must be updated for the device-code flow.
 
 After login, the profile is written as `console-login` mode with a `login-session`. Logging into a non-`default` profile does not switch active profile automatically:
 
@@ -335,7 +342,7 @@ The first `ve configure sso` already authorizes. Daily service commands reuse or
 
 **How do I log in on a machine without a graphical browser?**
 
-Use `--no-browser` for SSO and `--remote` for Console Login.
+Use `--no-browser` for both SSO and Console Login. For Console Login, run `ve login --no-browser`, enter the printed user code on another device, and let the CLI poll for completion.
 
 **What should I enter for Scopes?**
 

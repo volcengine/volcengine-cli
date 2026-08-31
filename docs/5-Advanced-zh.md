@@ -415,8 +415,10 @@ ve sso login --sso-session my-sso --no-browser
 Console Login：
 
 ```shell
-ve login --profile dev --region cn-beijing --remote
+ve login --profile dev --region cn-beijing --no-browser
 ```
+
+Console Login 统一使用设备码授权。加上 `--no-browser` 后，CLI 只输出验证地址和用户码，你在其他设备完成授权，CLI 自动轮询结果。
 
 ### JSON body 报 `json format error` 怎么办？
 

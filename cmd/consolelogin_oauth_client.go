@@ -16,11 +16,11 @@ const (
 	// defaultConsoleEndpoint is the default Volcengine console sign-in endpoint.
 	defaultConsoleEndpoint = "https://signin.volcengine.com"
 
-	// consoleAuthorizePath is the path appended to the endpoint for the authorization URL.
-	consoleAuthorizePath = "/authorize/oauth/authorize"
-
 	// consoleTokenPath is the path appended to the endpoint for the token URL.
 	consoleTokenPath = "/authorize/oauth/token"
+
+	// consoleDeviceAuthorizationPath is the path used to start device authorization.
+	consoleDeviceAuthorizationPath = "/authorize/oauth/device_authorization"
 
 	// consoleTokenRequestTimeout is the HTTP timeout for console token exchange requests.
 	consoleTokenRequestTimeout = 30 * time.Second
@@ -28,10 +28,14 @@ const (
 	// consoleTokenRetryAttempts is the number of retry attempts for token exchange.
 	consoleTokenRetryAttempts = 3
 
-	// ConsoleClientIDSameDevice is the public client ID for local/same-device login mode.
+	// ConsoleClientIDSameDevice is the legacy public client ID issued by the
+	// removed authorization code flow. Login never mints it again; refresh
+	// replays whatever client ID the cache holds, so caches written by older
+	// CLI versions keep working. Kept to document that value and to pin it in
+	// the compatibility tests.
 	ConsoleClientIDSameDevice = "trn:signin:::devtools/same-device"
 
-	// ConsoleClientIDCrossDevice is the public client ID for remote/cross-device login mode.
+	// ConsoleClientIDCrossDevice is the public client ID used by device code login.
 	ConsoleClientIDCrossDevice = "trn:signin:::devtools/cross-device"
 )
 
@@ -126,33 +130,38 @@ type ConsoleOAuthClientConfig struct {
 
 // ConsoleOAuthClient wraps HTTP calls to the Volcengine console sign-in OAuth endpoints.
 // Unlike the existing OAuthClient (which talks to CloudIdentity), this client targets
-// signin.volcengine.com and implements a public-client PKCE flow.
+// signin.volcengine.com and implements the public-client device code flow.
 type ConsoleOAuthClient struct {
-	endpointURL  string
-	authorizeURL string
-	tokenURL     string
-	httpClient   *http.Client
-}
-
-// AuthorizeParams holds the parameters needed to build an authorization URL.
-type AuthorizeParams struct {
-	ClientID            string
-	RedirectURI         string
-	Scope               string
-	State               string
-	CodeChallenge       string
-	CodeChallengeMethod string // e.g. "S256"
+	endpointURL            string
+	tokenURL               string
+	deviceAuthorizationURL string
+	httpClient             *http.Client
 }
 
 // ConsoleTokenRequest represents the token exchange request for console OAuth.
 type ConsoleTokenRequest struct {
-	GrantType    string // "authorization_code" or "refresh_token"
-	Code         string // authorization code (for auth_code grant)
-	RedirectURI  string // must match the one used in the authorize request
+	GrantType    string // deviceCodeGrantType or "refresh_token"
 	ClientID     string
 	Scope        string
-	CodeVerifier string // PKCE verifier (for auth_code grant)
 	RefreshToken string // for refresh_token grant
+	DeviceCode   string // for device code grant
+}
+
+// ConsoleDeviceAuthorizationRequest represents a device authorization request.
+type ConsoleDeviceAuthorizationRequest struct {
+	ClientID   string
+	Scope      string
+	DeviceInfo string
+}
+
+// ConsoleDeviceAuthorizationResponse represents a device authorization response.
+type ConsoleDeviceAuthorizationResponse struct {
+	DeviceCode              string `json:"device_code"`
+	UserCode                string `json:"user_code"`
+	VerificationURI         string `json:"verification_uri"`
+	VerificationURIComplete string `json:"verification_uri_complete,omitempty"`
+	ExpiresIn               int    `json:"expires_in"`
+	Interval                int    `json:"interval,omitempty"`
 }
 
 // ConsoleTokenResponse represents the raw token response from the console OAuth endpoint.
@@ -193,43 +202,52 @@ func NewConsoleOAuthClient(cfg *ConsoleOAuthClientConfig) *ConsoleOAuthClient {
 	}
 
 	return &ConsoleOAuthClient{
-		endpointURL:  endpoint,
-		authorizeURL: endpoint + consoleAuthorizePath,
-		tokenURL:     endpoint + consoleTokenPath,
-		httpClient:   client,
+		endpointURL:            endpoint,
+		tokenURL:               endpoint + consoleTokenPath,
+		deviceAuthorizationURL: endpoint + consoleDeviceAuthorizationPath,
+		httpClient:             client,
 	}
 }
 
-// ---------------------------------------------------------------------------
-// BuildAuthorizeURL
-// ---------------------------------------------------------------------------
+// StartDeviceAuthorization starts the OAuth 2.0 Device Authorization Grant flow.
+func (c *ConsoleOAuthClient) StartDeviceAuthorization(
+	ctx context.Context,
+	req *ConsoleDeviceAuthorizationRequest,
+) (*ConsoleDeviceAuthorizationResponse, error) {
+	if req == nil {
+		return nil, trErrorf("request cannot be nil")
+	}
+	if strings.TrimSpace(req.ClientID) == "" {
+		return nil, trErrorf("client_id is required")
+	}
 
-// BuildAuthorizeURL constructs the full authorization URL with query parameters.
-// The response_type is always "code" (authorization code flow with PKCE).
-func (c *ConsoleOAuthClient) BuildAuthorizeURL(params *AuthorizeParams) string {
 	q := url.Values{}
-	q.Set("response_type", "code")
-
-	if params.ClientID != "" {
-		q.Set("client_id", params.ClientID)
+	q.Set("client_id", req.ClientID)
+	if req.Scope != "" {
+		q.Set("scope", req.Scope)
 	}
-	if params.RedirectURI != "" {
-		q.Set("redirect_uri", params.RedirectURI)
-	}
-	if params.Scope != "" {
-		q.Set("scope", params.Scope)
-	}
-	if params.State != "" {
-		q.Set("state", params.State)
-	}
-	if params.CodeChallenge != "" {
-		q.Set("code_challenge", params.CodeChallenge)
-	}
-	if params.CodeChallengeMethod != "" {
-		q.Set("code_challenge_method", params.CodeChallengeMethod)
+	if req.DeviceInfo != "" {
+		q.Set("device_info", req.DeviceInfo)
 	}
 
-	return c.authorizeURL + "?" + q.Encode()
+	var authResp ConsoleDeviceAuthorizationResponse
+	if err := c.postForm(ctx, c.deviceAuthorizationURL, q, &authResp, consoleTokenRetryAttempts); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(authResp.DeviceCode) == "" {
+		return nil, trErrorf("device authorization response missing device_code")
+	}
+	if strings.TrimSpace(authResp.UserCode) == "" {
+		return nil, trErrorf("device authorization response missing user_code")
+	}
+	if strings.TrimSpace(authResp.VerificationURI) == "" {
+		return nil, trErrorf("device authorization response missing verification_uri")
+	}
+	if authResp.ExpiresIn <= 0 {
+		return nil, trErrorf("device authorization response has invalid expires_in")
+	}
+
+	return &authResp, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -239,8 +257,7 @@ func (c *ConsoleOAuthClient) BuildAuthorizeURL(params *AuthorizeParams) string {
 // ExchangeToken performs the token exchange by sending a POST request to the token
 // endpoint with application/x-www-form-urlencoded body parameters.
 //
-// For grant_type=authorization_code: code, client_id, scope, and code_verifier
-// are required; redirect_uri is included when non-empty.
+// For the device code grant: device_code and client_id are required.
 //
 // For grant_type=refresh_token: refresh_token and client_id are required.
 //
@@ -248,6 +265,15 @@ func (c *ConsoleOAuthClient) BuildAuthorizeURL(params *AuthorizeParams) string {
 // failures. Only errors where ConsoleOAuthAPIError.IsRetryable() returns true
 // are retried.
 func (c *ConsoleOAuthClient) ExchangeToken(ctx context.Context, req *ConsoleTokenRequest) (*ConsoleTokenResponse, error) {
+	return c.exchangeToken(ctx, req, consoleTokenRetryAttempts)
+}
+
+// exchangeToken performs the token exchange with a caller-controlled attempt
+// count. Device-code polling passes attempts=1 so that RFC 8628 interval /
+// slow_down backpressure is driven by the poll loop instead of being swallowed
+// by the transport-level retry, and so that slow_down/authorization_pending
+// signals arriving with a retryable HTTP status reach the caller unfiltered.
+func (c *ConsoleOAuthClient) exchangeToken(ctx context.Context, req *ConsoleTokenRequest, attempts int) (*ConsoleTokenResponse, error) {
 	if req == nil {
 		return nil, trErrorf("request cannot be nil")
 	}
@@ -267,34 +293,40 @@ func (c *ConsoleOAuthClient) ExchangeToken(ctx context.Context, req *ConsoleToke
 	}
 
 	switch req.GrantType {
-	case "authorization_code":
-		if strings.TrimSpace(req.Code) == "" {
-			return nil, trErrorf("code is required for authorization_code grant")
-		}
-		if strings.TrimSpace(req.CodeVerifier) == "" {
-			return nil, trErrorf("code_verifier is required for authorization_code grant")
-		}
-		q.Set("code", req.Code)
-		q.Set("code_verifier", req.CodeVerifier)
-		if req.RedirectURI != "" {
-			q.Set("redirect_uri", req.RedirectURI)
-		}
-
 	case "refresh_token":
 		if strings.TrimSpace(req.RefreshToken) == "" {
 			return nil, trErrorf("refresh_token is required for refresh_token grant")
 		}
 		q.Set("refresh_token", req.RefreshToken)
 
+	case deviceCodeGrantType:
+		if strings.TrimSpace(req.DeviceCode) == "" {
+			return nil, trErrorf("device_code is required for device code grant")
+		}
+		q.Set("device_code", req.DeviceCode)
+
 	default:
 		return nil, trErrorf("unsupported grant_type: %s", req.GrantType)
 	}
 
-	requestBody := q.Encode()
-
 	var tokenResp ConsoleTokenResponse
-	err := doWithRetry(ctx, retryOptions{maxAttempts: consoleTokenRetryAttempts}, func() error {
-		httpReq, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, c.tokenURL, strings.NewReader(requestBody))
+	if err := c.postForm(ctx, c.tokenURL, q, &tokenResp, attempts); err != nil {
+		return nil, err
+	}
+
+	if tokenResp.AccessToken == "" && tokenResp.TokenType == "" &&
+		tokenResp.RefreshToken == "" && tokenResp.ExpiresIn == 0 {
+		return nil, trErrorf("ExchangeToken succeeded but response was empty")
+	}
+
+	return &tokenResp, nil
+}
+
+func (c *ConsoleOAuthClient) postForm(ctx context.Context, endpoint string, form url.Values, out interface{}, attempts int) error {
+	requestBody := form.Encode()
+
+	return doWithRetry(ctx, retryOptions{maxAttempts: attempts}, func() error {
+		httpReq, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(requestBody))
 		if reqErr != nil {
 			return trErrorf("failed to build request: %w", reqErr)
 		}
@@ -339,10 +371,10 @@ func (c *ConsoleOAuthClient) ExchangeToken(ctx context.Context, req *ConsoleToke
 		}
 
 		// ---------- Success handling ----------
-		if len(respBytes) > 0 {
-			if unmarshalErr := json.Unmarshal(respBytes, &tokenResp); unmarshalErr != nil {
+		if len(respBytes) > 0 && out != nil {
+			if unmarshalErr := json.Unmarshal(respBytes, out); unmarshalErr != nil {
 				return trErrorf(
-					"failed to decode token response (status %d, requestId: %s): %w",
+					"failed to decode oauth response (status %d, requestId: %s): %w",
 					resp.StatusCode, requestID, unmarshalErr,
 				)
 			}
@@ -350,17 +382,6 @@ func (c *ConsoleOAuthClient) ExchangeToken(ctx context.Context, req *ConsoleToke
 
 		return nil
 	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	if tokenResp.AccessToken == "" && tokenResp.TokenType == "" &&
-		tokenResp.RefreshToken == "" && tokenResp.ExpiresIn == 0 {
-		return nil, trErrorf("ExchangeToken succeeded but response was empty")
-	}
-
-	return &tokenResp, nil
 }
 
 // ---------------------------------------------------------------------------

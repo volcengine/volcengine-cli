@@ -2,12 +2,662 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestNewLoginCmdRegistersLoginFlags(t *testing.T) {
+	command := newLoginCmd()
+	for _, flag := range []string{"profile", "region", "no-browser", "remote", "endpoint-url"} {
+		if command.Flags().Lookup(flag) == nil {
+			t.Fatalf("flag --%s was not registered", flag)
+		}
+	}
+}
+
+// --remote shipped in released versions, so old scripts must keep parsing
+// without hitting "unknown flag". The notice has to stay on stderr so that
+// scripts consuming stdout are unaffected.
+func TestNewLoginCmdKeepsRemoteAsHiddenNoOp(t *testing.T) {
+	command := newLoginCmd()
+	if err := command.ParseFlags([]string{"--remote", "--region", "cn-beijing"}); err != nil {
+		t.Fatalf("parsing --remote returned error: %v", err)
+	}
+	if !command.Flags().Lookup("remote").Hidden {
+		t.Fatal("--remote must be hidden from help output")
+	}
+
+	var stdout string
+	stderr := captureConsoleLoginStderr(t, func() {
+		stdout = captureConsoleLoginStdout(t, func() {
+			warnDeprecatedRemoteFlag(command)
+		})
+	})
+	if !strings.Contains(stderr, "--remote") {
+		t.Fatalf("stderr = %q, want a --remote deprecation warning", stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty so scripts parsing stdout stay unaffected", stdout)
+	}
+}
+
+func TestNewLoginCmdStaysQuietWithoutRemote(t *testing.T) {
+	command := newLoginCmd()
+	if err := command.ParseFlags([]string{"--region", "cn-beijing"}); err != nil {
+		t.Fatalf("parsing flags returned error: %v", err)
+	}
+
+	stderr := captureConsoleLoginStderr(t, func() {
+		warnDeprecatedRemoteFlag(command)
+	})
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+}
+
+func TestNewLoginCmdRejectsUnreleasedDeviceCodeFlag(t *testing.T) {
+	command := newLoginCmd()
+	err := command.ParseFlags([]string{"--use-device-code"})
+	if err == nil || !strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("error = %v, want unknown flag", err)
+	}
+}
+
+func TestNewLoginCmdAcceptsNoBrowserOnItsOwn(t *testing.T) {
+	command := newLoginCmd()
+	if err := command.ParseFlags([]string{"--no-browser", "--region", "cn-beijing"}); err != nil {
+		t.Fatalf("parsing --no-browser returned error: %v", err)
+	}
+	noBrowser, err := command.Flags().GetBool("no-browser")
+	if err != nil {
+		t.Fatalf("reading --no-browser returned error: %v", err)
+	}
+	if !noBrowser {
+		t.Fatal("--no-browser must take effect without any companion flag")
+	}
+}
+
+func TestDeviceCodeAuthorizeSlowDownThenSuccess(t *testing.T) {
+	var tokenAttempts int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case consoleDeviceAuthorizationPath:
+			_ = json.NewEncoder(w).Encode(ConsoleDeviceAuthorizationResponse{
+				DeviceCode:      "device-code",
+				UserCode:        "USER-CODE",
+				VerificationURI: "https://example.com/device",
+				ExpiresIn:       300,
+				Interval:        5,
+			})
+		case consoleTokenPath:
+			tokenAttempts++
+			if tokenAttempts == 1 {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":"slow_down"}`))
+				return
+			}
+			_ = json.NewEncoder(w).Encode(ConsoleTokenResponse{
+				AccessToken:  `{"access_key_id":"ak","secret_access_key":"sk","session_token":"st"}`,
+				TokenType:    "sts",
+				ExpiresIn:    900,
+				RefreshToken: "refresh-token",
+				IDToken:      "id-token",
+			})
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	var waits []time.Duration
+	now := time.Unix(1000, 0)
+	restore := setConsoleDeviceAuthorizationHooks(
+		t,
+		func(string) error { return nil },
+		func(_ context.Context, wait time.Duration) error {
+			waits = append(waits, wait)
+			now = now.Add(wait)
+			return nil
+		},
+		func() time.Time { return now },
+	)
+	defer restore()
+
+	client := NewConsoleOAuthClient(&ConsoleOAuthClientConfig{
+		EndpointURL: server.URL,
+		HTTPClient:  server.Client(),
+	})
+	login := &ConsoleLogin{}
+	resp, err := login.deviceCodeAuthorize(context.Background(), client)
+	if err != nil {
+		t.Fatalf("deviceCodeAuthorize returned error: %v", err)
+	}
+	if resp.RefreshToken != "refresh-token" {
+		t.Fatalf("response = %+v", resp)
+	}
+	if len(waits) != 2 || waits[0] != 5*time.Second || waits[1] != 10*time.Second {
+		t.Fatalf("waits = %v, want [5s 10s]", waits)
+	}
+}
+
+func TestDeviceCodeAuthorizeToleratesTransientErrorsThenSucceeds(t *testing.T) {
+	var tokenAttempts int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case consoleDeviceAuthorizationPath:
+			_ = json.NewEncoder(w).Encode(ConsoleDeviceAuthorizationResponse{
+				DeviceCode:      "device-code",
+				UserCode:        "USER-CODE",
+				VerificationURI: "https://example.com/device",
+				ExpiresIn:       300,
+				Interval:        5,
+			})
+		case consoleTokenPath:
+			tokenAttempts++
+			switch tokenAttempts {
+			case 1:
+				// Structured transient failure (upstream 5xx).
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(`{"error":"server_error"}`))
+			case 2:
+				// Documented transient failure: service temporarily unavailable (503).
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"error":"temporarily_unavailable"}`))
+			case 3:
+				// Non-structured failure: 5xx with an unparseable body.
+				w.WriteHeader(http.StatusBadGateway)
+				_, _ = w.Write([]byte(`gateway down`))
+			default:
+				_ = json.NewEncoder(w).Encode(ConsoleTokenResponse{
+					AccessToken:  `{"access_key_id":"ak","secret_access_key":"sk","session_token":"st"}`,
+					TokenType:    "sts",
+					ExpiresIn:    900,
+					RefreshToken: "refresh-token",
+					IDToken:      "id-token",
+				})
+			}
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	var waits []time.Duration
+	now := time.Unix(1000, 0)
+	restore := setConsoleDeviceAuthorizationHooks(
+		t,
+		func(string) error { return nil },
+		func(_ context.Context, wait time.Duration) error {
+			waits = append(waits, wait)
+			now = now.Add(wait)
+			return nil
+		},
+		func() time.Time { return now },
+	)
+	defer restore()
+
+	client := NewConsoleOAuthClient(&ConsoleOAuthClientConfig{
+		EndpointURL: server.URL,
+		HTTPClient:  server.Client(),
+	})
+	resp, err := (&ConsoleLogin{NoBrowser: true}).deviceCodeAuthorize(context.Background(), client)
+	if err != nil {
+		t.Fatalf("deviceCodeAuthorize returned error: %v", err)
+	}
+	if resp.RefreshToken != "refresh-token" {
+		t.Fatalf("response = %+v", resp)
+	}
+	if tokenAttempts != 4 {
+		t.Fatalf("token attempts = %d, want 4 (three transient, one success)", tokenAttempts)
+	}
+	if len(waits) != 4 {
+		t.Fatalf("waits = %v, want 4 entries", waits)
+	}
+	for i, wait := range waits {
+		if wait != 5*time.Second {
+			t.Fatalf("waits[%d] = %v, want 5s; non-timeout transients must not change interval", i, wait)
+		}
+	}
+}
+
+func TestDeviceCodeAuthorizeAbortsAfterSustainedTransientErrors(t *testing.T) {
+	var tokenAttempts int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case consoleDeviceAuthorizationPath:
+			_ = json.NewEncoder(w).Encode(ConsoleDeviceAuthorizationResponse{
+				DeviceCode:      "device-code",
+				UserCode:        "USER-CODE",
+				VerificationURI: "https://example.com/device",
+				ExpiresIn:       3600,
+				Interval:        5,
+			})
+		case consoleTokenPath:
+			tokenAttempts++
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":"server_error"}`))
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	now := time.Unix(1000, 0)
+	restore := setConsoleDeviceAuthorizationHooks(
+		t,
+		func(string) error { return nil },
+		func(_ context.Context, wait time.Duration) error {
+			now = now.Add(wait)
+			return nil
+		},
+		func() time.Time { return now },
+	)
+	defer restore()
+
+	client := NewConsoleOAuthClient(&ConsoleOAuthClientConfig{
+		EndpointURL: server.URL,
+		HTTPClient:  server.Client(),
+	})
+	_, err := (&ConsoleLogin{NoBrowser: true}).deviceCodeAuthorize(context.Background(), client)
+	if err == nil || !strings.Contains(err.Error(), "polling device authorization token") {
+		t.Fatalf("error = %v, want polling failure", err)
+	}
+	// Budget is consoleDeviceCodeMaxTransientErrors tolerated + 1 that trips the abort.
+	if tokenAttempts != consoleDeviceCodeMaxTransientErrors+1 {
+		t.Fatalf("token attempts = %d, want %d", tokenAttempts, consoleDeviceCodeMaxTransientErrors+1)
+	}
+}
+
+func TestDeviceCodeAuthorizeNoBrowser(t *testing.T) {
+	server := newSuccessfulDeviceCodeServer(t)
+	defer server.Close()
+
+	browserCalls := 0
+	now := time.Unix(1000, 0)
+	restore := setConsoleDeviceAuthorizationHooks(
+		t,
+		func(string) error {
+			browserCalls++
+			return nil
+		},
+		func(_ context.Context, wait time.Duration) error {
+			now = now.Add(wait)
+			return nil
+		},
+		func() time.Time { return now },
+	)
+	defer restore()
+
+	output := captureConsoleLoginStdout(t, func() {
+		client := NewConsoleOAuthClient(&ConsoleOAuthClientConfig{
+			EndpointURL: server.URL,
+			HTTPClient:  server.Client(),
+		})
+		_, err := (&ConsoleLogin{NoBrowser: true}).deviceCodeAuthorize(context.Background(), client)
+		if err != nil {
+			t.Fatalf("deviceCodeAuthorize returned error: %v", err)
+		}
+	})
+
+	if browserCalls != 0 {
+		t.Fatalf("browser calls = %d, want 0", browserCalls)
+	}
+	for _, expected := range []string{
+		"Browser will not be automatically opened.",
+		"https://example.com/device",
+		"USER-CODE",
+		"300",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("output %q does not contain %q", output, expected)
+		}
+	}
+}
+
+func TestDeviceCodeAuthorizeBrowserFailureContinues(t *testing.T) {
+	server := newSuccessfulDeviceCodeServer(t)
+	defer server.Close()
+
+	browserCalls := 0
+	now := time.Unix(1000, 0)
+	restore := setConsoleDeviceAuthorizationHooks(
+		t,
+		func(gotURL string) error {
+			browserCalls++
+			if gotURL != "https://example.com/device?user_code=USER-CODE" {
+				t.Fatalf("browser URL = %q", gotURL)
+			}
+			return errors.New("browser unavailable")
+		},
+		func(_ context.Context, wait time.Duration) error {
+			now = now.Add(wait)
+			return nil
+		},
+		func() time.Time { return now },
+	)
+	defer restore()
+
+	output := captureConsoleLoginStdout(t, func() {
+		client := NewConsoleOAuthClient(&ConsoleOAuthClientConfig{
+			EndpointURL: server.URL,
+			HTTPClient:  server.Client(),
+		})
+		_, err := (&ConsoleLogin{}).deviceCodeAuthorize(context.Background(), client)
+		if err != nil {
+			t.Fatalf("deviceCodeAuthorize returned error: %v", err)
+		}
+	})
+
+	if browserCalls != 1 {
+		t.Fatalf("browser calls = %d, want 1", browserCalls)
+	}
+	for _, expected := range []string{
+		"Attempting to open your default browser.",
+		"https://example.com/device",
+		"USER-CODE",
+		"browser unavailable",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("output %q does not contain %q", output, expected)
+		}
+	}
+}
+
+func TestDeviceCodeAuthorizeTerminalErrors(t *testing.T) {
+	tests := []struct {
+		code    string
+		wantErr string
+	}{
+		{code: "access_denied", wantErr: "was denied"},
+		{code: "expired_token", wantErr: "invalid or expired"},
+		{code: "invalid_device_code", wantErr: "invalid or expired"},
+		{code: "invalid_client", wantErr: "invalid_client"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.code, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case consoleDeviceAuthorizationPath:
+					_ = json.NewEncoder(w).Encode(ConsoleDeviceAuthorizationResponse{
+						DeviceCode:      "device-code",
+						UserCode:        "USER-CODE",
+						VerificationURI: "https://example.com/device",
+						ExpiresIn:       300,
+						Interval:        5,
+					})
+				case consoleTokenPath:
+					w.WriteHeader(http.StatusBadRequest)
+					_, _ = w.Write([]byte(`{"error":"` + tt.code + `"}`))
+				}
+			}))
+			defer server.Close()
+
+			now := time.Unix(1000, 0)
+			restore := setConsoleDeviceAuthorizationHooks(
+				t,
+				func(string) error { return nil },
+				func(_ context.Context, wait time.Duration) error {
+					now = now.Add(wait)
+					return nil
+				},
+				func() time.Time { return now },
+			)
+			defer restore()
+
+			client := NewConsoleOAuthClient(&ConsoleOAuthClientConfig{
+				EndpointURL: server.URL,
+				HTTPClient:  server.Client(),
+			})
+			_, err := (&ConsoleLogin{NoBrowser: true}).deviceCodeAuthorize(context.Background(), client)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %v, want containing %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestDeviceCodeAuthorizeTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != consoleDeviceAuthorizationPath {
+			t.Fatalf("unexpected token request after timeout: %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(ConsoleDeviceAuthorizationResponse{
+			DeviceCode:      "device-code",
+			UserCode:        "USER-CODE",
+			VerificationURI: "https://example.com/device",
+			ExpiresIn:       3,
+			Interval:        5,
+		})
+	}))
+	defer server.Close()
+
+	now := time.Unix(1000, 0)
+	restore := setConsoleDeviceAuthorizationHooks(
+		t,
+		func(string) error { return nil },
+		func(_ context.Context, wait time.Duration) error {
+			now = now.Add(wait)
+			return nil
+		},
+		func() time.Time { return now },
+	)
+	defer restore()
+
+	client := NewConsoleOAuthClient(&ConsoleOAuthClientConfig{
+		EndpointURL: server.URL,
+		HTTPClient:  server.Client(),
+	})
+	_, err := (&ConsoleLogin{NoBrowser: true}).deviceCodeAuthorize(context.Background(), client)
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("error = %v, want timeout", err)
+	}
+}
+
+func TestConsoleLoginDeviceCodePersistsProfileAndCache(t *testing.T) {
+	configDir := tempDirForTest(t)
+	defer cleanupDirForTest(configDir)()
+	defer withConfigDirForTest(configDir)()
+	defer setenvForTest(t, loginCacheDirectoryEnv, filepath.Join(configDir, "login-cache"))()
+
+	oldConfig := config
+	oldContextConfig := ctx.config
+	defer func() {
+		config = oldConfig
+		ctx.config = oldContextConfig
+	}()
+	setRuntimeConfig(&Configure{Profiles: map[string]*Profile{}})
+
+	loginSession := "trn:volcengine:iam:cn-beijing:2100123456:user/Admin"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case consoleDeviceAuthorizationPath:
+			_ = json.NewEncoder(w).Encode(ConsoleDeviceAuthorizationResponse{
+				DeviceCode:      "device-code",
+				UserCode:        "USER-CODE",
+				VerificationURI: "https://example.com/device",
+				ExpiresIn:       300,
+				Interval:        5,
+			})
+		case consoleTokenPath:
+			_ = json.NewEncoder(w).Encode(ConsoleTokenResponse{
+				AccessToken:  `{"access_key_id":"ak","secret_access_key":"sk","session_token":"st"}`,
+				TokenType:    "sts",
+				ExpiresIn:    900,
+				RefreshToken: "refresh-token",
+				IDToken: mustBuildUnsignedIDToken(t, map[string]string{
+					"trn": loginSession,
+				}),
+				Scope: scopeAllAll,
+			})
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	now := time.Unix(1000, 0)
+	restore := setConsoleDeviceAuthorizationHooks(
+		t,
+		func(string) error { return nil },
+		func(_ context.Context, wait time.Duration) error {
+			now = now.Add(wait)
+			return nil
+		},
+		func() time.Time { return now },
+	)
+	defer restore()
+
+	err := (&ConsoleLogin{
+		Profile:     "device-profile",
+		Region:      "cn-beijing",
+		NoBrowser:   true,
+		EndpointURL: server.URL,
+	}).Login()
+	if err != nil {
+		t.Fatalf("Login returned error: %v", err)
+	}
+
+	cfg := runtimeConfig()
+	profile := cfg.Profiles["device-profile"]
+	if profile == nil {
+		t.Fatal("device profile was not created")
+	}
+	if profile.Mode != ModeConsoleLogin || profile.Region != "cn-beijing" || profile.LoginSession != loginSession {
+		t.Fatalf("profile = %+v", profile)
+	}
+
+	cache, err := readLoginCache(loginSession)
+	if err != nil {
+		t.Fatalf("readLoginCache returned error: %v", err)
+	}
+	if cache.ClientID != ConsoleClientIDCrossDevice {
+		t.Fatalf("cache client ID = %q", cache.ClientID)
+	}
+	if cache.Scope != scopeAllAll {
+		t.Fatalf("cache scope = %q", cache.Scope)
+	}
+	if cache.EndpointURL != server.URL {
+		t.Fatalf("cache endpoint = %q", cache.EndpointURL)
+	}
+	if cache.RefreshToken != "refresh-token" {
+		t.Fatalf("cache refresh token = %q", cache.RefreshToken)
+	}
+}
+
+func newSuccessfulDeviceCodeServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case consoleDeviceAuthorizationPath:
+			_ = json.NewEncoder(w).Encode(ConsoleDeviceAuthorizationResponse{
+				DeviceCode:              "device-code",
+				UserCode:                "USER-CODE",
+				VerificationURI:         "https://example.com/device",
+				VerificationURIComplete: "https://example.com/device?user_code=USER-CODE",
+				ExpiresIn:               300,
+				Interval:                5,
+			})
+		case consoleTokenPath:
+			_ = json.NewEncoder(w).Encode(ConsoleTokenResponse{
+				AccessToken:  `{"access_key_id":"ak","secret_access_key":"sk","session_token":"st"}`,
+				TokenType:    "sts",
+				ExpiresIn:    900,
+				RefreshToken: "refresh-token",
+				IDToken:      "id-token",
+			})
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+}
+
+func setConsoleDeviceAuthorizationHooks(
+	t *testing.T,
+	openBrowser func(string) error,
+	sleep func(context.Context, time.Duration) error,
+	now func() time.Time,
+) func() {
+	t.Helper()
+	oldOpenBrowser := consoleLoginOpenBrowser
+	oldSleep := consoleDeviceAuthorizationSleep
+	oldCurrentTime := consoleDeviceAuthorizationCurrentTime
+	consoleLoginOpenBrowser = openBrowser
+	consoleDeviceAuthorizationSleep = sleep
+	consoleDeviceAuthorizationCurrentTime = now
+	return func() {
+		consoleLoginOpenBrowser = oldOpenBrowser
+		consoleDeviceAuthorizationSleep = oldSleep
+		consoleDeviceAuthorizationCurrentTime = oldCurrentTime
+	}
+}
+
+func captureConsoleLoginStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	oldStdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stdout pipe: %v", err)
+	}
+	os.Stdout = writer
+	// Restore os.Stdout and release the pipe even if fn() aborts via t.Fatal
+	// (runtime.Goexit skips non-deferred cleanup), otherwise a leaked writer
+	// corrupts stdout for every subsequent test in the package.
+	restore := func() {
+		os.Stdout = oldStdout
+		_ = writer.Close()
+		_ = reader.Close()
+	}
+	defer restore()
+
+	fn()
+
+	_ = writer.Close()
+	os.Stdout = oldStdout
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read stdout: %v", err)
+	}
+	return string(output)
+}
+
+// captureConsoleLoginStderr mirrors captureConsoleLoginStdout for os.Stderr,
+// which is where cobra sends flag deprecation notices.
+func captureConsoleLoginStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	oldStderr := os.Stderr
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stderr pipe: %v", err)
+	}
+	os.Stderr = writer
+	restore := func() {
+		os.Stderr = oldStderr
+		_ = writer.Close()
+		_ = reader.Close()
+	}
+	defer restore()
+
+	fn()
+
+	_ = writer.Close()
+	os.Stderr = oldStderr
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read stderr: %v", err)
+	}
+	return string(output)
+}
 
 func TestConfirmLoginSessionReplacement(t *testing.T) {
 	tests := []struct {
@@ -176,47 +826,6 @@ func TestExtractLoginSessionUsesTRNClaim(t *testing.T) {
 	want := "trn:volcengine:iam:cn-beijing:2100123456:user/Admin"
 	if loginSession != want {
 		t.Fatalf("loginSession = %q, want %q", loginSession, want)
-	}
-}
-
-func TestRemoteAuthorizeAcceptsRawURLEncodedAuthorizationResponse(t *testing.T) {
-	state := "test-state"
-	authCode := "test-code"
-	query := "code=" + authCode + "&state=" + state
-	input := base64.RawURLEncoding.EncodeToString([]byte(query)) + "\n"
-
-	stdin := os.Stdin
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("create stdin pipe: %v", err)
-	}
-	defer func() {
-		os.Stdin = stdin
-		_ = reader.Close()
-		_ = writer.Close()
-	}()
-	if _, err := writer.WriteString(input); err != nil {
-		t.Fatalf("write stdin pipe: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close stdin pipe writer: %v", err)
-	}
-	os.Stdin = reader
-
-	cl := &ConsoleLogin{EndpointURL: "https://signin.volcengine.com"}
-	oauthClient := NewConsoleOAuthClient(&ConsoleOAuthClientConfig{EndpointURL: cl.EndpointURL})
-
-	gotCode, gotRedirectURI, err := cl.remoteAuthorize(oauthClient, ConsoleClientIDCrossDevice, "challenge", state)
-	if err != nil {
-		t.Fatalf("remoteAuthorize returned error: %v", err)
-	}
-	if gotCode != authCode {
-		t.Fatalf("authCode = %q, want %q", gotCode, authCode)
-	}
-
-	wantRedirectURI := "https://signin.volcengine.com/authorize/oauth/authorize"
-	if gotRedirectURI != wantRedirectURI {
-		t.Fatalf("redirectURI = %q, want %q", gotRedirectURI, wantRedirectURI)
 	}
 }
 

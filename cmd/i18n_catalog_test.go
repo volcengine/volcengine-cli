@@ -47,11 +47,6 @@ func TestTranslationCatalogCoversProductionCallSites(t *testing.T) {
 			}
 			message, ok := constantString(call.Args[0])
 			if !ok {
-				if name == "consolelogin_callback.go" {
-					if identifier, ok := call.Args[0].(*ast.Ident); ok && identifier.Name == "format" {
-						return true
-					}
-				}
 				t.Errorf("%s message at %s must be a string constant", function.Name, position)
 				return true
 			}
