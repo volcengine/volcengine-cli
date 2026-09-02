@@ -282,10 +282,6 @@ func resolveActionHTTPMethod(ctx *Context, apiInfo *ApiInfo) (string, error) {
 	return method, nil
 }
 
-func callAPIWithClient(sdk *SdkClient, serviceName, action string, input interface{}, inputFromBody bool) (*map[string]interface{}, error) {
-	return callAPIWithClientContext(context.Background(), sdk, serviceName, action, input, inputFromBody)
-}
-
 func callAPIWithClientContext(ctx context.Context, sdk *SdkClient, serviceName, action string, input interface{}, inputFromBody bool) (*map[string]interface{}, error) {
 	if sdk == nil {
 		return nil, fmt.Errorf("SDK client is required")
