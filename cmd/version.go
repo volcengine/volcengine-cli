@@ -14,7 +14,7 @@ const clientName = "volcengine-cli"
 
 var clientVersion = "1.1.5"
 
-type envGetter func(string) string
+type envGetter func(string) (string, bool)
 
 type skillInvokerDetector struct {
 	name  string
@@ -22,6 +22,45 @@ type skillInvokerDetector struct {
 }
 
 var skillInvokerDetectors = []skillInvokerDetector{
+	{
+		name: "doubao",
+		match: func(getenv envGetter) bool {
+			return hasEnv(getenv, "DOUBAO_OFFICE_APP_ID") ||
+				hasEnv(getenv, "DOUBAO_OFFICE_AGENT_NAME") ||
+				hasEnv(getenv, "AILY_SIGNATURE")
+		},
+	},
+	{
+		name: "github-copilot",
+		match: func(getenv envGetter) bool {
+			return strings.TrimSpace(envValue(getenv, "COPILOT_CLI")) == "1"
+		},
+	},
+	{
+		name: "cline",
+		match: func(getenv envGetter) bool {
+			return hasEnvKey(getenv, "CLINE_ACTIVE") ||
+				hasEnvKey(getenv, "CLINE_CONNECTOR_CLI_LAUNCH")
+		},
+	},
+	{
+		name: "qoder",
+		match: func(getenv envGetter) bool {
+			return hasEnv(getenv, "QODER_CLI") ||
+				hasEnv(getenv, "QODERWORK_SOURCE_CHAT_ID") ||
+				hasEnv(getenv, "DINGTALK_DWS_AGENTCODE") ||
+				hasEnv(getenv, "QODER_AGENT_SDK_VERSION")
+		},
+	},
+	{
+		name: "workbuddy",
+		match: func(getenv envGetter) bool {
+			return hasEnv(getenv, "CODEBUDDY_HOST") ||
+				hasEnv(getenv, "WORKBUDDY_APPLICATION_NAME") ||
+				hasEnv(getenv, "WORKBUDDY_APP_NAME") ||
+				hasEnv(getenv, "WORKBUDDY_APP_VERSION")
+		},
+	},
 	{
 		name: "claude-code",
 		match: func(getenv envGetter) bool {
@@ -35,8 +74,8 @@ var skillInvokerDetectors = []skillInvokerDetector{
 		match: func(getenv envGetter) bool {
 			return hasEnv(getenv, "TRAE_CLI_PLUGIN_ROOT") ||
 				hasEnv(getenv, "COCO_PLUGIN_ROOT") ||
-				strings.EqualFold(strings.TrimSpace(getenv("AI_AGENT")), "TRAE") ||
-				strings.EqualFold(strings.TrimSpace(getenv("ICUBE_PRODUCT_BRAND_NAME")), "TRAE")
+				strings.EqualFold(strings.TrimSpace(envValue(getenv, "AI_AGENT")), "TRAE") ||
+				strings.EqualFold(strings.TrimSpace(envValue(getenv, "ICUBE_PRODUCT_BRAND_NAME")), "TRAE")
 		},
 	},
 	{
@@ -50,7 +89,7 @@ var skillInvokerDetectors = []skillInvokerDetector{
 		match: func(getenv envGetter) bool {
 			return hasEnv(getenv, "CURSOR_AGENT") ||
 				hasEnv(getenv, "CURSOR_TRACE_ID") ||
-				strings.TrimSpace(getenv("CURSOR_EXTENSION_HOST_ROLE")) == "agent-exec"
+				strings.TrimSpace(envValue(getenv, "CURSOR_EXTENSION_HOST_ROLE")) == "agent-exec"
 		},
 	},
 	{
@@ -80,6 +119,30 @@ var skillInvokerDetectors = []skillInvokerDetector{
 			return hasEnv(getenv, "OPENCODE")
 		},
 	},
+	// Keep these integrations at the lowest priority among specific invokers.
+	{
+		name: "deepseek-harness",
+		match: func(getenv envGetter) bool {
+			return hasEnv(getenv, "DSH_SHELL") ||
+				hasEnv(getenv, "DSH_SESSION_ID") ||
+				hasEnv(getenv, "DSH_PTY_SESSION_ID")
+		},
+	},
+	{
+		name: "pi",
+		match: func(getenv envGetter) bool {
+			return hasEnv(getenv, "PI_CODING_AGENT") ||
+				hasEnv(getenv, "PI_SESSION_ID") ||
+				hasEnv(getenv, "PI_SESSION_FILE")
+		},
+	},
+	{
+		name: "hermes-agent",
+		match: func(getenv envGetter) bool {
+			return hasEnv(getenv, "HERMES_AGENT") ||
+				hasEnv(getenv, "HERMES_DESKTOP")
+		},
+	},
 	// agent is a generic fallback placed last: any specific invoker above
 	// takes priority, and it only matches when a caller advertises itself as
 	// an agent via the generic AGENT/IS_AGENT environment variables.
@@ -106,7 +169,7 @@ func newClientVersionAndUserAgentHandler(customUserAgent string) request.NamedHa
 	return request.NamedHandler{
 		Name: "VolcengineCliUserAgentHandler",
 		Fn: func(r *request.Request) {
-			request.AddToUserAgent(r, clientUserAgent(os.Getenv))
+			request.AddToUserAgent(r, clientUserAgent(os.LookupEnv))
 			if customUserAgent != "" {
 				request.AddToUserAgent(r, customUserAgent)
 			}
@@ -143,5 +206,16 @@ func detectSkillInvokers(getenv envGetter) []string {
 }
 
 func hasEnv(getenv envGetter, key string) bool {
-	return strings.TrimSpace(getenv(key)) != ""
+	return strings.TrimSpace(envValue(getenv, key)) != ""
+}
+
+// hasEnvKey distinguishes an explicitly exported empty value from an unset key.
+func hasEnvKey(getenv envGetter, key string) bool {
+	_, ok := getenv(key)
+	return ok
+}
+
+func envValue(getenv envGetter, key string) string {
+	value, _ := getenv(key)
+	return value
 }
