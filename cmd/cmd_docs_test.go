@@ -266,11 +266,12 @@ func TestDocsHelpShowsInterfaceAndDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("help: %v", err)
 	}
-	for _, expected := range []string{"docs search <text> [flags]", "--limit int", "(default 10)", "--service-code stringArray", "--snippet-length int", "--query string", "--output string"} {
+	for _, expected := range []string{"docs search <text> [flags]", "--limit int", "(default 10)", "--service-code stringArray", "--snippet-length int", "--output string"} {
 		if !strings.Contains(stdout, expected) {
 			t.Errorf("help missing %q:\n%s", expected, stdout)
 		}
 	}
+	assertDocsHelpHidesCompatibilityFlags(t, stdout)
 	if fake.searchCalls != 0 {
 		t.Fatalf("help made %d search calls", fake.searchCalls)
 	}
@@ -279,13 +280,23 @@ func TestDocsHelpShowsInterfaceAndDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetch help: %v", err)
 	}
-	for _, expected := range []string{"docs fetch <url> [flags]", "--start-index int", "--max-length int", "(default 5000)", "--query string", "--output string"} {
+	for _, expected := range []string{"docs fetch <url> [flags]", "--start-index int", "--max-length int", "(default 5000)", "--output string"} {
 		if !strings.Contains(stdout, expected) {
 			t.Errorf("fetch help missing %q:\n%s", expected, stdout)
 		}
 	}
+	assertDocsHelpHidesCompatibilityFlags(t, stdout)
 	if fake.fetchCalls != 0 {
 		t.Fatalf("help made %d fetch calls", fake.fetchCalls)
+	}
+}
+
+func assertDocsHelpHidesCompatibilityFlags(t *testing.T, help string) {
+	t.Helper()
+	for _, forbidden := range []string{"--query", "Global Flags:", "--profile", "--region", "--endpoint", "--lang"} {
+		if strings.Contains(help, forbidden) {
+			t.Errorf("help unexpectedly exposes %q:\n%s", forbidden, help)
+		}
 	}
 }
 

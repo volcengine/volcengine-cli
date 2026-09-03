@@ -35,6 +35,9 @@ func newDocsCommand(module docs.Module) *cobra.Command {
 	command.PersistentFlags().String("region", "", tr("Ignored for public documentation requests"))
 	command.PersistentFlags().String("endpoint", "", tr("Ignored for public documentation requests"))
 	command.PersistentFlags().String("lang", "", tr("Set the display language for this invocation (EN or ZH)."))
+	for _, name := range []string{"profile", "region", "endpoint", "lang"} {
+		_ = command.PersistentFlags().MarkHidden(name)
+	}
 	command.PersistentPreRunE = func(command *cobra.Command, _ []string) error {
 		value, err := command.Flags().GetString("lang")
 		if err != nil || strings.TrimSpace(value) == "" {
@@ -57,10 +60,7 @@ func docsUsageTemplate() string {
 {{range .Commands}}{{if .IsAvailableCommand}}  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
 
 ` + tr("Flags:") + `
-{{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableInheritedFlags}}
-
-` + tr("Global Flags:") + `
-{{.InheritedFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableSubCommands}}
+{{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableSubCommands}}
 
 ` + tr(`Use "{{.CommandPath}} [command] --help" for more information about a command.`) + `{{end}}
 `
@@ -103,6 +103,7 @@ func newDocsSearchCommand(module docs.Module) *cobra.Command {
 	command.Flags().IntVar(&snippetLength, "snippet-length", docs.DefaultSnippetLength, tr("Maximum Unicode characters per snippet (positive integer)"))
 	command.Flags().StringVar(&outputFormat, "output", "json", tr("Output format: json, text, yaml, or table"))
 	command.Flags().StringVar(&query, "query", "", tr("JMESPath expression applied before formatting"))
+	_ = command.Flags().MarkHidden("query")
 	return command
 }
 
@@ -140,6 +141,7 @@ func newDocsFetchCommand(module docs.Module) *cobra.Command {
 	command.Flags().IntVar(&maxLength, "max-length", docs.DefaultFetchLength, tr("Maximum Unicode characters to return (positive integer)"))
 	command.Flags().StringVar(&outputFormat, "output", "json", tr("Output format: json, text, or yaml"))
 	command.Flags().StringVar(&query, "query", "", tr("JMESPath expression applied before formatting"))
+	_ = command.Flags().MarkHidden("query")
 	return command
 }
 
