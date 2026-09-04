@@ -101,7 +101,46 @@ ve mcp --oauth \
   --base-url https://mcp.example.com
 ```
 
-非回环地址部署 OAuth 时，issuer 和公开 base URL 必须使用 HTTPS；TLS 可以由反向代理终止。Protected Resource Metadata 按 RFC 9728 使用由 MCP Resource 路径派生的 well-known 地址。
+非回环地址部署 OAuth 时，issuer 和公开 base URL 必须使用 HTTPS；TLS 可以由反向代理终止。Protected Resource Metadata 按 RFC 9728 使用由 MCP Resource 路径派生的 well-known 地址：Resource 为 `https://mcp.example.com/mcp` 时，元数据地址是 `https://mcp.example.com/.well-known/oauth-protected-resource/mcp`。
+
+### 接入授权服务器
+
+`ve mcp` 只承担 Resource Server 的职责，**不签发 Token，也不提供客户端注册和 Token Endpoint**。授权服务器需要自行准备（自建，或使用已有 IdP），并满足以下要求：
+
+1. 暴露 Authorization Server Metadata。启动时会依次尝试 `{issuer}` 派生的 `/.well-known/oauth-authorization-server` 和 `{issuer}/.well-known/openid-configuration`，两者都取不到即启动失败。元数据中的 `issuer` 必须与 `--oauth-issuer` 完全一致，且必须包含 `jwks_uri`。
+2. 通过 `jwks_uri` 暴露 JWKS。仅支持 RSA 与 EC（P-256/P-384/P-521）签名密钥，且每个 JWK 必须带 `kid`。
+3. 签发 JWT 格式的 Access Token，算法为 `RS256/RS384/RS512` 或 `ES256/ES384/ES512`，并满足：
+   - `iss` 等于 `--oauth-issuer`；
+   - `aud` 包含 `--oauth-audience`；
+   - `exp` 必填（校验允许 30 秒时钟偏差）；
+   - 若配置了 `--oauth-scopes`，其中每一项都必须出现在 Token 的 `scope`（空格分隔字符串）或 `scp`（数组）中，缺一即拒绝。
+
+Grant type 由授权服务器决定，`ve mcp` 不作限制：服务间调用可用 `client_credentials`，代表最终用户的 MCP 客户端可用 authorization code + PKCE。以 `client_credentials` 为例：
+
+```shell
+# 1. 从授权服务器换取 Access Token，audience 与 scope 必须和 ve mcp 的配置对齐
+TOKEN=$(curl -s -X POST https://auth.example.com/token \
+  -u "$CLIENT_ID:$CLIENT_SECRET" \
+  -d grant_type=client_credentials \
+  -d audience=volcengine-mcp \
+  -d scope=mcp:use | jq -r .access_token)
+
+# 2. 携带 Token 访问 MCP 端点
+curl -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+  https://mcp.example.com/mcp
+```
+
+排查认证失败时，响应状态码和 `WWW-Authenticate` 头可以区分原因：
+
+| 状态码 | `error` | 常见原因 |
+| --- | --- | --- |
+| 401 | `invalid_token` | 缺少 Bearer 头、签名验不过、`iss`/`aud` 不匹配、Token 已过期 |
+| 403 | `insufficient_scope` | Token 有效但缺少 `--oauth-scopes` 要求的 scope |
+
+两种响应都会带上 `resource_metadata`，客户端可据此发现授权服务器地址。
 
 支持的环境变量：
 

@@ -101,7 +101,46 @@ ve mcp --oauth \
   --base-url https://mcp.example.com
 ```
 
-For non-loopback OAuth deployments, the issuer and public base URL must use HTTPS. TLS may terminate at a reverse proxy. Protected Resource Metadata is served at the RFC 9728 well-known location derived from the MCP resource path.
+For non-loopback OAuth deployments, the issuer and public base URL must use HTTPS. TLS may terminate at a reverse proxy. Protected Resource Metadata is served at the RFC 9728 well-known location derived from the MCP resource path: for the resource `https://mcp.example.com/mcp` the metadata lives at `https://mcp.example.com/.well-known/oauth-protected-resource/mcp`.
+
+### Connecting an authorization server
+
+`ve mcp` acts only as a resource server. It **does not issue tokens and provides neither client registration nor a token endpoint**. Bring your own authorization server (self-hosted or an existing IdP) that meets these requirements:
+
+1. Publish Authorization Server Metadata. On startup the server tries `/.well-known/oauth-authorization-server` derived from `{issuer}`, then `{issuer}/.well-known/openid-configuration`; startup fails if neither responds. The metadata `issuer` must match `--oauth-issuer` exactly and must include `jwks_uri`.
+2. Publish a JWKS at `jwks_uri`. Only RSA and EC (P-256/P-384/P-521) signing keys are supported, and every JWK must carry a `kid`.
+3. Issue JWT access tokens signed with `RS256/RS384/RS512` or `ES256/ES384/ES512` such that:
+   - `iss` equals `--oauth-issuer`;
+   - `aud` contains `--oauth-audience`;
+   - `exp` is present (validated with 30 seconds of clock skew);
+   - when `--oauth-scopes` is set, every requested scope appears in the token `scope` (space-delimited string) or `scp` (array); a single missing scope is rejected.
+
+The grant type is up to the authorization server; `ve mcp` does not constrain it. Use `client_credentials` for service-to-service calls, or authorization code with PKCE for MCP clients acting on behalf of an end user. With `client_credentials`:
+
+```shell
+# 1. Obtain an access token; audience and scope must match the ve mcp configuration
+TOKEN=$(curl -s -X POST https://auth.example.com/token \
+  -u "$CLIENT_ID:$CLIENT_SECRET" \
+  -d grant_type=client_credentials \
+  -d audience=volcengine-mcp \
+  -d scope=mcp:use | jq -r .access_token)
+
+# 2. Call the MCP endpoint with the token
+curl -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+  https://mcp.example.com/mcp
+```
+
+When authentication fails, the status code and `WWW-Authenticate` header identify the cause:
+
+| Status | `error` | Typical cause |
+| --- | --- | --- |
+| 401 | `invalid_token` | Missing Bearer header, bad signature, `iss`/`aud` mismatch, or expired token |
+| 403 | `insufficient_scope` | Valid token that lacks a scope required by `--oauth-scopes` |
+
+Both responses carry `resource_metadata` so clients can discover the authorization server.
 
 Supported environment variables:
 
