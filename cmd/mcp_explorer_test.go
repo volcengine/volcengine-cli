@@ -14,6 +14,17 @@ func TestMCPListServicesReturnsEveryService(t *testing.T) {
 	}
 }
 
+func TestMCPListServicesAreCallable(t *testing.T) {
+	for _, result := range listMCPServices(rootSupport) {
+		if result.Service == "" {
+			t.Fatalf("service name is empty: %#v", result)
+		}
+		if _, err := listMCPAPIs(rootSupport, result.Service); err != nil {
+			t.Fatalf("listMCPAPIs(%q) error = %v", result.Service, err)
+		}
+	}
+}
+
 func TestMCPListAPIsReturnsEveryAPIForService(t *testing.T) {
 	results, err := listMCPAPIs(rootSupport, "ecs")
 	if err != nil {

@@ -70,9 +70,8 @@ func NewRootSupport() *RootSupport {
 	for _, name := range typeset.AssetNames() {
 		spaces := strings.Split(name, "/")
 		if len(spaces) == 5 {
-			//if structure info is nil skip it
-			if _, ok := svcMappings[spaces[2]+"_"+spaces[3]]; ok {
-				svcName := svcs[spaces[2]+"_"+spaces[3]]
+			//if api metadata is nil skip it, otherwise the service would be registered without a name
+			if svcName, ok := svcs[spaces[2]+"_"+spaces[3]]; ok && svcName != "" {
 				svc = append(svc, svcName)
 				b, _ := typeset.Asset(name)
 				meta := make(map[string]*ApiMeta)
