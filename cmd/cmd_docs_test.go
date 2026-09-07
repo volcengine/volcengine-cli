@@ -301,18 +301,18 @@ func assertDocsHelpHidesCompatibilityFlags(t *testing.T, help string) {
 }
 
 func TestDocsUserAgentMatchesNormalServiceCLIUserAgent(t *testing.T) {
-	got := docsUserAgent(osGetenvForTest)
-	want := clientUserAgent(osGetenvForTest)
+	got := docsUserAgent(osLookupEnvForTest)
+	want := clientUserAgent(osLookupEnvForTest)
 	if got != want || !strings.Contains(got, "skill-invoker/codex") {
 		t.Fatalf("docs User-Agent = %q, normal CLI User-Agent = %q", got, want)
 	}
 }
 
-func osGetenvForTest(key string) string {
+func osLookupEnvForTest(key string) (string, bool) {
 	if key == "CODEX_THREAD_ID" {
-		return "thread"
+		return "thread", true
 	}
-	return ""
+	return "", false
 }
 
 type fakeDocsModule struct {

@@ -13,7 +13,7 @@ import (
 )
 
 func init() {
-	rootCmd.AddCommand(newDocsCommand(docs.New(docsUserAgent(os.Getenv))))
+	rootCmd.AddCommand(newDocsCommand(docs.New(docsUserAgent(os.LookupEnv))))
 }
 
 // docsUserAgent intentionally delegates to the exact formatter used by normal
