@@ -33,11 +33,26 @@ func (p *Parser) ReadArgs(ctx *Context) ([]string, error) {
 	if ctx == nil || ctx.fixedFlags == nil || ctx.dynamicFlags == nil {
 		return nil, fmt.Errorf("invalid context for parsing arguments")
 	}
+	var (
+		args []string
+		err  error
+	)
 	if len(p.args)%2 == 0 && p.hasFlagSyntaxAtPairStarts() {
-		return p.readPairedArgs(ctx)
+		args, err = p.readPairedArgs(ctx)
+	} else {
+		args, err = p.readLegacyArgs(ctx)
 	}
-
-	return p.readLegacyArgs(ctx)
+	if err != nil {
+		return args, err
+	}
+	if flag := ctx.fixedFlags.GetByName(customUserAgentFlagName); flag != nil {
+		value, normalizeErr := normalizeCustomUserAgent(flag.GetValue())
+		if normalizeErr != nil {
+			return args, normalizeErr
+		}
+		flag.SetValue(value)
+	}
+	return args, nil
 }
 
 func (p *Parser) hasFlagSyntaxAtPairStarts() bool {
@@ -193,6 +208,10 @@ func (p *Parser) parseArg(arg string, ctx *Context) (flag *Flag, value string, e
 			err = fmt.Errorf("-- is not support command")
 		} else {
 			name := arg[2:]
+			if strings.HasPrefix(name, customUserAgentFlagName+"=") {
+				err = fmt.Errorf("--user-agent does not support '=' syntax; use '--user-agent <value>'")
+				return
+			}
 			_, isSystemFlag := systemFlags.public[name]
 			_, isActionParameter := p.actionParameters[name]
 			if isSystemFlag && !isActionParameter {

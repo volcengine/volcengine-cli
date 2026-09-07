@@ -280,6 +280,70 @@ func TestParserKeepsQueryAndOutputAsSystemFlags(t *testing.T) {
 	}
 }
 
+func TestParserRoutesUserAgentToSystemFlags(t *testing.T) {
+	ctx := NewContext()
+	_, err := NewParser([]string{
+		"--InstanceId", "i-1234567890",
+		"--user-agent", "  deployment-tool/2.1  ",
+	}).ReadArgs(ctx)
+	if err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+
+	userAgent := ctx.fixedFlags.GetByName(customUserAgentFlagName)
+	if userAgent == nil || userAgent.GetValue() != "deployment-tool/2.1" {
+		t.Fatalf("system user-agent = %#v, want normalized custom value", userAgent)
+	}
+	if dynamic := ctx.dynamicFlags.GetByName(customUserAgentFlagName); dynamic != nil {
+		t.Fatalf("user-agent leaked into dynamic API parameters: %#v", dynamic)
+	}
+	instanceID := ctx.dynamicFlags.GetByName("InstanceId")
+	if instanceID == nil || instanceID.GetValue() != "i-1234567890" {
+		t.Fatalf("dynamic InstanceId = %#v, want API parameter value", instanceID)
+	}
+}
+
+func TestParserRejectsInvalidUserAgent(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "equals syntax",
+			args: []string{"--user-agent=deployment-tool/2.1", "--Foo"},
+			want: "does not support '=' syntax",
+		},
+		{
+			name: "blank value",
+			args: []string{"--user-agent", "   "},
+			want: "must set value",
+		},
+		{
+			name: "newline injection",
+			args: []string{"--user-agent", "deployment-tool/2.1\r\nX-Test: injected"},
+			want: "must not contain control characters",
+		},
+		{
+			name: "duplicate",
+			args: []string{"--user-agent", "first/1.0", "--user-agent", "second/2.0"},
+			want: "flag duplicated --user-agent",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewParser(tt.args).ReadArgs(NewContext())
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %q, want to contain %q", err.Error(), tt.want)
+			}
+		})
+	}
+}
+
 func TestParserAcceptsPEMValuesStartingWithHyphens(t *testing.T) {
 	publicKey := "-----BEGIN CERTIFICATE-----\ncertificate-data\n-----END CERTIFICATE-----"
 	privateKey := "-----BEGIN RSA PRIVATE KEY-----\nprivate-key-data\n-----END RSA PRIVATE KEY-----"

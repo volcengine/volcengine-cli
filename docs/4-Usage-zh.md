@@ -8,7 +8,7 @@ CLI 的基本调用格式：
 
 ```shell
 ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
-                      [--profile name] [--region region] [--endpoint endpoint] [--lang language]
+                      [--profile name] [--region region] [--endpoint endpoint] [--lang language] [--user-agent value]
                       [--version api-version] [--method GET|POST] [--force]
                       [--output json|table|table-num|text|yaml|off] [--query jmespath]
 ```
@@ -16,7 +16,7 @@ ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json
 参数分几类：
 
 - **API 业务参数**：双横线 `--Param value`，进入请求体/查询参数（保留名 `body` / `header` 除外）
-- **对外系统参数**（放在 Action 后）：`--profile` / `--region` / `--endpoint` / `--lang` / `--version` / `--method` / `--force` / `--output` / `--query`
+- **对外系统参数**（放在 Action 后）：`--profile` / `--region` / `--endpoint` / `--lang` / `--user-agent` / `--version` / `--method` / `--force` / `--output` / `--query`
 - **双横线保留控制参数**：`--header`（HTTP 头）和 `--body`（JSON 请求体）；这些控制参数自身**不是**业务参数
 
 API 调用中的系统参数统一使用双横线并放在 Action 后。若当前 Action 暴露了大小写完全相同的业务参数，双横线优先按 API 参数解析。
@@ -89,10 +89,11 @@ ve rds_mysql ListDBInstanceIPLists --InstanceId mysql-xxxxxx --GroupName default
 
 ```shell
 --Param value
+--user-agent deployment-tool/2.1
 --region cn-beijing
 ```
 
-不要写成 `--Param=value`、`--region=cn-beijing` 或 `--lang=ZH`。参数名称和值之间必须使用空格。
+不要写成 `--Param=value`、`--user-agent=deployment-tool/2.1`、`--region=cn-beijing` 或 `--lang=ZH`。参数名称和值之间必须使用空格。
 
 ## CLI 系统参数
 
@@ -104,6 +105,7 @@ ve rds_mysql ListDBInstanceIPLists --InstanceId mysql-xxxxxx --GroupName default
 | `--region` | 本次调用覆盖 region |
 | `--endpoint` | 本次调用覆盖 endpoint，并清空 endpoint resolver |
 | `--lang` | 设置本次调用中 CLI 自有帮助、提示和错误的显示语言 |
+| `--user-agent` | 为本次调用在默认 HTTP `User-Agent` 后追加自定义标识 |
 | `--version` | 指定本次调用的 **API 版本**；未指定时使用内置元数据中的 service 版本（与根命令 `ve -v` / `ve --version` / `ve version` 的 CLI 二进制版本无关） |
 | `--force` | 跳过 service/action 元数据校验，强制调用未收录或新发布的接口；**未收录 service** 须提供 `--version` 与固定 endpoint（`--endpoint` 或非 standard 下的 profile/`VOLCENGINE_ENDPOINT`）；已收录 service 可回落元数据。纯开关：只写 `--force`，不要写 `--force true` |
 | `--method` | 指定 HTTP 方法（`GET`/`POST`）；正常路径与 `--force` 路径规则一致：显式值优先，否则用 action 元数据，均无则默认 `GET` |
@@ -113,6 +115,15 @@ ve rds_mysql ListDBInstanceIPLists --InstanceId mysql-xxxxxx --GroupName default
 Action 后如果当前 Action 暴露了大小写完全相同的参数，双横线形式优先按 API 业务参数解析；没有同名冲突时按系统参数解析。
 
 参数名区分大小写，`--Region`、`--Endpoint` 等不同大小写名称始终是 API 参数。
+
+`--user-agent` 会保留 CLI 默认 User-Agent，并在其后追加指定值。值的首尾空白会被移除；空值或包含换行等控制字符的值会被拒绝。
+
+```shell
+ve ecs DescribeInstances --user-agent deployment-tool/2.1
+ve ecs DescribeInstances \
+  --InstanceIds.1 i-1234567890abcdef0 \
+  --user-agent "inventory-sync/3.4 team/compute"
+```
 
 ### 双横线保留控制参数
 
