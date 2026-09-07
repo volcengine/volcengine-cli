@@ -686,6 +686,9 @@ func TestCallSdkUsesUserAgentSystemParameter(t *testing.T) {
 	var gotUserAgent string
 	var gotAPIParameter string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if id := r.Header.Get("X-Client-Id"); id != "" {
+			t.Errorf("ordinary API request unexpectedly included documentation client ID %q", id)
+		}
 		gotUserAgent = r.Header.Get("User-Agent")
 		if err := r.ParseForm(); err != nil {
 			t.Errorf("parse request form: %v", err)
