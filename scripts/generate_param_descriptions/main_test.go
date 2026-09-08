@@ -306,9 +306,10 @@ func TestExtractParamsCapturesSwaggerRequirements(t *testing.T) {
               "schema": {
                 "properties": {
                   "Name": {"type": "string"},
-                  "Config": {"$ref": "#/components/schemas/Config"}
+                  "Config": {"$ref": "#/components/schemas/Config"},
+                  "RequiredConfig": {"$ref": "#/components/schemas/Config"}
                 },
-                "required": ["Name"],
+                "required": ["Name", "RequiredConfig"],
                 "type": "object"
               }
             }
@@ -324,11 +325,14 @@ func TestExtractParamsCapturesSwaggerRequirements(t *testing.T) {
 
 	params := extractParamsFromOpenAPI(&doc, "en")
 	wants := map[string]string{
-		"ProjectName":    "required",
-		"Name":           "required",
-		"Config":         "optional",
-		"Config.Enabled": "conditional",
-		"Config.Label":   "optional",
+		"ProjectName":            "required",
+		"Name":                   "required",
+		"Config":                 "optional",
+		"Config.Enabled":         "conditional",
+		"Config.Label":           "optional",
+		"RequiredConfig":         "required",
+		"RequiredConfig.Enabled": "required",
+		"RequiredConfig.Label":   "optional",
 	}
 	for name, want := range wants {
 		data, err := json.Marshal(params[name])
@@ -403,14 +407,66 @@ func TestExtractParamsExpandsStructuredQueryParameters(t *testing.T) {
 	if got := params["Entries.N.Value"].DescriptionEn; got != "entry value" {
 		t.Errorf("Entries.N.Value = %q", got)
 	}
-	if got := params["Entries.N.Value"].Requirement; got != requirementConditional {
-		t.Errorf("Entries.N.Value requirement = %q, want %q", got, requirementConditional)
+	if got := params["Entries.N.Value"].Requirement; got != requirementRequired {
+		t.Errorf("Entries.N.Value requirement = %q, want %q", got, requirementRequired)
 	}
 	if got := params["Entries.N.Labels.N"]; got.DescriptionEn != "entry labels" || got.Requirement != requirementOptional {
 		t.Errorf("Entries.N.Labels.N = %+v", got)
 	}
 	if got := params["Ids.N"]; got.DescriptionEn != "ids" || got.Requirement != requirementRequired {
 		t.Errorf("Ids.N = %+v", got)
+	}
+}
+
+func TestExtractParamsPropagatesRequiredAncestor(t *testing.T) {
+	var doc openAPIDoc
+	body := `{
+  "components": {
+    "schemas": {
+      "NetworkInterface": {
+        "properties": {
+          "SubnetId": {"description": "subnet", "type": "string"}
+        },
+        "required": ["SubnetId"],
+        "type": "object"
+      }
+    }
+  },
+  "paths": {
+    "/Run": {
+      "get": {
+        "parameters": [
+          {
+            "name": "NetworkInterfaces",
+            "required": true,
+            "schema": {
+              "items": {"$ref": "#/components/schemas/NetworkInterface"},
+              "type": "array"
+            }
+          },
+          {
+            "name": "OptionalInterfaces",
+            "required": false,
+            "schema": {
+              "items": {"$ref": "#/components/schemas/NetworkInterface"},
+              "type": "array"
+            }
+          }
+        ]
+      }
+    }
+  }
+}`
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatal(err)
+	}
+
+	params := extractParamsFromOpenAPI(&doc, "en")
+	if got := params["NetworkInterfaces.N.SubnetId"].Requirement; got != requirementRequired {
+		t.Errorf("required parent child requirement = %q, want %q", got, requirementRequired)
+	}
+	if got := params["OptionalInterfaces.N.SubnetId"].Requirement; got != requirementConditional {
+		t.Errorf("optional parent child requirement = %q, want %q", got, requirementConditional)
 	}
 }
 

@@ -671,7 +671,7 @@ func extractParamsFromOpenAPI(doc *openAPIDoc, language string) map[string]param
 						}
 						putParam(out, name+".N", itemDesc, itemExample, requirement, language)
 					} else if len(schema.Properties) > 0 || schema.Items != nil {
-						collectSchemaParamsVisited(name, schema, schemas, out, language, make(map[*schemaNode]bool), true)
+						collectSchemaParamsVisited(name, schema, schemas, out, language, make(map[*schemaNode]bool), true, p.Required)
 					}
 				}
 			}
@@ -689,13 +689,13 @@ func extractParamsFromOpenAPI(doc *openAPIDoc, language string) map[string]param
 }
 
 func collectSchemaParams(prefix string, s *schemaNode, schemas map[string]*schemaNode, out map[string]paramDescription, language string) {
-	collectSchemaParamsVisited(prefix, s, schemas, out, language, make(map[*schemaNode]bool), false)
+	collectSchemaParamsVisited(prefix, s, schemas, out, language, make(map[*schemaNode]bool), false, true)
 }
 
 // collectSchemaParamsVisited walks object/array schemas while tracking the current
 // recursion path so cyclic $ref graphs (self- or mutually-referential models) cannot
 // unbounded-recurse and stack-overflow the generator.
-func collectSchemaParamsVisited(prefix string, s *schemaNode, schemas map[string]*schemaNode, out map[string]paramDescription, language string, visiting map[*schemaNode]bool, includeArrayPlaceholder bool) {
+func collectSchemaParamsVisited(prefix string, s *schemaNode, schemas map[string]*schemaNode, out map[string]paramDescription, language string, visiting map[*schemaNode]bool, includeArrayPlaceholder, ancestorsRequired bool) {
 	s = resolveSchema(s, schemas)
 	if s == nil {
 		return
@@ -719,10 +719,11 @@ func collectSchemaParamsVisited(prefix string, s *schemaNode, schemas map[string
 		desc := ""
 		example := ""
 		requirement := requirementOptional
-		if _, ok := required[name]; ok {
-			requirement = requirementRequired
-			if prefix != "" {
-				requirement = requirementConditional
+		_, locallyRequired := required[name]
+		if locallyRequired {
+			requirement = requirementConditional
+			if ancestorsRequired {
+				requirement = requirementRequired
 			}
 		}
 		if sourceProp != nil {
@@ -751,7 +752,7 @@ func collectSchemaParamsVisited(prefix string, s *schemaNode, schemas map[string
 			}
 			// nested object / array
 			if len(prop.Properties) > 0 || prop.Items != nil {
-				collectSchemaParamsVisited(key, prop, schemas, out, language, visiting, includeArrayPlaceholder)
+				collectSchemaParamsVisited(key, prop, schemas, out, language, visiting, includeArrayPlaceholder, ancestorsRequired && locallyRequired)
 			}
 		}
 		putParam(out, key, desc, example, requirement, language)
@@ -761,7 +762,7 @@ func collectSchemaParamsVisited(prefix string, s *schemaNode, schemas map[string
 		if includeArrayPlaceholder {
 			prefix += ".N"
 		}
-		collectSchemaParamsVisited(prefix, s.Items, schemas, out, language, visiting, includeArrayPlaceholder)
+		collectSchemaParamsVisited(prefix, s.Items, schemas, out, language, visiting, includeArrayPlaceholder, ancestorsRequired)
 	}
 }
 
