@@ -238,3 +238,22 @@ jobs:
           aws --endpoint-url "$endpoint" s3 cp version_manifest.json "${root_dest}version_manifest.json"
           aws --endpoint-url "$endpoint" s3 cp latest "${root_dest}latest"
           aws --endpoint-url "$endpoint" s3 ls "$root_dest"
+
+      - name: Refresh CDN release pointers
+        if: ${{ steps.version.outputs.npm_tag == 'latest' }}
+        env:
+          VOLCENGINE_ACCESS_KEY: ${{ secrets.VOLCENGINE_ACCESS_KEY }}
+          VOLCENGINE_SECRET_KEY: ${{ secrets.VOLCENGINE_SECRET_KEY }}
+          VOLCENGINE_REGION: ${{ vars.VOLCENGINE_REGION }}
+          VOLCENGINE_CLI_SKIP_SKILLS: "1"
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          : "${VOLCENGINE_ACCESS_KEY:?missing secret VOLCENGINE_ACCESS_KEY}"
+          : "${VOLCENGINE_SECRET_KEY:?missing secret VOLCENGINE_SECRET_KEY}"
+          : "${VOLCENGINE_REGION:?missing variable VOLCENGINE_REGION}"
+
+          npm install -g "@volcengine/cli@${VERSION}"
+          ve cdn SubmitRefreshTask \
+            --Type file \
+            --UrlList.1 "https://cloudcache.volccdn.com/ve/latest" \
+            --UrlList.2 "https://cloudcache.volccdn.com/ve/version_manifest.json"

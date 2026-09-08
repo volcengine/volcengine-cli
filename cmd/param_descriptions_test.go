@@ -375,6 +375,61 @@ func TestAttachParamDescriptionsKeepsSDKRequired(t *testing.T) {
 	}
 }
 
+func TestAttachParamDescriptionsAppliesSwaggerRequirement(t *testing.T) {
+	restore := stubParamDescriptionsAsset(`{
+  "apis": {
+    "vefaas": {
+      "2024-06-06": {
+        "CreateFunction": {
+          "Name": {"description_en": "Function name.", "requirement": "required"},
+          "ProjectName": {"description_en": "Project name.", "requirement": "optional"},
+          "VpcConfig.EnableVpc": {
+            "description_en": "Whether VPC access is enabled.",
+            "requirement": "conditional"
+          }
+        }
+      }
+    }
+  }
+}`)
+	defer restore()
+	oldRoot := rootSupport
+	rootSupport = &RootSupport{Versions: map[string]string{"vefaas": "2024-06-06"}}
+	defer func() { rootSupport = oldRoot }()
+	restoreLang := setLanguageForTest(LanguageEnglish)
+	defer restoreLang()
+
+	params := []param{
+		{key: "Name", typeName: "string", required: false},
+		{key: "ProjectName", typeName: "string", required: true},
+		{key: "VpcConfig.EnableVpc", typeName: "boolean", required: false},
+	}
+	attachParamDescriptions("vefaas", "CreateFunction", params)
+	lines := formatParamsHelpUsage(params, true)
+	for _, check := range []struct {
+		key, requirement string
+	}{
+		{key: "Name", requirement: "Required"},
+		{key: "ProjectName", requirement: "Optional"},
+		{key: "VpcConfig.EnableVpc", requirement: "Required if parent is set"},
+	} {
+		var line string
+		for _, candidate := range lines {
+			if strings.HasPrefix(candidate, check.key+" ") {
+				line = candidate
+				break
+			}
+		}
+		if line == "" || !strings.Contains(line, check.requirement) {
+			t.Fatalf("%s requirement %q missing in:\n%s", check.key, check.requirement, strings.Join(lines, "\n"))
+		}
+	}
+	setCurrentLanguage(LanguageSimplifiedChinese)
+	if lines := strings.Join(formatParamsHelpUsage(params, true), "\n"); !strings.Contains(lines, "父级存在时必选") {
+		t.Fatalf("missing localized conditional requirement in:\n%s", lines)
+	}
+}
+
 func TestFormatParamsHelpUsageEscapesTemplateBraces(t *testing.T) {
 	params := []param{
 		{key: "X", typeName: "string", description: "use {{value}} carefully"},
@@ -400,6 +455,42 @@ func TestFormatParamsHelpUsageEscapesTemplateBraces(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "use {{value}} carefully") {
 		t.Fatalf("literal braces not preserved in rendered help:\n%s", output.String())
+	}
+}
+
+func TestFormatParamsHelpUsageLongJSONExample(t *testing.T) {
+	// Published Tasks example for id.BatchGetSubjectPermissions. Its closing
+	// braces land near the wrap boundary and must remain literal template text.
+	example := `[{"PageNumber":1,"PageSize":10,"Subject":{"Id":"alice","Type":"User"}}]`
+	for _, language := range []Language{LanguageEnglish, LanguageSimplifiedChinese} {
+		t.Run(string(language), func(t *testing.T) {
+			restoreLanguage := setLanguageForTest(language)
+			defer restoreLanguage()
+
+			params := []param{
+				{key: "NamespaceName", typeName: "string", description: "NamespaceName parameter.", example: "default"},
+				{
+					key:         "Tasks",
+					typeName:    "array",
+					description: "Permission query tasks. All tasks are evaluated in the top-level namespace. Maximum length is 100.",
+					example:     example,
+				},
+			}
+			lines := formatParamsHelpUsage(params, true)
+			command := &cobra.Command{Use: "BatchGetSubjectPermissions"}
+			command.SetUsageTemplate(jsonActionUsageTemplate("", lines, "", true))
+			var output bytes.Buffer
+			command.SetOut(&output)
+			command.SetErr(&output)
+			if err := command.Usage(); err != nil {
+				t.Fatalf("long JSON example must render: %v", err)
+			}
+			// Ignore wrapping and indentation, but require every JSON character
+			// to survive template rendering, including the adjacent braces.
+			if !strings.Contains(strings.Join(strings.Fields(output.String()), ""), example) {
+				t.Fatalf("JSON example changed in rendered help:\n%s", output.String())
+			}
+		})
 	}
 }
 

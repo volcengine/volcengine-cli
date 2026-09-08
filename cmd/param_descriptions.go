@@ -19,10 +19,17 @@ type paramDescription struct {
 	DescriptionEn string `json:"description_en,omitempty"`
 	ExampleCn     string `json:"example_cn,omitempty"`
 	ExampleEn     string `json:"example_en,omitempty"`
+	Requirement   string `json:"requirement,omitempty"`
 }
 
+const (
+	paramRequirementRequired    = "required"
+	paramRequirementConditional = "conditional"
+	paramRequirementOptional    = "optional"
+)
+
 // paramDescriptionsData mirrors scripts/generate_param_descriptions output:
-// apis[service][version][action][paramName] → description.
+// apis[service][version][action][paramName] → help details.
 type paramDescriptionsData struct {
 	Apis map[string]map[string]map[string]map[string]paramDescription `json:"apis"`
 }
@@ -55,8 +62,9 @@ func loadParamDescriptions() paramDescriptionsData {
 	return paramDescriptions
 }
 
-// attachParamDescriptions fills p.description and p.example from the CAE asset.
-// Required/optional always comes from SDK metadata and is never overridden here.
+// attachParamDescriptions fills help text, examples, and explicit Swagger
+// requirements. Entries generated before requirement support keep the SDK
+// metadata value already present on the parameter.
 func attachParamDescriptions(service, action string, params []param) {
 	if len(params) == 0 {
 		return
@@ -72,12 +80,24 @@ func attachParamDescriptions(service, action string, params []param) {
 		}
 		params[i].description = info.text
 		params[i].example = info.example
+		switch info.requirement {
+		case paramRequirementRequired:
+			params[i].required = true
+			params[i].requiredIfParentIsSet = false
+		case paramRequirementConditional:
+			params[i].required = false
+			params[i].requiredIfParentIsSet = true
+		case paramRequirementOptional:
+			params[i].required = false
+			params[i].requiredIfParentIsSet = false
+		}
 	}
 }
 
 type paramDescriptionInfo struct {
-	text    string
-	example string
+	text        string
+	example     string
+	requirement string
 }
 
 // lookupParamDescription resolves text for one parameter under the current language.
@@ -190,8 +210,9 @@ func paramDescriptionInfoForKey(params map[string]paramDescription, paramKey str
 		seen[k] = struct{}{}
 		if p, ok := params[k]; ok {
 			info := paramDescriptionInfo{
-				text:    pickParamDescription(p),
-				example: pickParamExample(p),
+				text:        pickParamDescription(p),
+				example:     pickParamExample(p),
+				requirement: p.Requirement,
 			}
 			return info, true
 		}

@@ -71,7 +71,7 @@ func TestLazyActionUsageBuildsOnDemand(t *testing.T) {
 	}
 }
 
-func TestGenerateActionCmdDoesNotLoadParamDescriptionsEagerly(t *testing.T) {
+func TestGenerateActionCmdLoadsParamDetailsOnlyWhenHelpRenders(t *testing.T) {
 	oldLoad := loadParamDescriptionsAsset
 	paramDescriptionsOnce = sync.Once{}
 	paramDescriptions = paramDescriptionsData{}
@@ -102,12 +102,13 @@ func TestGenerateActionCmdDoesNotLoadParamDescriptionsEagerly(t *testing.T) {
 	var output bytes.Buffer
 	commands[0].SetOut(&output)
 	commands[0].SetErr(&output)
-	// Default -h is concise: must not load the param description corpus.
+	// Default help loads the corpus because Swagger requirements must be
+	// accurate even when descriptions and examples stay hidden.
 	if err := commands[0].Usage(); err != nil {
 		t.Fatalf("Usage: %v", err)
 	}
-	if loadCalls != 0 {
-		t.Fatalf("param descriptions load calls=%d, want 0 for concise help", loadCalls)
+	if loadCalls != 1 {
+		t.Fatalf("param descriptions load calls=%d, want 1 for concise help", loadCalls)
 	}
 
 	setActionHelpDetail(commands[0], true)
@@ -115,7 +116,7 @@ func TestGenerateActionCmdDoesNotLoadParamDescriptionsEagerly(t *testing.T) {
 		t.Fatalf("detail Usage: %v", err)
 	}
 	if loadCalls != 1 {
-		t.Fatalf("param descriptions load calls=%d, want 1 for --detail help", loadCalls)
+		t.Fatalf("param descriptions load calls=%d, want one shared load", loadCalls)
 	}
 }
 
@@ -182,6 +183,33 @@ func TestBuildActionHelpParamLinesPreservesPrefixAndSortsKeys(t *testing.T) {
 	// Input slice must not be mutated
 	if params[0].key != "ZoneId" {
 		t.Fatalf("input params reordered or mutated: %+v", params)
+	}
+}
+
+func TestBuildActionHelpParamLinesAppliesSwaggerRequirementInConciseHelp(t *testing.T) {
+	restore := stubParamDescriptionsAsset(`{
+  "apis": {
+    "vefaas": {
+      "2024-06-06": {
+        "CreateFunction": {
+          "VpcConfig.EnableVpc": {"requirement": "conditional"}
+        }
+      }
+    }
+  }
+}`)
+	defer restore()
+	oldRoot := rootSupport
+	rootSupport = &RootSupport{Versions: map[string]string{"vefaas": "2024-06-06"}}
+	defer func() { rootSupport = oldRoot }()
+	restoreLanguage := setLanguageForTest(LanguageEnglish)
+	defer restoreLanguage()
+
+	lines := buildActionHelpParamLines("vefaas", "CreateFunction", []param{
+		{key: "VpcConfig.EnableVpc", typeName: "boolean"},
+	}, nil, false)
+	if len(lines) != 1 || !strings.Contains(lines[0], "Required if parent is set") {
+		t.Fatalf("concise help requirement missing: %v", lines)
 	}
 }
 

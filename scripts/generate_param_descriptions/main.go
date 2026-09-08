@@ -1,6 +1,6 @@
-// Command generate_param_descriptions fetches OpenAPI parameter descriptions
-// for every service/version present in the SDK metadata inventory, and writes
-// asset/paramdescriptions/params.json. build_asset.sh then runs go-bindata into
+// Command generate_param_descriptions fetches OpenAPI parameter descriptions,
+// examples, and requirements for every service/version in the SDK metadata
+// inventory, and writes asset/paramdescriptions/params.json. build_asset.sh then runs go-bindata into
 // package paramdescriptions (asset/paramdescriptions/bindata.go) — separate
 // from asset/asset.go (metadata + explorer only).
 //
@@ -64,9 +64,16 @@ type paramDescription struct {
 	DescriptionEn string `json:"description_en,omitempty"`
 	ExampleCn     string `json:"example_cn,omitempty"`
 	ExampleEn     string `json:"example_en,omitempty"`
+	Requirement   string `json:"requirement,omitempty"`
 }
 
-// service -> version -> action -> paramName -> description
+const (
+	requirementRequired    = "required"
+	requirementConditional = "conditional"
+	requirementOptional    = "optional"
+)
+
+// service -> version -> action -> paramName -> help details
 type paramsFile struct {
 	Apis map[string]map[string]map[string]map[string]paramDescription `json:"apis"`
 }
@@ -113,6 +120,7 @@ type parameterNode struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	Example     json.RawMessage `json:"example"`
+	Required    bool            `json:"required"`
 	Schema      *schemaNode     `json:"schema"`
 }
 
@@ -129,6 +137,7 @@ type schemaNode struct {
 	Items       *schemaNode            `json:"items"`
 	Ref         string                 `json:"$ref"`
 	Example     json.RawMessage        `json:"example"`
+	Required    []string               `json:"required"`
 }
 
 var directiveRE = regexp.MustCompile(`:::[a-zA-Z]+\n?`)
@@ -174,7 +183,7 @@ func main() {
 
 	services := sortedKeys(versions)
 	totalSwagger := 0
-	doneSwagger := 0 // successful actions with at least one param description
+	doneSwagger := 0 // successful actions with at least one parameter detail
 	skipped := 0
 
 	for _, svc := range services {
@@ -298,6 +307,9 @@ func parseLang(lang string) (zh, en bool) {
 func mergeParamLang(dst map[string]paramDescription, src map[string]paramDescription, lang string) {
 	for name, p := range src {
 		cur := dst[name]
+		if p.Requirement != "" {
+			cur.Requirement = p.Requirement
+		}
 		switch lang {
 		case "en":
 			if p.DescriptionEn != "" {
@@ -423,6 +435,9 @@ func mergeActionParams(prev, next map[string]paramDescription) map[string]paramD
 		}
 		if strings.TrimSpace(p.ExampleEn) != "" {
 			cur.ExampleEn = p.ExampleEn
+		}
+		if p.Requirement != "" {
+			cur.Requirement = p.Requirement
 		}
 		out[name] = cur
 	}
@@ -623,13 +638,42 @@ func extractParamsFromOpenAPI(doc *openAPIDoc, language string) map[string]param
 				desc := strings.TrimSpace(p.Description)
 				if desc == "" && p.Schema != nil {
 					desc = strings.TrimSpace(p.Schema.Description)
+					if desc == "" {
+						if schema := resolveSchema(p.Schema, schemas); schema != nil {
+							desc = strings.TrimSpace(schema.Description)
+						}
+					}
 				}
 				desc = sanitizeDescription(desc)
 				example := exampleString(p.Example)
 				if example == "" && p.Schema != nil {
 					example = exampleString(p.Schema.Example)
+					if example == "" {
+						if schema := resolveSchema(p.Schema, schemas); schema != nil {
+							example = exampleString(schema.Example)
+						}
+					}
 				}
-				putParam(out, name, desc, example, language)
+				requirement := requirementOptional
+				if p.Required {
+					requirement = requirementRequired
+				}
+				putParam(out, name, desc, example, requirement, language)
+				if schema := resolveSchema(p.Schema, schemas); schema != nil {
+					if item, ok := scalarArrayItem(schema, schemas); ok {
+						itemDesc := sanitizeDescription(item.Description)
+						if itemDesc == "" {
+							itemDesc = desc
+						}
+						itemExample := exampleString(item.Example)
+						if itemExample == "" {
+							itemExample = example
+						}
+						putParam(out, name+".N", itemDesc, itemExample, requirement, language)
+					} else if len(schema.Properties) > 0 || schema.Items != nil {
+						collectSchemaParamsVisited(name, schema, schemas, out, language, make(map[*schemaNode]bool), true, p.Required)
+					}
+				}
 			}
 			if op.RequestBody != nil {
 				for _, c := range op.RequestBody.Content {
@@ -645,13 +689,13 @@ func extractParamsFromOpenAPI(doc *openAPIDoc, language string) map[string]param
 }
 
 func collectSchemaParams(prefix string, s *schemaNode, schemas map[string]*schemaNode, out map[string]paramDescription, language string) {
-	collectSchemaParamsVisited(prefix, s, schemas, out, language, make(map[*schemaNode]bool))
+	collectSchemaParamsVisited(prefix, s, schemas, out, language, make(map[*schemaNode]bool), false, true)
 }
 
 // collectSchemaParamsVisited walks object/array schemas while tracking the current
 // recursion path so cyclic $ref graphs (self- or mutually-referential models) cannot
 // unbounded-recurse and stack-overflow the generator.
-func collectSchemaParamsVisited(prefix string, s *schemaNode, schemas map[string]*schemaNode, out map[string]paramDescription, language string, visiting map[*schemaNode]bool) {
+func collectSchemaParamsVisited(prefix string, s *schemaNode, schemas map[string]*schemaNode, out map[string]paramDescription, language string, visiting map[*schemaNode]bool, includeArrayPlaceholder, ancestorsRequired bool) {
 	s = resolveSchema(s, schemas)
 	if s == nil {
 		return
@@ -661,29 +705,77 @@ func collectSchemaParamsVisited(prefix string, s *schemaNode, schemas map[string
 	}
 	visiting[s] = true
 	defer delete(visiting, s)
+	required := make(map[string]struct{}, len(s.Required))
+	for _, name := range s.Required {
+		required[name] = struct{}{}
+	}
 
-	for name, prop := range s.Properties {
+	for name, sourceProp := range s.Properties {
 		key := name
 		if prefix != "" {
 			key = prefix + "." + name
 		}
-		prop = resolveSchema(prop, schemas)
+		prop := resolveSchema(sourceProp, schemas)
 		desc := ""
 		example := ""
-		if prop != nil {
-			desc = sanitizeDescription(prop.Description)
-			example = exampleString(prop.Example)
-			// nested object / array
-			if len(prop.Properties) > 0 || (prop.Items != nil) {
-				collectSchemaParamsVisited(key, prop, schemas, out, language, visiting)
+		requirement := requirementOptional
+		_, locallyRequired := required[name]
+		if locallyRequired {
+			requirement = requirementConditional
+			if ancestorsRequired {
+				requirement = requirementRequired
 			}
 		}
-		putParam(out, key, desc, example, language)
+		if sourceProp != nil {
+			desc = sanitizeDescription(sourceProp.Description)
+			example = exampleString(sourceProp.Example)
+		}
+		if prop != nil {
+			if desc == "" {
+				desc = sanitizeDescription(prop.Description)
+			}
+			if example == "" {
+				example = exampleString(prop.Example)
+			}
+			if includeArrayPlaceholder {
+				if item, ok := scalarArrayItem(prop, schemas); ok {
+					itemDesc := sanitizeDescription(item.Description)
+					if itemDesc == "" {
+						itemDesc = desc
+					}
+					itemExample := exampleString(item.Example)
+					if itemExample == "" {
+						itemExample = example
+					}
+					putParam(out, key+".N", itemDesc, itemExample, requirement, language)
+				}
+			}
+			// nested object / array
+			if len(prop.Properties) > 0 || prop.Items != nil {
+				collectSchemaParamsVisited(key, prop, schemas, out, language, visiting, includeArrayPlaceholder, ancestorsRequired && locallyRequired)
+			}
+		}
+		putParam(out, key, desc, example, requirement, language)
 	}
 	if s.Items != nil && (len(s.Properties) == 0) {
 		// array of objects: expose item fields under prefix
-		collectSchemaParamsVisited(prefix, s.Items, schemas, out, language, visiting)
+		if includeArrayPlaceholder {
+			prefix += ".N"
+		}
+		collectSchemaParamsVisited(prefix, s.Items, schemas, out, language, visiting, includeArrayPlaceholder, ancestorsRequired)
 	}
+}
+
+func scalarArrayItem(s *schemaNode, schemas map[string]*schemaNode) (*schemaNode, bool) {
+	s = resolveSchema(s, schemas)
+	if s == nil || s.Items == nil {
+		return nil, false
+	}
+	item := resolveSchema(s.Items, schemas)
+	if item == nil || len(item.Properties) > 0 || item.Items != nil {
+		return nil, false
+	}
+	return item, true
 }
 
 // exampleString normalizes OpenAPI example (string or other JSON) for help text.
@@ -715,8 +807,9 @@ func resolveSchema(s *schemaNode, schemas map[string]*schemaNode) *schemaNode {
 	return s
 }
 
-func putParam(out map[string]paramDescription, name, desc, example, language string) {
+func putParam(out map[string]paramDescription, name, desc, example, requirement, language string) {
 	cur := out[name]
+	cur.Requirement = requirement
 	switch language {
 	case "en":
 		if desc != "" {
@@ -734,7 +827,7 @@ func putParam(out map[string]paramDescription, name, desc, example, language str
 		}
 	}
 	if cur.DescriptionCn != "" || cur.DescriptionEn != "" ||
-		cur.ExampleCn != "" || cur.ExampleEn != "" {
+		cur.ExampleCn != "" || cur.ExampleEn != "" || cur.Requirement != "" {
 		out[name] = cur
 	}
 }
