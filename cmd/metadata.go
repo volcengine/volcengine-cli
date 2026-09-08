@@ -33,15 +33,16 @@ type StructInfo struct {
 }
 
 type param struct {
-	key         string
-	typeName    string
-	required    bool
-	description string // optional help text from asset/paramdescriptions (params.json)
-	example     string // optional Example from CAE (current language only)
+	key                   string
+	typeName              string
+	required              bool
+	requiredIfParentIsSet bool
+	description           string // optional help text from asset/paramdescriptions (params.json)
+	example               string // optional Example from CAE (current language only)
 }
 
 // formatParamsHelpUsage formats request parameters for Action -h/--help.
-// When detail is false (default help), only key/type/Required|Optional are shown.
+// When detail is false, only key, type, and requirement state are shown.
 // When detail is true (-h --detail), full description and Example bodies are included.
 func formatParamsHelpUsage(params []param, detail bool) []string {
 	maxKeyWidth, maxTypeWidth, maxReqWidth := paramHelpColumnWidths(params)
@@ -68,15 +69,13 @@ func formatParamsHelpUsage(params []param, detail bool) []string {
 		// Body under the description column: multi-line description, then optional example.
 		var bodyLines []string
 		if desc := strings.TrimSpace(p.description); desc != "" {
-			// Descriptions are baked into cobra text/templates; escape {{ }} so
-			// OpenAPI text cannot break Usage() parsing. Keep multi-line body.
-			desc = escapeCobraTemplateLiteral(normalizeHelpDescription(desc))
+			desc = normalizeHelpDescription(desc)
 			if desc != "" {
 				bodyLines = append(bodyLines, strings.Split(desc, "\n")...)
 			}
 		}
 		if ex := strings.TrimSpace(p.example); ex != "" {
-			ex = escapeCobraTemplateLiteral(normalizeHelpDescription(ex))
+			ex = normalizeHelpDescription(ex)
 			if ex != "" {
 				// Put example after description body so dense OpenAPI text
 				// does not bury "??/Example" between description bullets.
@@ -93,6 +92,10 @@ func formatParamsHelpUsage(params []param, detail bool) []string {
 		// Soft-wrap long single-line paragraphs (common in EN OpenAPI text)
 		// so terminal auto-wrap does not dump continuations at column 0.
 		bodyLines = wrapHelpBodyLines(bodyLines, defaultHelpDescWidth)
+		// Escape after wrapping so line breaks cannot split a template action.
+		for j := range bodyLines {
+			bodyLines[j] = escapeCobraTemplateLiteral(bodyLines[j])
+		}
 
 		line := meta
 		if len(bodyLines) > 0 {
@@ -128,7 +131,7 @@ func paramHelpColumnWidths(params []param) (maxKeyWidth, maxTypeWidth, maxReqWid
 		if w := displayWidth(p.typeName); w > maxTypeWidth {
 			maxTypeWidth = w
 		}
-		if w := displayWidth(formatRequired(p.required)); w > maxReqWidth {
+		if w := displayWidth(formatParamRequirement(p)); w > maxReqWidth {
 			maxReqWidth = w
 		}
 	}
@@ -145,7 +148,7 @@ func paramHelpColumnWidths(params []param) (maxKeyWidth, maxTypeWidth, maxReqWid
 func formatParamHelpMeta(p param, maxKeyWidth, maxTypeWidth, maxReqWidth int) string {
 	return padRightDisplay(p.key, maxKeyWidth) +
 		padRightDisplay(p.typeName, maxTypeWidth) +
-		padRightDisplay(formatRequired(p.required), maxReqWidth)
+		padRightDisplay(formatParamRequirement(p), maxReqWidth)
 }
 
 // displayWidth returns terminal columns for s: ASCII=1, most CJK/fullwidth=2.
@@ -382,6 +385,13 @@ func formatRequired(required bool) string {
 		return tr("Required")
 	}
 	return tr("Optional")
+}
+
+func formatParamRequirement(p param) string {
+	if p.requiredIfParentIsSet {
+		return tr("Required if parent is set")
+	}
+	return formatRequired(p.required)
 }
 
 func (meta *VolcengineMeta) GetRequestParams(apiMeta *ApiMeta) (params []param) {

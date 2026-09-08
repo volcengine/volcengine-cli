@@ -151,6 +151,7 @@ var simplifiedChineseMessages = map[string]string{
 	"Action":                                "操作",
 	"Description":                           "说明",
 	"Required":                              "必选",
+	"Required if parent is set":             "父级存在时必选",
 	"Optional":                              "可选",
 	"Example:":                              "示例：",
 	"Use a configured profile only for this invocation.":                                                                                           "仅为本次调用使用指定配置档案。",
