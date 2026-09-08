@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/volcengine/volcengine-cli/internal/clientid"
+	"github.com/volcengine/volcengine-cli/util"
 	"golang.org/x/net/html"
 )
 
@@ -108,20 +110,29 @@ type module struct {
 	client    httpDoer
 	baseURL   string
 	userAgent string
+	clientID  func() (string, error)
 }
 
 // New creates a production documentation module. The client uses the standard
 // Go transport (including its proxy environment support), but never signs a
-// request or loads CLI credentials.
+// request or loads CLI credentials. The local client ID is loaded lazily, only
+// when a validated search/fetch request is about to be sent.
 func New(userAgent string) Module {
-	return newModule(&http.Client{Timeout: requestTimeout}, apiBase, userAgent)
+	return newModule(&http.Client{Timeout: requestTimeout}, apiBase, userAgent, func() (string, error) {
+		directory, err := util.GetConfigFileDir()
+		if err != nil {
+			return "", err
+		}
+		return clientid.LoadOrCreate(directory)
+	})
 }
 
-func newModule(client httpDoer, baseURL, userAgent string) *module {
+func newModule(client httpDoer, baseURL, userAgent string, clientID func() (string, error)) *module {
 	return &module{
 		client:    client,
 		baseURL:   strings.TrimRight(baseURL, "/"),
 		userAgent: strings.TrimSpace(userAgent),
+		clientID:  clientID,
 	}
 }
 
@@ -276,6 +287,14 @@ func (m *module) post(ctx context.Context, path string, payload, response interf
 	if m.userAgent != "" {
 		request.Header.Set("User-Agent", m.userAgent)
 	}
+	if m.clientID == nil {
+		return fmt.Errorf("documentation client ID provider is not configured")
+	}
+	id, err := m.clientID()
+	if err != nil {
+		return fmt.Errorf("load documentation client ID: %w", err)
+	}
+	request.Header.Set("X-Client-Id", id)
 
 	httpResponse, err := m.client.Do(request)
 	if err != nil {

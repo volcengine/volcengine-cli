@@ -7,11 +7,15 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/volcengine/volcengine-cli/internal/clientid"
 )
 
 func TestNewUsesFixedEndpointTimeoutAndUserAgent(t *testing.T) {
@@ -61,7 +65,7 @@ func TestSearchSendsExactPayloadAndNormalizesDocuments(t *testing.T) {
 	}))
 	defer server.Close()
 
-	module := newModule(server.Client(), server.URL, "test-user-agent")
+	module := newModule(server.Client(), server.URL, "test-user-agent", fixedClientID)
 	result, err := module.Search(context.Background(), SearchOptions{
 		Query:         "  对象存储  ",
 		Limit:         3,
@@ -105,7 +109,7 @@ func TestSearchOmitsEmptyServiceCodes(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result, err := newModule(server.Client(), server.URL, "ua").Search(context.Background(), SearchOptions{
+	result, err := newModule(server.Client(), server.URL, "ua", fixedClientID).Search(context.Background(), SearchOptions{
 		Query: "query", Limit: 1, ServiceCodes: []string{" ", ""}, SnippetLength: 1,
 	})
 	if err != nil {
@@ -132,7 +136,7 @@ func TestFetchSendsOnlyCleanURLAndPaginatesUnicode(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result, err := newModule(server.Client(), server.URL, "ua").Fetch(context.Background(), FetchOptions{
+	result, err := newModule(server.Client(), server.URL, "ua", fixedClientID).Fetch(context.Background(), FetchOptions{
 		URL:        "https://www.volcengine.com/docs/6349/162514?lang=zh#part",
 		StartIndex: 1,
 		MaxLength:  2,
@@ -166,7 +170,7 @@ func TestFetchCanonicalizesDocumentHostCase(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := newModule(server.Client(), server.URL, "ua").Fetch(context.Background(), FetchOptions{
+	_, err := newModule(server.Client(), server.URL, "ua", fixedClientID).Fetch(context.Background(), FetchOptions{
 		URL: "HTTPS://WWW.VOLCENGINE.COM/docs/1/2?x=1#y", MaxLength: 1,
 	})
 	if err != nil {
@@ -187,7 +191,7 @@ func TestFetchPastEndAndEmptyArticleAreSuccessful(t *testing.T) {
 		responses = responses[1:]
 	}))
 	defer server.Close()
-	module := newModule(server.Client(), server.URL, "ua")
+	module := newModule(server.Client(), server.URL, "ua", fixedClientID)
 
 	past, err := module.Fetch(context.Background(), FetchOptions{URL: "https://docs.volcengine.com/docs/1/2", StartIndex: 9, MaxLength: 2})
 	if err != nil {
@@ -211,7 +215,7 @@ func TestBusinessErrorPreservesCodeMessageAndRequestID(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := newModule(server.Client(), server.URL, "ua").Search(context.Background(), SearchOptions{Query: "q", Limit: 1, SnippetLength: 1})
+	_, err := newModule(server.Client(), server.URL, "ua", fixedClientID).Search(context.Background(), SearchOptions{Query: "q", Limit: 1, SnippetLength: 1})
 	var upstream *UpstreamError
 	if !errors.As(err, &upstream) {
 		t.Fatalf("error = %v, want UpstreamError", err)
@@ -246,7 +250,7 @@ func TestTransportAndProtocolFailuresAreNotEmptyResults(t *testing.T) {
 				io.WriteString(writer, test.body)
 			}))
 			defer server.Close()
-			_, err := newModule(server.Client(), server.URL, "ua").Search(context.Background(), SearchOptions{Query: "q", Limit: 1, SnippetLength: 1})
+			_, err := newModule(server.Client(), server.URL, "ua", fixedClientID).Search(context.Background(), SearchOptions{Query: "q", Limit: 1, SnippetLength: 1})
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want substring %q", err, test.want)
 			}
@@ -258,7 +262,7 @@ func TestNetworkFailurePreservesTransportCause(t *testing.T) {
 	cause := errors.New("dial failed")
 	module := newModule(doerFunc(func(*http.Request) (*http.Response, error) {
 		return nil, cause
-	}), "https://example.com", "ua")
+	}), "https://example.com", "ua", fixedClientID)
 	_, err := module.Search(context.Background(), SearchOptions{Query: "q", Limit: 1, SnippetLength: 1})
 	if err == nil || !strings.Contains(err.Error(), "documentation request failed") {
 		t.Fatalf("error = %v", err)
@@ -270,7 +274,11 @@ func TestNetworkFailurePreservesTransportCause(t *testing.T) {
 
 func TestInputValidationHappensBeforeTransport(t *testing.T) {
 	doer := &countingDoer{}
-	module := newModule(doer, "https://example.com", "ua")
+	idCalls := 0
+	module := newModule(doer, "https://example.com", "ua", func() (string, error) {
+		idCalls++
+		return fixedClientID()
+	})
 	searchCases := []SearchOptions{
 		{Query: " ", Limit: 1, SnippetLength: 1},
 		{Query: "q", Limit: 0, SnippetLength: 1},
@@ -304,6 +312,69 @@ func TestInputValidationHappensBeforeTransport(t *testing.T) {
 	if doer.calls != 0 {
 		t.Fatalf("transport calls = %d, want 0", doer.calls)
 	}
+	if idCalls != 0 {
+		t.Fatalf("invalid input loaded the client ID %d times", idCalls)
+	}
+}
+
+func TestSearchAndFetchSharePersistedClientID(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "client")
+	var ids []string
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ids = append(ids, r.Header.Get("X-Client-Id"))
+		paths = append(paths, r.URL.Path)
+		if r.Header.Get("Authorization") != "" || r.Header.Get("User-Agent") != "test-agent" {
+			t.Error("client ID changed authentication or User-Agent")
+		}
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		for key := range body {
+			if strings.Contains(strings.ToLower(key), "client") {
+				t.Errorf("client ID leaked into request payload as %q", key)
+			}
+		}
+		io.WriteString(w, `{"ResponseMetadata":{"RequestId":"r"},"Result":{"DocList":[],"Title":"title","Content":"content"}}`)
+	}))
+	defer server.Close()
+	loadID := func() (string, error) { return clientid.LoadOrCreate(directory) }
+	searcher := newModule(server.Client(), server.URL, "test-agent", loadID)
+	if _, err := os.Stat(directory); !os.IsNotExist(err) {
+		t.Fatalf("module construction touched client ID storage: %v", err)
+	}
+	if _, err := searcher.Search(context.Background(), SearchOptions{Query: "q", Limit: 1, SnippetLength: 1}); err != nil {
+		t.Fatal(err)
+	}
+	// A new module instance represents a later CLI invocation.
+	fetcher := newModule(server.Client(), server.URL, "test-agent", loadID)
+	if _, err := fetcher.Fetch(context.Background(), FetchOptions{URL: "https://www.volcengine.com/docs/1/2", MaxLength: 100}); err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := clientid.LoadOrCreate(directory)
+	if err != nil || len(ids) != 2 || ids[0] != persisted || ids[1] != persisted {
+		t.Fatalf("request IDs = %v, persisted = %q, err = %v", ids, persisted, err)
+	}
+	if !reflect.DeepEqual(paths, []string{"/search", "/fetch"}) {
+		t.Fatalf("request paths = %v", paths)
+	}
+}
+
+func TestClientIDFailurePreventsBothRequests(t *testing.T) {
+	cause := errors.New("client ID storage is unavailable")
+	doer := &countingDoer{}
+	module := newModule(doer, "https://example.com", "ua", func() (string, error) { return "", cause })
+	_, searchErr := module.Search(context.Background(), SearchOptions{Query: "q", Limit: 1, SnippetLength: 1})
+	_, fetchErr := module.Fetch(context.Background(), FetchOptions{URL: "https://www.volcengine.com/docs/1/2", MaxLength: 1})
+	for _, err := range []error{searchErr, fetchErr} {
+		if !errors.Is(err, cause) || !strings.Contains(err.Error(), "client ID") {
+			t.Errorf("client ID failure was not preserved: %v", err)
+		}
+	}
+	if doer.calls != 0 {
+		t.Fatalf("sent %d requests without a persistent ID", doer.calls)
+	}
 }
 
 func TestCleanHTMLUsesParserDecodesEntitiesAndFoldsBlankLines(t *testing.T) {
@@ -326,4 +397,8 @@ type doerFunc func(*http.Request) (*http.Response, error)
 
 func (f doerFunc) Do(request *http.Request) (*http.Response, error) {
 	return f(request)
+}
+
+func fixedClientID() (string, error) {
+	return "d284587e-0c76-4a60-80b9-f2d85de7d836", nil
 }
