@@ -252,7 +252,7 @@ jobs:
           : "${VOLCENGINE_SECRET_KEY:?missing secret VOLCENGINE_SECRET_KEY}"
           : "${VOLCENGINE_REGION:?missing variable VOLCENGINE_REGION}"
 
-          npm install -g "@volcengine/cli@${VERSION}"
+          npm install -g "@volcengine/cli@1.1.5"
           ve cdn SubmitRefreshTask \
             --Type file \
             --UrlList.1 "https://cloudcache.volccdn.com/ve/latest" \
