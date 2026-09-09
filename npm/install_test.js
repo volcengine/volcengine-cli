@@ -16,8 +16,10 @@ const {
   downloadErrorMessage,
   normalizeBaseURL,
   parseChecksum,
+  runProxyCLIInstall,
   runSkillsInstall,
   sha256,
+  shouldInstallProxyCLIs,
   shouldInstallSkills,
   targetForPlatform,
   verifyArchiveChecksum,
@@ -46,6 +48,15 @@ assert.strictEqual(shouldInstallSkills({}), true);
 assert.strictEqual(shouldInstallSkills({ VOLCENGINE_CLI_SKIP_SKILLS: "1" }), false);
 assert.strictEqual(shouldInstallSkills({ CI: "true" }), true);
 assert.strictEqual(shouldInstallSkills({ CI: "1" }), true);
+assert.strictEqual(shouldInstallProxyCLIs({}), false);
+assert.strictEqual(
+  shouldInstallProxyCLIs({ VOLCENGINE_CLI_INSTALL_PROXY_CLIS: "1" }),
+  true
+);
+assert.strictEqual(
+  shouldInstallProxyCLIs({ VOLCENGINE_CLI_INSTALL_PROXY_CLIS: "true" }),
+  false
+);
 assert.strictEqual(binaryNameForPlatform("win32"), "ve.exe");
 assert.strictEqual(binaryNameForPlatform("linux"), "ve");
 assert.strictEqual(binaryNameForPlatform("darwin"), "ve");
@@ -190,6 +201,54 @@ withTempDir((dir) => {
 assert.strictEqual(
   runSkillsInstall("/does/not/matter", {
     env: { VOLCENGINE_CLI_SKIP_SKILLS: "1" },
+    execFileSync() {
+      throw new Error("must not run");
+    },
+    warn() {},
+  }),
+  true
+);
+
+withTempDir((dir) => {
+  const calls = [];
+  const warnings = [];
+  const binPath = path.join(dir, "ve");
+  const ok = runProxyCLIInstall(binPath, {
+    env: { VOLCENGINE_CLI_INSTALL_PROXY_CLIS: "1" },
+    execFileSync(command, args, options) {
+      calls.push({ command, args, options });
+    },
+    warn(message) {
+      warnings.push(message);
+    },
+  });
+  assert.strictEqual(ok, true);
+  assert.strictEqual(warnings.length, 0);
+  assert.strictEqual(calls.length, 1);
+  assert.strictEqual(calls[0].command, binPath);
+  assert.deepStrictEqual(calls[0].args, ["proxycli", "upgrade", "--yes"]);
+});
+
+withTempDir((dir) => {
+  const warnings = [];
+  const ok = runProxyCLIInstall(path.join(dir, "ve"), {
+    env: { VOLCENGINE_CLI_INSTALL_PROXY_CLIS: "1" },
+    execFileSync() {
+      throw new Error("proxy install failed");
+    },
+    warn(message) {
+      warnings.push(message);
+    },
+  });
+  assert.strictEqual(ok, false);
+  assert.strictEqual(warnings.length, 1);
+  assert.match(warnings[0], /Volcengine CLI installation succeeded/);
+  assert.match(warnings[0], /ve proxycli upgrade/);
+});
+
+assert.strictEqual(
+  runProxyCLIInstall("/does/not/matter", {
+    env: {},
     execFileSync() {
       throw new Error("must not run");
     },

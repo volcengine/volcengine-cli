@@ -12,6 +12,7 @@ const (
 	beforeAPIAction
 	afterAPIAction
 	nonAPICommand
+	proxyCLICommand
 )
 
 type systemFlagsResolution struct {
@@ -90,7 +91,11 @@ func resolveSystemFlagsWithRegistry(args []string, registry *systemFlagRegistry)
 		switch state {
 		case beforeCommand:
 			serviceName = strings.ReplaceAll(arg, "_", "")
-			if rootSupport.IsValidSvc(serviceName) {
+			if isProxyCLIForwardCommand(arg) {
+				// A proxy command owns every token after its hard-coded second-level
+				// name. In particular, do not consume arkcli's --lang/--profile.
+				state = proxyCLICommand
+			} else if rootSupport.IsValidSvc(serviceName) {
 				if leadingSystemFlag != "" {
 					return result, fmt.Errorf("%s must be specified after action", leadingSystemFlag)
 				}
@@ -153,6 +158,8 @@ func shouldExtractSystemFlagWithRegistry(name string, legacy bool, state command
 		return true
 	case nonAPICommand:
 		return name == "lang"
+	case proxyCLICommand:
+		return false
 	case afterAPIAction:
 		if name != "lang" {
 			return false

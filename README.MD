@@ -82,6 +82,27 @@ ve skills uninstall
 - `update`：更新到最新版本；本地缺失或修改过的核心 Skill 会恢复为最新官方内容。尚未安装时会直接完成安装。
 - `uninstall`：卸载由 `ve` 安装的核心 Skill，但保留本地修改过的内容。
 
+### 代理 CLI
+
+`ve` 可以把 `arkcli` 和 `tosutil` 作为透明的二级命令运行：
+
+```shell
+ve arkcli --help
+ve toscli version
+```
+
+`arkcli` 或 `toscli` 后面的参数不会由 `ve` 解析，而是原样交给对应 CLI。转发前，`ve` 会检查当前 profile；若当前 profile 使用 Console Login 且临时 STS 凭证即将过期，会先刷新凭证。
+
+查找顺序是系统 `PATH`，然后是 `ve` 托管目录。托管目录默认为 `~/.volcengine/proxy-cli/bin`，可通过 `VOLCENGINE_CLI_PROXY_PATH` 覆盖。两处都没有对应命令时，首次调用会从独立 manifest `https://cloudcache.volccdn.com/ve/proxycli/manifest.json` 自动安装。安装状态记录在 `~/.volcengine/proxy-cli/install-state.json`。
+
+```shell
+ve proxycli upgrade                 # 安装或升级全部托管代理 CLI
+ve proxycli upgrade arkcli          # 只处理 arkcli
+ve proxycli upgrade toscli --yes    # 只处理 tosutil，并跳过确认
+```
+
+系统 `PATH` 上的外部安装由原包管理器负责，`ve proxycli upgrade` 不会覆盖。npm 安装 `ve` 时默认不安装代理 CLI；如需同时预装，设置 `VOLCENGINE_CLI_INSTALL_PROXY_CLIS=1`。
+
 ### 快速开始
 
 ```shell

@@ -85,6 +85,27 @@ ve skills uninstall
 - `update`: Update to the latest version and restore missing or modified core Skills to the latest official content. If no Skills are installed, it performs an installation.
 - `uninstall`: Remove core Skills installed by `ve` while preserving locally modified content.
 
+### Proxy CLIs
+
+`ve` can run `arkcli` and `tosutil` as transparent second-level commands:
+
+```shell
+ve arkcli --help
+ve toscli version
+```
+
+Arguments after `arkcli` or `toscli` are forwarded unchanged to the delegated CLI. Before forwarding, `ve` checks the current profile and refreshes temporary STS credentials when the profile uses Console Login and is close to expiry.
+
+Lookup checks the system `PATH` first and then the ve-managed directory. The managed directory defaults to `~/.volcengine/proxy-cli/bin` and can be overridden with `VOLCENGINE_CLI_PROXY_PATH`. If neither location contains the command, the first invocation installs it automatically from the independent manifest at `https://cloudcache.volccdn.com/ve/proxycli/manifest.json`. Managed installation state is stored in `~/.volcengine/proxy-cli/install-state.json`.
+
+```shell
+ve proxycli upgrade                 # install or upgrade all managed proxy CLIs
+ve proxycli upgrade arkcli          # manage arkcli only
+ve proxycli upgrade toscli --yes    # manage tosutil only, without prompting
+```
+
+External installations found on `PATH` remain owned by their package manager and are never overwritten by `ve proxycli upgrade`. npm installations of `ve` do not install proxy CLIs by default; set `VOLCENGINE_CLI_INSTALL_PROXY_CLIS=1` to preinstall them.
+
 ### Quick Start
 
 ```shell

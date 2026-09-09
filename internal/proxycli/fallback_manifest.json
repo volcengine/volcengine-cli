@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "tools": {
+    "arkcli": {
+      "version": "1.0.25",
+      "platforms": {
+        "darwin-amd64": {
+          "url": "https://github.com/volcengine/ark-cli/releases/download/v1.0.25/arkcli-1.0.25-darwin-amd64",
+          "sha256": "0cdc4d5d58000f2b464023ba97841693b68daf79cfc4639e9c320fb101eaba04"
+        },
+        "darwin-arm64": {
+          "url": "https://github.com/volcengine/ark-cli/releases/download/v1.0.25/arkcli-1.0.25-darwin-arm64",
+          "sha256": "ba8f5dccb3a6c1f0869373796f405493956e351118278f4a1c7db8def5bb0182"
+        },
+        "linux-amd64": {
+          "url": "https://github.com/volcengine/ark-cli/releases/download/v1.0.25/arkcli-1.0.25-linux-amd64",
+          "sha256": "0f30caa448dd60e0be38f887fd3806a8803fa6e794153c6b52b0eb4e7f8b5721"
+        },
+        "linux-arm64": {
+          "url": "https://github.com/volcengine/ark-cli/releases/download/v1.0.25/arkcli-1.0.25-linux-arm64",
+          "sha256": "fea4f62461b8af48d88ccd4d5b1df6f1521fc689a269634a4f48776f7b177fa5"
+        },
+        "windows-amd64": {
+          "url": "https://github.com/volcengine/ark-cli/releases/download/v1.0.25/arkcli-1.0.25-windows-amd64.exe",
+          "sha256": "bd7d5dddda1f976f7cc9e07336f9b2615cbf182ca0a53e1f3acc3b465663d5ad"
+        },
+        "windows-arm64": {
+          "url": "https://github.com/volcengine/ark-cli/releases/download/v1.0.25/arkcli-1.0.25-windows-arm64.exe",
+          "sha256": "58d4215ea03cab30d3d9eaed3e0824c95f00135fd6ab7e285763285e6bed3287"
+        }
+      }
+    },
+    "tosutil": {
+      "version": "4.1.2",
+      "platforms": {
+        "darwin-amd64": {
+          "url": "https://github.com/volcengine/tosutil/releases/download/v4.1.2/tosutil-mac-amd64.zip",
+          "sha256": "8da4628a3178944d8c56814478d1ee3f935befd91ef248ebf3338e9ffb65c1ca",
+          "size": 9889161
+        },
+        "darwin-arm64": {
+          "url": "https://github.com/volcengine/tosutil/releases/download/v4.1.2/tosutil-mac-arm64.zip",
+          "sha256": "dffdc78932c3c2c23cc1d4015d7a32be72d4cfe9cd1ca1cc69b36a86bc8dc272",
+          "size": 11106442
+        },
+        "linux-amd64": {
+          "url": "https://github.com/volcengine/tosutil/releases/download/v4.1.2/tosutil-linux-amd64.zip",
+          "sha256": "40bbb4636b0182715b9832310463be7ba58f9b1db26a7aa008cd2e873e5c9310",
+          "size": 10121138
+        },
+        "linux-arm64": {
+          "url": "https://github.com/volcengine/tosutil/releases/download/v4.1.2/tosutil-linux-arm64.zip",
+          "sha256": "ee25420f981a8c8c6a93db530db5c6b4304da7ffdd38801435ea0fbb8654a445",
+          "size": 9439377
+        },
+        "windows-amd64": {
+          "url": "https://github.com/volcengine/tosutil/releases/download/v4.1.2/tosutil-windows-64.zip",
+          "sha256": "33967849ec5778ad3ae1df281a4913c94ae67a905c38cc479d5fa3f21bdf5285",
+          "size": 9213684
+        }
+      }
+    }
+  }
+}
