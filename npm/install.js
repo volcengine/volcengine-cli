@@ -236,7 +236,7 @@ function runProxyCLIInstall(binPath, deps) {
   try {
     run(binPath, ["proxycli", "upgrade", "--yes"], {
       stdio: "inherit",
-      timeout: 300000,
+      timeout: 600000,
       env,
     });
     return true;

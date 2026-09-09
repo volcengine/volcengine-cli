@@ -91,9 +91,11 @@ ve arkcli --help
 ve toscli version
 ```
 
-`arkcli` 或 `toscli` 后面的参数不会由 `ve` 解析，而是原样交给对应 CLI。转发前，`ve` 会检查当前 profile；若当前 profile 使用 Console Login 且临时 STS 凭证即将过期，会先刷新凭证。
+`arkcli` 或 `toscli` 后面的参数不会由 `ve` 解析，而是原样交给对应 CLI。转发前，`ve` 会检查当前 profile；若当前 profile 使用 Console Login、存在登录会话且临时 STS 凭证即将过期，会尝试刷新凭证。未登录或刷新失败不会阻止转发，子 CLI 可自行处理登录；帮助和版本命令完全跳过凭证读取。Unix 上 `ve` 随后通过 `exec` 原地替换为目标 CLI，不保留代理父进程；Windows 上使用最薄的等待转发层。
 
-查找顺序是系统 `PATH`，然后是 `ve` 托管目录。托管目录默认为 `~/.volcengine/proxy-cli/bin`，可通过 `VOLCENGINE_CLI_PROXY_PATH` 覆盖。两处都没有对应命令时，首次调用会从独立 manifest `https://cloudcache.volccdn.com/ve/proxycli/manifest.json` 自动安装。安装状态记录在 `~/.volcengine/proxy-cli/install-state.json`。
+查找顺序是系统 `PATH`，然后是 `ve` 托管目录。托管目录默认为 `~/.volcengine/proxy-cli/bin`，可通过 `VOLCENGINE_CLI_PROXY_PATH` 覆盖。两处都没有对应命令时，首次调用会从独立 manifest `https://cloudcache.volccdn.com/ve/proxycli/manifest.json` 自动安装；manifest 不可用时使用代码内嵌的同 CDN 固定版本清单，不访问 GitHub。默认目录的安装状态记录在 `~/.volcengine/proxy-cli/install-state.json`；自定义托管目录使用独立的路径标识状态文件，互不覆盖。状态损坏或缺失时按未安装处理并重新安装。
+
+托管版本沿用 `ve` 的后台更新提醒模式：普通调用最多每 24 小时通过独立短生命周期 helper 检查一次 manifest，helper 不阻塞目标 CLI，也不受 Unix `exec` 交接影响。发现新版本后在下一次调用的 stderr 提示，由用户决定是否执行 `ve proxycli upgrade`。系统 `PATH` 上的外部安装不参与检查；`VOLCENGINE_CLI_DISABLE_UPDATE_CHECK=1` 会同时关闭 ve 和托管代理 CLI 的后台检查。
 
 ```shell
 ve proxycli upgrade                 # 安装或升级全部托管代理 CLI

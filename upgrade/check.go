@@ -91,6 +91,17 @@ func checkTTL() time.Duration {
 	return time.Duration(hours) * time.Hour
 }
 
+// UpdateCheckTTL exposes the configured background-check TTL to companion
+// managers that intentionally share ve's update policy.
+func UpdateCheckTTL() time.Duration {
+	return checkTTL()
+}
+
+// UpdateCheckFailureBackoff exposes ve's soft-failure retry interval.
+func UpdateCheckFailureBackoff() time.Duration {
+	return failureBackoff
+}
+
 // sameLocalCalendarDay reports whether a and b fall on the same local date.
 func sameLocalCalendarDay(a, b time.Time) bool {
 	ay, am, ad := a.In(time.Local).Date()
@@ -144,7 +155,7 @@ func ShouldSkipBackgroundCheck(args []string) bool {
 		return true
 	}
 	switch firstRootPositional(args) {
-	case "upgrade", "arkcli", "toscli", "proxycli":
+	case "upgrade", "arkcli", "toscli", "proxycli", "_proxycli-update-check":
 		return true
 	default:
 		return false

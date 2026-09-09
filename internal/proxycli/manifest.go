@@ -14,10 +14,8 @@ import (
 )
 
 const (
-	ManifestSchemaVersion = 1
-	StateSchemaVersion    = 1
-
 	DefaultManifestURL = "https://cloudcache.volccdn.com/ve/proxycli/manifest.json"
+	proxyCDNHost       = "cloudcache.volccdn.com"
 	EnvProxyPath       = "VOLCENGINE_CLI_PROXY_PATH"
 	StateFileName      = "install-state.json"
 
@@ -102,8 +100,7 @@ func platformKey(goos, goarch string) string {
 }
 
 type Manifest struct {
-	SchemaVersion int                   `json:"schemaVersion"`
-	Tools         map[Tool]ManifestTool `json:"tools"`
+	Tools map[Tool]ManifestTool `json:"tools"`
 }
 
 type ManifestTool struct {
@@ -120,22 +117,18 @@ type ManifestAsset struct {
 func parseManifest(data []byte) (Manifest, error) {
 	var manifest Manifest
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&manifest); err != nil {
 		return Manifest{}, fmt.Errorf("parse proxy CLI manifest: %w", err)
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		return Manifest{}, fmt.Errorf("parse proxy CLI manifest: trailing data")
 	}
-	if manifest.SchemaVersion != ManifestSchemaVersion {
-		return Manifest{}, fmt.Errorf("unsupported proxy CLI manifest schema %d", manifest.SchemaVersion)
-	}
 	if len(manifest.Tools) == 0 {
 		return Manifest{}, fmt.Errorf("proxy CLI manifest contains no tools")
 	}
 	for tool, release := range manifest.Tools {
 		if _, err := specFor(tool); err != nil {
-			return Manifest{}, err
+			continue
 		}
 		if err := upgrade.ValidateVersion(release.Version); err != nil {
 			return Manifest{}, fmt.Errorf("invalid %s version: %w", tool, err)
@@ -196,6 +189,9 @@ func resolveAssetURL(manifestURL, value string, allowHTTP bool) (string, error) 
 	}
 	if base.Scheme == "https" && resolved.Scheme != "https" {
 		return "", fmt.Errorf("refusing to redirect an https manifest to %s", resolved.Scheme)
+	}
+	if !allowHTTP && !strings.EqualFold(resolved.Hostname(), proxyCDNHost) {
+		return "", fmt.Errorf("proxy CLI download URL must use %s: %q", proxyCDNHost, resolved.String())
 	}
 	return resolved.String(), nil
 }

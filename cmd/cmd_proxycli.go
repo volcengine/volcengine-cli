@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -18,12 +17,17 @@ type proxyCLIManager interface {
 	Upgrade([]proxycli.Tool) (proxycli.UpgradeResult, error)
 }
 
+type proxyCLIUpdateChecker interface {
+	PrepareUpdateCheck(proxycli.Resolution) proxycli.UpdateCheckPlan
+}
+
 var (
 	newProxyCLIManager = func() (proxyCLIManager, error) {
 		return proxycli.NewManager()
 	}
-	ensureProxyLoginToken = EnsureValidLoginToken
-	runProxyExecutable    = func(path string, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	ensureProxyLoginToken  = EnsureValidLoginToken
+	launchProxyUpdateCheck = defaultLaunchProxyUpdateCheck
+	runProxyExecutable     = func(path string, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return defaultRunProxyExecutable(path, args, stdin, stdout, stderr, os.Environ())
 	}
 )
@@ -33,6 +37,7 @@ func init() {
 		newProxyForwardCommand("arkcli", proxycli.ToolArkCLI),
 		newProxyForwardCommand("toscli", proxycli.ToolTOSUtil),
 		newProxyCLIManagementCommand(),
+		newProxyCLIUpdateHelperCommand(),
 	)
 }
 
@@ -77,13 +82,17 @@ func executableLabel(tool proxycli.Tool) string {
 
 func runProxyCLI(command *cobra.Command, cliContext *Context, manager proxyCLIManager, tool proxycli.Tool, args []string) error {
 	if cliContext != nil && cliContext.fixedFlags != nil {
-		if flag := cliContext.fixedFlags.GetByName("profile"); flag != nil && strings.TrimSpace(flag.GetValue()) != "" {
-			alias := proxyAlias(tool)
-			return fmt.Errorf("ve --profile is not supported for delegated CLIs; pass the argument after the command so the delegated CLI parses it: ve %s --profile <name>", alias)
+		for _, name := range []string{"profile", "region", "endpoint"} {
+			if flag := cliContext.fixedFlags.GetByName(name); flag != nil && strings.TrimSpace(flag.GetValue()) != "" {
+				alias := proxyAlias(tool)
+				return fmt.Errorf("ve --%s is not supported for delegated CLIs; pass the argument after the command so the delegated CLI parses it: ve %s --%s <value>", name, alias, name)
+			}
 		}
 	}
-	if err := refreshCurrentProxyLogin(cliContext); err != nil {
-		return err
+	if !isProxyLocalInvocation(args) {
+		if err := refreshCurrentProxyLogin(cliContext); err != nil {
+			fmt.Fprintf(command.ErrOrStderr(), "Warning: failed to refresh the current Volcengine CLI session; continuing with %s: %v\n", executableLabel(tool), err)
+		}
 	}
 	resolution, err := manager.Resolve(tool)
 	if err != nil {
@@ -91,6 +100,16 @@ func runProxyCLI(command *cobra.Command, cliContext *Context, manager proxyCLIMa
 	}
 	if resolution.Source == proxycli.SourceCDN || resolution.Source == proxycli.SourceEmbedded {
 		fmt.Fprintf(command.ErrOrStderr(), "Installed %s %s from %s at %s\n", executableLabel(tool), resolution.Version, resolution.Source, resolution.Path)
+	}
+	var updatePlan proxycli.UpdateCheckPlan
+	if checker, ok := manager.(proxyCLIUpdateChecker); ok {
+		updatePlan = checker.PrepareUpdateCheck(resolution)
+	}
+	if updatePlan.HasNotice {
+		printProxyUpdateNotice(command, updatePlan.Notice)
+	}
+	if updatePlan.Refresh {
+		_ = launchProxyUpdateCheck(resolution.Tool, resolution.Version)
 	}
 	return runProxyExecutable(
 		resolution.Path,
@@ -101,12 +120,36 @@ func runProxyCLI(command *cobra.Command, cliContext *Context, manager proxyCLIMa
 	)
 }
 
+func printProxyUpdateNotice(command *cobra.Command, result proxycli.UpdateCheckResult) {
+	if result.HasUpdate {
+		fmt.Fprintf(command.ErrOrStderr(), "A newer %s version is available: %s (current %s). Run: ve proxycli upgrade %s\n", executableLabel(result.Tool), result.Latest, result.Current, proxyAlias(result.Tool))
+	}
+}
+
+func isProxyLocalInvocation(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "help", "version", "-h", "--help", "-v", "--version":
+		return true
+	}
+	last := args[len(args)-1]
+	if last == "-h" || last == "--help" {
+		return true
+	}
+	return false
+}
+
 func refreshCurrentProxyLogin(cliContext *Context) error {
 	profileName, _, profile, err := selectInvocationProfile(cliContext)
 	if err != nil {
 		return err
 	}
 	if profile == nil || !strings.EqualFold(strings.TrimSpace(profile.Mode), ModeConsoleLogin) {
+		return nil
+	}
+	if strings.TrimSpace(profile.LoginSession) == "" {
 		return nil
 	}
 	_, err = ensureProxyLoginToken(cliContext.config, profileName)
@@ -126,26 +169,6 @@ func (e *proxyProcessExitError) ExitCode() int {
 		return 1
 	}
 	return e.code
-}
-
-func defaultRunProxyExecutable(path string, args []string, stdin io.Reader, stdout, stderr io.Writer, env []string) error {
-	process := exec.Command(path, args...)
-	process.Stdin = stdin
-	process.Stdout = stdout
-	process.Stderr = stderr
-	process.Env = env
-	if err := process.Run(); err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			code := delegatedExitCode(exitErr)
-			if code < 1 {
-				code = 1
-			}
-			return &proxyProcessExitError{code: code}
-		}
-		return fmt.Errorf("run delegated CLI %s: %w", path, err)
-	}
-	return nil
 }
 
 func newProxyCLIManagementCommand() *cobra.Command {

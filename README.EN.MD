@@ -94,9 +94,11 @@ ve arkcli --help
 ve toscli version
 ```
 
-Arguments after `arkcli` or `toscli` are forwarded unchanged to the delegated CLI. Before forwarding, `ve` checks the current profile and refreshes temporary STS credentials when the profile uses Console Login and is close to expiry.
+Arguments after `arkcli` or `toscli` are forwarded unchanged to the delegated CLI. Before forwarding, `ve` checks the current profile and attempts to refresh temporary STS credentials when the profile uses Console Login, has an active session, and is close to expiry. A missing login or refresh failure does not block delegation, so the child CLI can handle login itself; help and version invocations skip credential reads entirely. On Unix, `ve` then replaces itself with the target CLI via `exec`, leaving no proxy parent process; Windows uses a minimal waiting wrapper.
 
-Lookup checks the system `PATH` first and then the ve-managed directory. The managed directory defaults to `~/.volcengine/proxy-cli/bin` and can be overridden with `VOLCENGINE_CLI_PROXY_PATH`. If neither location contains the command, the first invocation installs it automatically from the independent manifest at `https://cloudcache.volccdn.com/ve/proxycli/manifest.json`. Managed installation state is stored in `~/.volcengine/proxy-cli/install-state.json`.
+Lookup checks the system `PATH` first and then the ve-managed directory. The managed directory defaults to `~/.volcengine/proxy-cli/bin` and can be overridden with `VOLCENGINE_CLI_PROXY_PATH`. If neither location contains the command, the first invocation installs it automatically from the independent manifest at `https://cloudcache.volccdn.com/ve/proxycli/manifest.json`; when the manifest is unavailable, an embedded fixed-version manifest uses the same CDN and never GitHub. The default directory stores managed installation state in `~/.volcengine/proxy-cli/install-state.json`; custom managed directories receive independent path-keyed state files. Missing or corrupt state is treated as not installed and rebuilt.
+
+Managed versions follow the same background-notice model as `ve`: normal invocations launch an independent short-lived helper at most once every 24 hours, so the check neither blocks the target CLI nor dies during the Unix `exec` handoff. A later invocation prints an stderr notice when an update exists, leaving the upgrade decision to the user. External binaries found on `PATH` do not participate in this check; `VOLCENGINE_CLI_DISABLE_UPDATE_CHECK=1` disables background checks for both ve and managed proxy CLIs.
 
 ```shell
 ve proxycli upgrade                 # install or upgrade all managed proxy CLIs

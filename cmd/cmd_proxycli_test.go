@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"io"
-	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -19,6 +18,15 @@ type fakeProxyManager struct {
 	result   proxycli.UpgradeResult
 	err      error
 	tools    []proxycli.Tool
+}
+
+type fakeProxyManagerWithUpdate struct {
+	*fakeProxyManager
+	plan proxycli.UpdateCheckPlan
+}
+
+func (f *fakeProxyManagerWithUpdate) PrepareUpdateCheck(proxycli.Resolution) proxycli.UpdateCheckPlan {
+	return f.plan
 }
 
 func (f *fakeProxyManager) Resolve(tool proxycli.Tool) (proxycli.Resolution, error) {
@@ -108,7 +116,7 @@ func TestRunProxyCLIDoesNotRefreshNonConsoleProfile(t *testing.T) {
 	}
 }
 
-func TestRunProxyCLIRefreshFailurePreventsResolutionAndExecution(t *testing.T) {
+func TestRunProxyCLIRefreshFailureWarnsAndContinues(t *testing.T) {
 	oldEnsure := ensureProxyLoginToken
 	oldRun := runProxyExecutable
 	defer func() {
@@ -125,51 +133,113 @@ func TestRunProxyCLIRefreshFailurePreventsResolutionAndExecution(t *testing.T) {
 	}
 	want := errors.New("refresh failed")
 	ensureProxyLoginToken = func(*Configure, string) (*STSCredentials, error) { return nil, want }
+	executed := false
 	runProxyExecutable = func(string, []string, io.Reader, io.Writer, io.Writer) error {
-		t.Fatal("child must not execute after refresh failure")
+		executed = true
 		return nil
 	}
 	manager := &fakeProxyManager{resolved: proxycli.Resolution{Path: "/bin/arkcli"}}
+	command := &cobra.Command{}
+	var stderr bytes.Buffer
+	command.SetErr(&stderr)
 
-	err := runProxyCLI(&cobra.Command{}, ctx, manager, proxycli.ToolArkCLI, nil)
-	if !errors.Is(err, want) {
-		t.Fatalf("runProxyCLI() error = %v", err)
-	}
-	if len(manager.tools) != 0 {
-		t.Fatalf("manager resolved after refresh failure: %v", manager.tools)
-	}
-}
-
-func TestRunProxyCLIRejectsVeProfileOverride(t *testing.T) {
-	ctx := NewContext()
-	ctx.config = &Configure{Profiles: map[string]*Profile{"prod": {Name: "prod"}}}
-	flag, err := ctx.fixedFlags.AddByName("profile")
+	err := runProxyCLI(command, ctx, manager, proxycli.ToolArkCLI, []string{"models", "list"})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("runProxyCLI() error = %v", err)
 	}
-	flag.SetValue("prod")
+	if !executed || len(manager.tools) != 1 {
+		t.Fatalf("proxy did not continue: executed=%v tools=%v", executed, manager.tools)
+	}
+	if !strings.Contains(stderr.String(), "Warning") || !strings.Contains(stderr.String(), want.Error()) {
+		t.Fatalf("refresh warning = %q", stderr.String())
+	}
+}
 
-	err = runProxyCLI(&cobra.Command{}, ctx, &fakeProxyManager{}, proxycli.ToolArkCLI, nil)
-	if err == nil || !strings.Contains(err.Error(), "ve arkcli --profile") {
+func TestRunProxyCLINoLoginSessionContinuesWithoutRefresh(t *testing.T) {
+	oldEnsure := ensureProxyLoginToken
+	oldRun := runProxyExecutable
+	defer func() {
+		ensureProxyLoginToken = oldEnsure
+		runProxyExecutable = oldRun
+	}()
+
+	ctx := NewContext()
+	ctx.config = &Configure{
+		Current: "default",
+		Profiles: map[string]*Profile{
+			"default": {Name: "default", Mode: ModeConsoleLogin},
+		},
+	}
+	ensureProxyLoginToken = func(*Configure, string) (*STSCredentials, error) {
+		t.Fatal("logged-out profile must not attempt refresh")
+		return nil, nil
+	}
+	runProxyExecutable = func(string, []string, io.Reader, io.Writer, io.Writer) error { return nil }
+	manager := &fakeProxyManager{resolved: proxycli.Resolution{Path: "/bin/arkcli"}}
+
+	if err := runProxyCLI(&cobra.Command{}, ctx, manager, proxycli.ToolArkCLI, []string{"models", "list"}); err != nil {
 		t.Fatalf("runProxyCLI() error = %v", err)
 	}
 }
 
-func TestDefaultRunProxyExecutablePreservesExitCode(t *testing.T) {
-	if os.Getenv("VE_TEST_PROXY_CHILD") == "1" {
-		os.Exit(23)
+func TestRunProxyCLILocalHelpAndVersionSkipCredentialRead(t *testing.T) {
+	oldEnsure := ensureProxyLoginToken
+	oldRun := runProxyExecutable
+	defer func() {
+		ensureProxyLoginToken = oldEnsure
+		runProxyExecutable = oldRun
+	}()
+
+	ctx := NewContext()
+	ctx.config = &Configure{
+		Current: "default",
+		Profiles: map[string]*Profile{
+			"default": {Name: "default", Mode: ModeConsoleLogin, LoginSession: "session"},
+		},
 	}
-	err := defaultRunProxyExecutable(
-		os.Args[0],
-		[]string{"-test.run=^TestDefaultRunProxyExecutablePreservesExitCode$"},
-		nil,
-		io.Discard,
-		io.Discard,
-		[]string{"VE_TEST_PROXY_CHILD=1"},
-	)
-	var exitErr *proxyProcessExitError
-	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 23 {
-		t.Fatalf("defaultRunProxyExecutable() error = %#v", err)
+	ensureProxyLoginToken = func(*Configure, string) (*STSCredentials, error) {
+		t.Fatal("local help/version must not read credentials")
+		return nil, nil
+	}
+	runProxyExecutable = func(string, []string, io.Reader, io.Writer, io.Writer) error { return nil }
+
+	for _, args := range [][]string{
+		{"--help"}, {"-h"}, {"--version"}, {"-v"}, {"help", "models"}, {"version"}, {"models", "list", "--help"},
+	} {
+		manager := &fakeProxyManager{resolved: proxycli.Resolution{Path: "/bin/arkcli"}}
+		if err := runProxyCLI(&cobra.Command{}, ctx, manager, proxycli.ToolArkCLI, args); err != nil {
+			t.Fatalf("runProxyCLI(%v) error = %v", args, err)
+		}
+	}
+}
+
+func TestProxyLocalInvocationDoesNotTreatBusinessArgumentsAsVersionFlags(t *testing.T) {
+	for _, args := range [][]string{
+		{"ls", "tos://bucket", "-v"},
+		{"chat", "--prompt=--help"},
+	} {
+		if isProxyLocalInvocation(args) {
+			t.Fatalf("business invocation was classified as local: %v", args)
+		}
+	}
+}
+
+func TestRunProxyCLIRejectsVeSystemOverrides(t *testing.T) {
+	for _, name := range []string{"profile", "region", "endpoint"} {
+		t.Run(name, func(t *testing.T) {
+			ctx := NewContext()
+			ctx.config = &Configure{Profiles: map[string]*Profile{"prod": {Name: "prod"}}}
+			flag, err := ctx.fixedFlags.AddByName(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			flag.SetValue("value")
+
+			err = runProxyCLI(&cobra.Command{}, ctx, &fakeProxyManager{}, proxycli.ToolArkCLI, nil)
+			if err == nil || !strings.Contains(err.Error(), "ve arkcli --"+name) {
+				t.Fatalf("runProxyCLI() error = %v", err)
+			}
+		})
 	}
 }
 
@@ -178,6 +248,60 @@ func TestProxyCommandNamesAreRegistered(t *testing.T) {
 		if !isRegisteredRootSubcommand(name) {
 			t.Fatalf("root command %q is not registered", name)
 		}
+	}
+}
+
+func TestRunProxyCLIPrintsManagedUpdateNotice(t *testing.T) {
+	oldRun := runProxyExecutable
+	defer func() { runProxyExecutable = oldRun }()
+	runProxyExecutable = func(string, []string, io.Reader, io.Writer, io.Writer) error { return nil }
+	manager := &fakeProxyManagerWithUpdate{
+		fakeProxyManager: &fakeProxyManager{resolved: proxycli.Resolution{
+			Tool: proxycli.ToolArkCLI, Path: "/managed/arkcli", Version: "1.0.0", Source: proxycli.SourceManaged,
+		}},
+		plan: proxycli.UpdateCheckPlan{
+			HasNotice: true,
+			Notice:    proxycli.UpdateCheckResult{Tool: proxycli.ToolArkCLI, Current: "1.0.0", Latest: "2.0.0", HasUpdate: true},
+		},
+	}
+	command := &cobra.Command{}
+	var stderr bytes.Buffer
+	command.SetErr(&stderr)
+	if err := runProxyCLI(command, NewContext(), manager, proxycli.ToolArkCLI, []string{"models", "list"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr.String(), "2.0.0") || !strings.Contains(stderr.String(), "ve proxycli upgrade arkcli") {
+		t.Fatalf("update notice = %q", stderr.String())
+	}
+}
+
+func TestRunProxyCLILaunchesUpdateHelperBeforeDelegation(t *testing.T) {
+	oldRun := runProxyExecutable
+	oldLaunch := launchProxyUpdateCheck
+	defer func() {
+		runProxyExecutable = oldRun
+		launchProxyUpdateCheck = oldLaunch
+	}()
+	var order []string
+	launchProxyUpdateCheck = func(tool proxycli.Tool, current string) error {
+		order = append(order, "helper:"+string(tool)+":"+current)
+		return nil
+	}
+	runProxyExecutable = func(string, []string, io.Reader, io.Writer, io.Writer) error {
+		order = append(order, "exec")
+		return nil
+	}
+	manager := &fakeProxyManagerWithUpdate{
+		fakeProxyManager: &fakeProxyManager{resolved: proxycli.Resolution{
+			Tool: proxycli.ToolArkCLI, Path: "/managed/arkcli", Version: "1.0.0", Source: proxycli.SourceManaged,
+		}},
+		plan: proxycli.UpdateCheckPlan{Refresh: true},
+	}
+	if err := runProxyCLI(&cobra.Command{}, NewContext(), manager, proxycli.ToolArkCLI, []string{"models", "list"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"helper:arkcli:1.0.0", "exec"}; !reflect.DeepEqual(order, want) {
+		t.Fatalf("order = %v, want %v", order, want)
 	}
 }
 

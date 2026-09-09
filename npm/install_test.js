@@ -227,6 +227,7 @@ withTempDir((dir) => {
   assert.strictEqual(calls.length, 1);
   assert.strictEqual(calls[0].command, binPath);
   assert.deepStrictEqual(calls[0].args, ["proxycli", "upgrade", "--yes"]);
+  assert.strictEqual(calls[0].options.timeout, 600000);
 });
 
 withTempDir((dir) => {

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -36,6 +37,7 @@ const (
 	StatusExternal  Status = "externally-managed"
 	StatusInstalled Status = "installed"
 	StatusUpdated   Status = "updated"
+	StatusRestored  Status = "restored"
 	StatusCurrent   Status = "current"
 )
 
@@ -49,8 +51,7 @@ type InstalledTool struct {
 }
 
 type State struct {
-	SchemaVersion int                     `json:"schemaVersion"`
-	Tools         map[Tool]*InstalledTool `json:"tools"`
+	Tools map[Tool]*InstalledTool `json:"tools"`
 }
 
 type Resolution struct {
@@ -79,9 +80,11 @@ type Manager struct {
 	ManifestURL      string
 	FallbackManifest []byte
 	HTTPClient       *http.Client
+	CheckHTTPClient  *http.Client
 	LookPath         func(string) (string, error)
 	GOOS             string
 	GOARCH           string
+	Now              func() time.Time
 
 	allowHTTPForTests bool
 }
@@ -113,7 +116,7 @@ func NewManager() (*Manager, error) {
 		BinDir:           filepath.Clean(binDir),
 		ManifestURL:      DefaultManifestURL,
 		FallbackManifest: append([]byte(nil), embeddedFallbackManifest...),
-		HTTPClient:       &http.Client{Timeout: 30 * time.Second},
+		HTTPClient:       newDownloadHTTPClient(),
 		LookPath:         exec.LookPath,
 		GOOS:             runtime.GOOS,
 		GOARCH:           runtime.GOARCH,
@@ -138,6 +141,7 @@ func (m *Manager) Resolve(tool Tool) (Resolution, error) {
 		return Resolution{}, err
 	}
 	defer lock.release()
+	m.cleanupStaleInstallTemps()
 
 	state, err := m.readState()
 	if err != nil {
@@ -153,19 +157,16 @@ func (m *Manager) Resolve(tool Tool) (Resolution, error) {
 		}
 	}
 	if entry == nil || !samePath(entry.Path, managedPath) {
-		if exists, statErr := regularFileExists(managedPath); statErr != nil {
+		if statErr := validateReplaceableManagedPath(managedPath); statErr != nil {
 			return Resolution{}, statErr
-		} else if exists {
-			return Resolution{}, fmt.Errorf("proxy CLI binary is not managed by ve: %s", managedPath)
 		}
 		entry = nil
 	}
 
-	installed, status, err := m.installLatest(tool, entry)
+	installed, _, err := m.installLatest(tool, entry)
 	if err != nil {
 		return Resolution{}, err
 	}
-	_ = status
 	state.Tools[tool] = installed
 	if err := m.writeState(state); err != nil {
 		return Resolution{}, err
@@ -205,6 +206,7 @@ func (m *Manager) Upgrade(tools []Tool) (UpgradeResult, error) {
 		return result, err
 	}
 	defer lock.release()
+	m.cleanupStaleInstallTemps()
 	state, err := m.readState()
 	if err != nil {
 		return result, err
@@ -215,11 +217,8 @@ func (m *Manager) Upgrade(tools []Tool) (UpgradeResult, error) {
 		path := m.managedPath(tool)
 		entry := state.Tools[tool]
 		if entry == nil || !samePath(entry.Path, path) {
-			if exists, statErr := regularFileExists(path); statErr != nil {
+			if statErr := validateReplaceableManagedPath(path); statErr != nil {
 				installErrors = append(installErrors, fmt.Sprintf("%s: %v", tool, statErr))
-				continue
-			} else if exists {
-				installErrors = append(installErrors, fmt.Sprintf("%s: binary is not managed by ve: %s", tool, path))
 				continue
 			}
 			entry = nil
@@ -257,12 +256,10 @@ func (m *Manager) installLatest(tool Tool, current *InstalledTool) (*InstalledTo
 		isNewer := current != nil && upgrade.IsNewer(current.Version, release.Version)
 		asset, ok := release.Platforms[platformKey(m.GOOS, m.GOARCH)]
 		if !ok {
-			if isNewer {
-				failedNewerCandidate = true
-			}
 			failures = append(failures, fmt.Sprintf("%s manifest: %s does not support %s/%s", candidate.source, tool, m.GOOS, m.GOARCH))
 			continue
 		}
+		restoring := false
 		if current != nil {
 			switch {
 			case upgrade.SameVersion(current.Version, release.Version):
@@ -276,6 +273,7 @@ func (m *Manager) installLatest(tool Tool, current *InstalledTool) (*InstalledTo
 					}
 					return current, StatusCurrent, nil
 				}
+				restoring = true
 			case !upgrade.IsNewer(current.Version, release.Version):
 				// Never replace a newer locally managed release with an older
 				// embedded fallback.
@@ -301,7 +299,11 @@ func (m *Manager) installLatest(tool Tool, current *InstalledTool) (*InstalledTo
 		}
 		status := StatusInstalled
 		if current != nil {
-			status = StatusUpdated
+			if restoring {
+				status = StatusRestored
+			} else {
+				status = StatusUpdated
+			}
 		}
 		return installed, status, nil
 	}
@@ -401,41 +403,55 @@ func (m *Manager) managedPath(tool Tool) string {
 }
 
 func (m *Manager) statePath() string {
-	return filepath.Join(m.ConfigDir, StateFileName)
+	if samePath(m.BinDir, defaultBinDir(m.HomeDir)) {
+		return filepath.Join(m.ConfigDir, StateFileName)
+	}
+	absolute, err := filepath.Abs(m.BinDir)
+	if err != nil {
+		absolute = filepath.Clean(m.BinDir)
+	}
+	sum := sha256.Sum256([]byte(filepath.Clean(absolute)))
+	return filepath.Join(m.ConfigDir, fmt.Sprintf("install-state-%x.json", sum[:8]))
 }
 
 func (m *Manager) lockPath() string {
-	return filepath.Join(m.ConfigDir, ".install.lock")
+	return m.statePath() + ".lock"
 }
 
 func (m *Manager) readState() (State, error) {
-	state := State{SchemaVersion: StateSchemaVersion, Tools: map[Tool]*InstalledTool{}}
+	empty := State{Tools: map[Tool]*InstalledTool{}}
 	data, err := os.ReadFile(m.statePath())
 	if os.IsNotExist(err) {
-		return state, nil
+		return empty, nil
 	}
 	if err != nil {
 		return State{}, fmt.Errorf("read proxy CLI install state: %w", err)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
+	var state State
 	if err := decoder.Decode(&state); err != nil {
-		return State{}, fmt.Errorf("parse proxy CLI install state: %w", err)
+		return empty, nil
 	}
-	if state.SchemaVersion != StateSchemaVersion || state.Tools == nil {
-		return State{}, fmt.Errorf("unsupported proxy CLI install state schema %d", state.SchemaVersion)
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return empty, nil
+	}
+	if state.Tools == nil {
+		return empty, nil
 	}
 	for tool, entry := range state.Tools {
-		if _, err := specFor(tool); err != nil || entry == nil {
-			return State{}, fmt.Errorf("invalid proxy CLI install state entry %q", tool)
+		if _, err := specFor(tool); err != nil {
+			continue
+		}
+		if entry == nil {
+			return empty, nil
 		}
 		if err := upgrade.ValidateVersion(entry.Version); err != nil || !validSHA256(entry.ArtifactSHA256) || !validSHA256(entry.BinarySHA256) || !filepath.IsAbs(entry.Path) {
-			return State{}, fmt.Errorf("invalid proxy CLI install state metadata for %q", tool)
+			return empty, nil
 		}
 		switch entry.Source {
 		case SourceCDN, SourceEmbedded:
 		default:
-			return State{}, fmt.Errorf("invalid proxy CLI install source %q for %q", entry.Source, tool)
+			return empty, nil
 		}
 	}
 	return state, nil
@@ -445,7 +461,6 @@ func (m *Manager) writeState(state State) error {
 	if state.Tools == nil {
 		state.Tools = map[Tool]*InstalledTool{}
 	}
-	state.SchemaVersion = StateSchemaVersion
 	if err := os.MkdirAll(m.ConfigDir, 0700); err != nil {
 		return fmt.Errorf("create proxy CLI state directory: %w", err)
 	}
@@ -454,7 +469,7 @@ func (m *Manager) writeState(state State) error {
 		return err
 	}
 	data = append(data, '\n')
-	temporary, err := os.CreateTemp(m.ConfigDir, ".install-state-*.tmp")
+	temporary, err := os.CreateTemp(m.ConfigDir, m.stateTempPrefix()+"*")
 	if err != nil {
 		return err
 	}
@@ -485,19 +500,25 @@ func (m *Manager) writeState(state State) error {
 }
 
 func (m *Manager) download(rawURL string, limit int64) ([]byte, error) {
+	return m.downloadWithClient(rawURL, limit, m.HTTPClient)
+}
+
+func (m *Manager) downloadWithClient(rawURL string, limit int64, client *http.Client) ([]byte, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil || (parsed.Scheme != "https" && !(m.allowHTTPForTests && parsed.Scheme == "http")) {
 		return nil, fmt.Errorf("proxy CLI download URL must use https: %q", rawURL)
 	}
-	client := m.HTTPClient
 	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
+		client = newDownloadHTTPClient()
 	}
 	copyClient := *client
 	previousRedirect := client.CheckRedirect
 	copyClient.CheckRedirect = func(request *http.Request, via []*http.Request) error {
 		if len(via) > 0 && via[0].URL.Scheme == "https" && request.URL.Scheme != "https" {
 			return fmt.Errorf("refusing to redirect an https download to %s", request.URL.Scheme)
+		}
+		if !m.allowHTTPForTests && !strings.EqualFold(request.URL.Hostname(), proxyCDNHost) {
+			return fmt.Errorf("refusing to redirect a proxy CLI download away from %s", proxyCDNHost)
 		}
 		if previousRedirect != nil {
 			return previousRedirect(request, via)
@@ -527,6 +548,19 @@ func (m *Manager) download(rawURL string, limit int64) ([]byte, error) {
 		return nil, fmt.Errorf("download exceeds %d bytes", limit)
 	}
 	return data, nil
+}
+
+func newDownloadHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 4 * time.Minute,
+		Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			DialContext:           (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+			TLSHandshakeTimeout:   15 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+			ExpectContinueTimeout: time.Second,
+		},
+	}
 }
 
 func extractBinaryFromZip(data []byte, binaryName string) ([]byte, error) {
@@ -609,17 +643,42 @@ func validateManagedBinary(entry *InstalledTool, path string) error {
 	if err != nil {
 		return fmt.Errorf("inspect managed proxy CLI %s: %w", path, err)
 	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("managed proxy CLI is not a regular file: %s; run 've proxycli upgrade' to restore the official binary", path)
+	}
 	if !info.Mode().IsRegular() {
-		return fmt.Errorf("managed proxy CLI is not a regular file: %s", path)
+		return fmt.Errorf("managed proxy CLI is not a regular file: %s; move it aside and retry 've proxycli upgrade'", path)
 	}
 	digest, err := digestFile(path)
 	if err != nil {
 		return err
 	}
 	if digest != strings.ToLower(entry.BinarySHA256) {
-		return fmt.Errorf("managed proxy CLI has local changes: %s", path)
+		return fmt.Errorf("managed proxy CLI has local changes: %s; run 've proxycli upgrade' to restore the official binary", path)
 	}
 	return nil
+}
+
+func (m *Manager) stateTempPrefix() string {
+	return uniqueTempPrefix("install-state", m.statePath())
+}
+
+func (m *Manager) cleanupStaleInstallTemps() {
+	removeFilesWithPrefix(m.BinDir, ".proxy-cli-install-")
+	removeFilesWithPrefix(m.ConfigDir, m.stateTempPrefix())
+}
+
+func removeFilesWithPrefix(directory, prefix string) {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() || !strings.HasPrefix(entry.Name(), prefix) {
+			continue
+		}
+		_ = os.Remove(filepath.Join(directory, entry.Name()))
+	}
 }
 
 func digestFile(path string) (string, error) {
@@ -640,18 +699,23 @@ func digestBytes(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func regularFileExists(path string) (bool, error) {
+func validateReplaceableManagedPath(path string) error {
 	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
-		return false, nil
+		return nil
 	}
 	if err != nil {
-		return false, err
+		return err
 	}
-	if !info.Mode().IsRegular() {
-		return false, fmt.Errorf("proxy CLI path is not a regular file: %s", path)
+	if info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return nil
 	}
-	return true, nil
+	return fmt.Errorf("proxy CLI path cannot be replaced automatically: %s (mode %s); move it aside and retry 've proxycli upgrade'", path, info.Mode())
+}
+
+func uniqueTempPrefix(kind, target string) string {
+	sum := sha256.Sum256([]byte(filepath.Clean(target)))
+	return fmt.Sprintf(".proxycli-%s-%x-", kind, sum[:8])
 }
 
 func samePath(left, right string) bool {
