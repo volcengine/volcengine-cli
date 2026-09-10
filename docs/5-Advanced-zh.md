@@ -1,4 +1,4 @@
-[← 使用指南](4-Usage-zh.md) | 高级用法[(English)](5-Advanced.md)
+[← 使用指南](4-Usage-zh.md) | [MCP 服务 →](6-MCP-zh.md) | 高级用法[(English)](5-Advanced.md)
 
 ---
 
@@ -433,4 +433,4 @@ ve rds_mysql ModifyDBInstanceIPList \
 
 ---
 
-[← 使用指南](4-Usage-zh.md) | 高级用法[(English)](5-Advanced.md)
+[← 使用指南](4-Usage-zh.md) | [MCP 服务 →](6-MCP-zh.md) | 高级用法[(English)](5-Advanced.md)

@@ -8,7 +8,7 @@ This guide explains how to install `ve`, put it on your PATH, and make a minimal
 
 ## Requirements
 
-- Go 1.17 or later is required only when building from source. Prebuilt Release and npm installations do not require Go.
+- Go 1.18 or later is required only when building from source. Prebuilt Release and npm installations do not require Go.
 - Starting from v1.0.20, the command prefix changed from `volcengine-cli` to `ve`. Earlier versions are not affected. After upgrading to v1.0.20 or later, update scripts that still call `volcengine-cli`.
 - Starting from v1.1.3, `ve` can install and manage Skills (the `ve skills` commands, and the automatic core Skill installation performed by the npm package). Versions earlier than v1.1.3 do not support Skills, so upgrade first if you need them.
 

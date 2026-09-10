@@ -1,4 +1,4 @@
-[← Usage](4-Usage.md) | Advanced Usage[(中文)](5-Advanced-zh.md)
+[← Usage](4-Usage.md) | [MCP Server →](6-MCP.md) | Advanced Usage[(中文)](5-Advanced-zh.md)
 
 ---
 
@@ -433,4 +433,4 @@ Do not mix `--body` with other API parameters.
 
 ---
 
-[← Usage](4-Usage.md) | Advanced Usage[(中文)](5-Advanced-zh.md)
+[← Usage](4-Usage.md) | [MCP Server →](6-MCP.md) | Advanced Usage[(中文)](5-Advanced-zh.md)
