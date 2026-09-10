@@ -140,16 +140,18 @@ func copyParams(params []param) []param {
 // buildActionHelpParamLines builds Available Parameters lines (without leading "--").
 // prefixLines stay first and unsorted (legacy single-list callers). Prefer
 // jsonActionUsageTemplate + separate bodyParam for JSON dual-form help.
-// detail=false skips description corpus; detail=true attaches and formats full text.
+// Both modes load Swagger requirements; detail=true also formats full text and examples.
 func buildActionHelpParamLines(service, action string, params []param, prefixLines []string, detail bool) []string {
 	ordered := copyParams(params)
 	sort.Slice(ordered, func(i, j int) bool {
 		return ordered[i].key < ordered[j].key
 	})
+	// Swagger requirements affect both concise and detailed help. Descriptions
+	// and examples are attached at the same time but rendered only in detail mode.
+	attachParamDescriptions(service, action, ordered)
 	if !detail {
 		return append(append([]string{}, prefixLines...), formatParamsHelpUsage(ordered, false)...)
 	}
-	attachParamDescriptions(service, action, ordered)
 	return append(append([]string{}, prefixLines...), formatParamsHelpUsage(ordered, true)...)
 }
 

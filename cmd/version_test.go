@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"runtime"
 	"strings"
 	"testing"
@@ -31,6 +32,81 @@ func TestDetectSkillInvokers(t *testing.T) {
 		env  map[string]string
 		want []string
 	}{
+		{
+			name: "doubao office app id",
+			env:  map[string]string{"DOUBAO_OFFICE_APP_ID": "app-id"},
+			want: []string{"doubao"},
+		},
+		{
+			name: "doubao office agent name",
+			env:  map[string]string{"DOUBAO_OFFICE_AGENT_NAME": "agent-name"},
+			want: []string{"doubao"},
+		},
+		{
+			name: "doubao aily signature",
+			env:  map[string]string{"AILY_SIGNATURE": "signature"},
+			want: []string{"doubao"},
+		},
+		{
+			name: "github copilot cli",
+			env:  map[string]string{"COPILOT_CLI": "1"},
+			want: []string{"github-copilot"},
+		},
+		{
+			name: "github copilot cli trims whitespace",
+			env:  map[string]string{"COPILOT_CLI": " 1 "},
+			want: []string{"github-copilot"},
+		},
+		{
+			name: "cline active ignores empty marker value",
+			env:  map[string]string{"CLINE_ACTIVE": ""},
+			want: []string{"cline"},
+		},
+		{
+			name: "cline connector launch ignores marker value",
+			env:  map[string]string{"CLINE_CONNECTOR_CLI_LAUNCH": "\t"},
+			want: []string{"cline"},
+		},
+		{
+			name: "qoder cli",
+			env:  map[string]string{"QODER_CLI": "1"},
+			want: []string{"qoder"},
+		},
+		{
+			name: "qoder work source chat id",
+			env:  map[string]string{"QODERWORK_SOURCE_CHAT_ID": "chat-id"},
+			want: []string{"qoder"},
+		},
+		{
+			name: "qoder dingtalk agent code",
+			env:  map[string]string{"DINGTALK_DWS_AGENTCODE": "agent-code"},
+			want: []string{"qoder"},
+		},
+		{
+			name: "qoder agent sdk version",
+			env:  map[string]string{"QODER_AGENT_SDK_VERSION": "1.0.0"},
+			want: []string{"qoder"},
+		},
+		{
+			name: "workbuddy codebuddy host",
+			env:  map[string]string{"CODEBUDDY_HOST": "https://example.com"},
+			want: []string{"workbuddy"},
+		},
+		{
+			name: "workbuddy application name",
+			env:  map[string]string{"WORKBUDDY_APPLICATION_NAME": "workbuddy"},
+			want: []string{"workbuddy"},
+		},
+		{
+			name: "workbuddy app name",
+			env:  map[string]string{"WORKBUDDY_APP_NAME": "workbuddy"},
+			want: []string{"workbuddy"},
+		},
+		{
+			name: "workbuddy app version",
+			env:  map[string]string{"WORKBUDDY_APP_VERSION": "1.0.0"},
+			want: []string{"workbuddy"},
+		},
 		{
 			name: "claude code",
 			env:  map[string]string{"CLAUDECODE": "1"},
@@ -117,6 +193,46 @@ func TestDetectSkillInvokers(t *testing.T) {
 			want: []string{"opencode"},
 		},
 		{
+			name: "deepseek harness ignores marker value",
+			env:  map[string]string{"DSH_SHELL": "unexpected-value"},
+			want: []string{"deepseek-harness"},
+		},
+		{
+			name: "deepseek harness session id",
+			env:  map[string]string{"DSH_SESSION_ID": "session-id"},
+			want: []string{"deepseek-harness"},
+		},
+		{
+			name: "deepseek harness pty session id",
+			env:  map[string]string{"DSH_PTY_SESSION_ID": "pty-session-id"},
+			want: []string{"deepseek-harness"},
+		},
+		{
+			name: "pi ignores marker value",
+			env:  map[string]string{"PI_CODING_AGENT": "unexpected-value"},
+			want: []string{"pi"},
+		},
+		{
+			name: "pi session id",
+			env:  map[string]string{"PI_SESSION_ID": "session-id"},
+			want: []string{"pi"},
+		},
+		{
+			name: "pi session file",
+			env:  map[string]string{"PI_SESSION_FILE": "/tmp/session.jsonl"},
+			want: []string{"pi"},
+		},
+		{
+			name: "hermes agent ignores marker value",
+			env:  map[string]string{"HERMES_AGENT": "unexpected-value"},
+			want: []string{"hermes-agent"},
+		},
+		{
+			name: "hermes desktop",
+			env:  map[string]string{"HERMES_DESKTOP": "desktop"},
+			want: []string{"hermes-agent"},
+		},
+		{
 			name: "agent fallback via AGENT",
 			env:  map[string]string{"AGENT": "1"},
 			want: []string{"agent"},
@@ -125,6 +241,65 @@ func TestDetectSkillInvokers(t *testing.T) {
 			name: "agent fallback via IS_AGENT",
 			env:  map[string]string{"IS_AGENT": "true"},
 			want: []string{"agent"},
+		},
+		{
+			name: "doubao takes priority over other invokers",
+			env: map[string]string{
+				"DOUBAO_OFFICE_APP_ID": "app-id",
+				"CLAUDECODE":           "1",
+				"AGENT":                "1",
+			},
+			want: []string{"doubao"},
+		},
+		{
+			name: "github copilot takes priority over agent fallback",
+			env: map[string]string{
+				"COPILOT_CLI": "1",
+				"AGENT":       "1",
+			},
+			want: []string{"github-copilot"},
+		},
+		{
+			name: "cline takes priority over agent fallback",
+			env: map[string]string{
+				"CLINE_ACTIVE": "false",
+				"AGENT":        "1",
+			},
+			want: []string{"cline"},
+		},
+		{
+			name: "qoder takes priority over agent fallback",
+			env: map[string]string{
+				"QODER_CLI": "1",
+				"AGENT":     "1",
+			},
+			want: []string{"qoder"},
+		},
+		{
+			name: "workbuddy takes priority over agent fallback",
+			env: map[string]string{
+				"WORKBUDDY_APP_NAME": "workbuddy",
+				"AGENT":              "1",
+			},
+			want: []string{"workbuddy"},
+		},
+		{
+			name: "existing specific invokers take priority over low priority detectors",
+			env: map[string]string{
+				"WORKBUDDY_APP_NAME": "workbuddy",
+				"DSH_SHELL":          "1",
+				"PI_CODING_AGENT":    "true",
+				"HERMES_AGENT":       "true",
+			},
+			want: []string{"workbuddy"},
+		},
+		{
+			name: "low priority detector takes priority over generic fallback",
+			env: map[string]string{
+				"HERMES_AGENT": "false",
+				"AGENT":        "1",
+			},
+			want: []string{"hermes-agent"},
 		},
 		{
 			name: "specific invoker takes priority over agent fallback",
@@ -146,6 +321,26 @@ func TestDetectSkillInvokers(t *testing.T) {
 		{
 			name: "blank values are ignored",
 			env: map[string]string{
+				"DOUBAO_OFFICE_APP_ID":       " ",
+				"DOUBAO_OFFICE_AGENT_NAME":   "\t",
+				"AILY_SIGNATURE":             "",
+				"COPILOT_CLI":                " ",
+				"QODER_CLI":                  " ",
+				"QODERWORK_SOURCE_CHAT_ID":   "\t",
+				"DINGTALK_DWS_AGENTCODE":     "",
+				"QODER_AGENT_SDK_VERSION":    "\n",
+				"CODEBUDDY_HOST":             " ",
+				"WORKBUDDY_APPLICATION_NAME": "\t",
+				"WORKBUDDY_APP_NAME":         "",
+				"WORKBUDDY_APP_VERSION":      "\n",
+				"DSH_SHELL":                  " ",
+				"DSH_SESSION_ID":             "\t",
+				"DSH_PTY_SESSION_ID":         "",
+				"PI_CODING_AGENT":            "\t",
+				"PI_SESSION_ID":              " ",
+				"PI_SESSION_FILE":            "\n",
+				"HERMES_AGENT":               "",
+				"HERMES_DESKTOP":             "\t",
 				"AI_AGENT":                   " ",
 				"ICUBE_PRODUCT_BRAND_NAME":   " ",
 				"CLAUDECODE":                 " ",
@@ -174,6 +369,9 @@ func TestDetectSkillInvokers(t *testing.T) {
 		{
 			name: "non skill invocation variables are ignored",
 			env: map[string]string{
+				"COPILOT_CLI":            "true",
+				"COPILOT_HOME":           "/tmp/copilot",
+				"COPILOT_GITHUB_TOKEN":   "token",
 				"CODEX_HOME":             "/tmp/codex",
 				"CURSOR_CONFIG_DIR":      "/tmp/cursor",
 				"GEMINI_CLI_HOME":        "/tmp/gemini",
@@ -242,6 +440,76 @@ func TestClientVersionAndUserAgentHandlerAddsSkillInvokerToHeader(t *testing.T) 
 		want string
 	}{
 		{
+			name: "doubao office app id",
+			env:  map[string]string{"DOUBAO_OFFICE_APP_ID": "app-id"},
+			want: "skill-invoker/doubao",
+		},
+		{
+			name: "doubao office agent name",
+			env:  map[string]string{"DOUBAO_OFFICE_AGENT_NAME": "agent-name"},
+			want: "skill-invoker/doubao",
+		},
+		{
+			name: "doubao aily signature",
+			env:  map[string]string{"AILY_SIGNATURE": "signature"},
+			want: "skill-invoker/doubao",
+		},
+		{
+			name: "github copilot cli",
+			env:  map[string]string{"COPILOT_CLI": "1"},
+			want: "skill-invoker/github-copilot",
+		},
+		{
+			name: "cline active",
+			env:  map[string]string{"CLINE_ACTIVE": "any-value"},
+			want: "skill-invoker/cline",
+		},
+		{
+			name: "cline connector launch",
+			env:  map[string]string{"CLINE_CONNECTOR_CLI_LAUNCH": "any-value"},
+			want: "skill-invoker/cline",
+		},
+		{
+			name: "qoder cli",
+			env:  map[string]string{"QODER_CLI": "1"},
+			want: "skill-invoker/qoder",
+		},
+		{
+			name: "qoder work source chat id",
+			env:  map[string]string{"QODERWORK_SOURCE_CHAT_ID": "chat-id"},
+			want: "skill-invoker/qoder",
+		},
+		{
+			name: "qoder dingtalk agent code",
+			env:  map[string]string{"DINGTALK_DWS_AGENTCODE": "agent-code"},
+			want: "skill-invoker/qoder",
+		},
+		{
+			name: "qoder agent sdk version",
+			env:  map[string]string{"QODER_AGENT_SDK_VERSION": "1.0.0"},
+			want: "skill-invoker/qoder",
+		},
+		{
+			name: "workbuddy codebuddy host",
+			env:  map[string]string{"CODEBUDDY_HOST": "https://example.com"},
+			want: "skill-invoker/workbuddy",
+		},
+		{
+			name: "workbuddy application name",
+			env:  map[string]string{"WORKBUDDY_APPLICATION_NAME": "workbuddy"},
+			want: "skill-invoker/workbuddy",
+		},
+		{
+			name: "workbuddy app name",
+			env:  map[string]string{"WORKBUDDY_APP_NAME": "workbuddy"},
+			want: "skill-invoker/workbuddy",
+		},
+		{
+			name: "workbuddy app version",
+			env:  map[string]string{"WORKBUDDY_APP_VERSION": "1.0.0"},
+			want: "skill-invoker/workbuddy",
+		},
+		{
 			name: "claude code",
 			env:  map[string]string{"CLAUDECODE": "1"},
 			want: "skill-invoker/claude-code",
@@ -286,6 +554,46 @@ func TestClientVersionAndUserAgentHandlerAddsSkillInvokerToHeader(t *testing.T) 
 			env:  map[string]string{"OPENCODE": "1"},
 			want: "skill-invoker/opencode",
 		},
+		{
+			name: "deepseek harness",
+			env:  map[string]string{"DSH_SHELL": "any-value"},
+			want: "skill-invoker/deepseek-harness",
+		},
+		{
+			name: "deepseek harness session id",
+			env:  map[string]string{"DSH_SESSION_ID": "session-id"},
+			want: "skill-invoker/deepseek-harness",
+		},
+		{
+			name: "deepseek harness pty session id",
+			env:  map[string]string{"DSH_PTY_SESSION_ID": "pty-session-id"},
+			want: "skill-invoker/deepseek-harness",
+		},
+		{
+			name: "pi",
+			env:  map[string]string{"PI_CODING_AGENT": "any-value"},
+			want: "skill-invoker/pi",
+		},
+		{
+			name: "pi session id",
+			env:  map[string]string{"PI_SESSION_ID": "session-id"},
+			want: "skill-invoker/pi",
+		},
+		{
+			name: "pi session file",
+			env:  map[string]string{"PI_SESSION_FILE": "/tmp/session.jsonl"},
+			want: "skill-invoker/pi",
+		},
+		{
+			name: "hermes agent",
+			env:  map[string]string{"HERMES_AGENT": "any-value"},
+			want: "skill-invoker/hermes-agent",
+		},
+		{
+			name: "hermes desktop",
+			env:  map[string]string{"HERMES_DESKTOP": "desktop"},
+			want: "skill-invoker/hermes-agent",
+		},
 	}
 
 	for _, tt := range tests {
@@ -302,7 +610,7 @@ func TestClientVersionAndUserAgentHandlerAddsSkillInvokerToHeader(t *testing.T) 
 			httpRequest.Header.Set("User-Agent", "existing-client/0.1")
 			req := &request.Request{HTTPRequest: httpRequest}
 
-			clientVersionAndUserAgentHandler.Fn(req)
+			newClientVersionAndUserAgentHandler("").Fn(req)
 			got := req.HTTPRequest.Header.Get("User-Agent")
 			for _, want := range []string{
 				"existing-client/0.1 ",
@@ -318,6 +626,11 @@ func TestClientVersionAndUserAgentHandlerAddsSkillInvokerToHeader(t *testing.T) 
 			}
 
 			for _, unexpected := range []string{
+				"skill-invoker/doubao",
+				"skill-invoker/github-copilot",
+				"skill-invoker/cline",
+				"skill-invoker/qoder",
+				"skill-invoker/workbuddy",
 				"skill-invoker/claude-code",
 				"skill-invoker/trae",
 				"skill-invoker/vecopilot",
@@ -326,6 +639,9 @@ func TestClientVersionAndUserAgentHandlerAddsSkillInvokerToHeader(t *testing.T) 
 				"skill-invoker/gemini-cli",
 				"skill-invoker/openclaw",
 				"skill-invoker/opencode",
+				"skill-invoker/deepseek-harness",
+				"skill-invoker/pi",
+				"skill-invoker/hermes-agent",
 			} {
 				if unexpected != tt.want && strings.Contains(got, unexpected) {
 					t.Fatalf("User-Agent = %q, did not expect it to contain %q", got, unexpected)
@@ -335,14 +651,117 @@ func TestClientVersionAndUserAgentHandlerAddsSkillInvokerToHeader(t *testing.T) 
 	}
 }
 
+func TestClientVersionAndUserAgentHandlerAppendsCustomUserAgent(t *testing.T) {
+	clearSkillInvokerEnv(t)
+
+	httpRequest, err := http.NewRequest(http.MethodGet, "https://example.com", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpRequest.Header.Set("User-Agent", "existing-client/0.1")
+	req := &request.Request{HTTPRequest: httpRequest}
+
+	customUserAgent := "deployment-tool/2.1"
+	newClientVersionAndUserAgentHandler(customUserAgent).Fn(req)
+	got := req.HTTPRequest.Header.Get("User-Agent")
+	defaultIndex := strings.Index(got, clientName+"/"+clientVersion+"/(")
+	customIndex := strings.Index(got, customUserAgent)
+	if !strings.HasPrefix(got, "existing-client/0.1 ") {
+		t.Fatalf("User-Agent = %q, want existing value to be preserved", got)
+	}
+	if defaultIndex < 0 || customIndex < 0 || defaultIndex >= customIndex {
+		t.Fatalf("User-Agent = %q, want CLI default before custom value", got)
+	}
+	if strings.Count(got, customUserAgent) != 1 {
+		t.Fatalf("User-Agent = %q, want custom value exactly once", got)
+	}
+}
+
+func TestCallSdkUsesUserAgentSystemParameter(t *testing.T) {
+	clearSkillInvokerEnv(t)
+	defer setenvForTest(t, "VOLCENGINE_ACCESS_KEY", "ak-test")()
+	defer setenvForTest(t, "VOLCENGINE_SECRET_KEY", "sk-test")()
+	defer setenvForTest(t, "VOLCENGINE_REGION", "cn-beijing")()
+
+	var gotUserAgent string
+	var gotAPIParameter string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if id := r.Header.Get("X-Client-Id"); id != "" {
+			t.Errorf("ordinary API request unexpectedly included documentation client ID %q", id)
+		}
+		gotUserAgent = r.Header.Get("User-Agent")
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("parse request form: %v", err)
+		}
+		gotAPIParameter = r.Form.Get(customUserAgentFlagName)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ResponseMetadata":{"RequestId":"req-user-agent"},"Result":{"Ok":true}}`))
+	}))
+	defer server.Close()
+
+	customUserAgent := "deployment-tool/2.1"
+	ctx := NewContext()
+	if _, err := NewParser([]string{
+		"--user-agent", customUserAgent,
+		"--endpoint", server.URL,
+	}).ReadArgs(ctx); err != nil {
+		t.Fatalf("ReadArgs returned error: %v", err)
+	}
+
+	sdk, err := NewSimpleClient(ctx)
+	if err != nil {
+		t.Fatalf("NewSimpleClient returned error: %v", err)
+	}
+	if _, err := sdk.CallSdk(SdkClientInfo{
+		ServiceName: "ecs",
+		Action:      "DescribeInstances",
+		Version:     "2020-01-01",
+		Method:      http.MethodGet,
+	}, &map[string]interface{}{}); err != nil {
+		t.Fatalf("CallSdk returned error: %v", err)
+	}
+
+	defaultIndex := strings.Index(gotUserAgent, clientName+"/"+clientVersion+"/(")
+	customIndex := strings.Index(gotUserAgent, customUserAgent)
+	if defaultIndex < 0 || customIndex < 0 || defaultIndex >= customIndex {
+		t.Fatalf("User-Agent = %q, want CLI default followed by custom value", gotUserAgent)
+	}
+	if gotAPIParameter != "" {
+		t.Fatalf("user-agent was sent as an API parameter: %q", gotAPIParameter)
+	}
+}
+
 func testEnv(values map[string]string) envGetter {
-	return func(key string) string {
-		return values[key]
+	return func(key string) (string, bool) {
+		value, ok := values[key]
+		return value, ok
 	}
 }
 
 func clearSkillInvokerEnv(t *testing.T) {
 	for _, key := range []string{
+		"DOUBAO_OFFICE_APP_ID",
+		"DOUBAO_OFFICE_AGENT_NAME",
+		"AILY_SIGNATURE",
+		"COPILOT_CLI",
+		"CLINE_ACTIVE",
+		"CLINE_CONNECTOR_CLI_LAUNCH",
+		"QODER_CLI",
+		"QODERWORK_SOURCE_CHAT_ID",
+		"DINGTALK_DWS_AGENTCODE",
+		"QODER_AGENT_SDK_VERSION",
+		"CODEBUDDY_HOST",
+		"WORKBUDDY_APPLICATION_NAME",
+		"WORKBUDDY_APP_NAME",
+		"WORKBUDDY_APP_VERSION",
+		"DSH_SHELL",
+		"DSH_SESSION_ID",
+		"DSH_PTY_SESSION_ID",
+		"PI_CODING_AGENT",
+		"PI_SESSION_ID",
+		"PI_SESSION_FILE",
+		"HERMES_AGENT",
+		"HERMES_DESKTOP",
 		"AI_AGENT",
 		"ICUBE_PRODUCT_BRAND_NAME",
 		"AGENT",
@@ -369,6 +788,6 @@ func clearSkillInvokerEnv(t *testing.T) {
 		"OPENCODE",
 		"OPENCODE_CLIENT",
 	} {
-		t.Setenv(key, "")
+		t.Cleanup(unsetenvForTest(t, key))
 	}
 }

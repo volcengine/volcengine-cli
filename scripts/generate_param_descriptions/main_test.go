@@ -94,6 +94,20 @@ func TestMergeActionParamsLanguageHalfSuccess(t *testing.T) {
 	}
 }
 
+func TestMergeParamLangKeepsRequirement(t *testing.T) {
+	dst := map[string]paramDescription{}
+	src := map[string]paramDescription{
+		"Name": {
+			DescriptionCn: "名称",
+			Requirement:   requirementRequired,
+		},
+	}
+	mergeParamLang(dst, src, "zh")
+	if got := dst["Name"].Requirement; got != requirementRequired {
+		t.Fatalf("requirement = %q, want %q", got, requirementRequired)
+	}
+}
+
 func TestMergeActionParamsKeepsPrevOnlyParams(t *testing.T) {
 	prev := map[string]paramDescription{
 		"A": {DescriptionCn: "a"},
@@ -209,6 +223,250 @@ func TestParamDescriptionIgnoresLegacyRequiredField(t *testing.T) {
 	}
 	if p.DescriptionEn != "name" {
 		t.Fatalf("description lost while ignoring required: %+v", p)
+	}
+}
+
+func TestExtractParamsPreservesReferenceAnnotations(t *testing.T) {
+	var doc openAPIDoc
+	body := `{
+  "components": {
+    "schemas": {
+      "Config": {
+        "description": "component description",
+        "properties": {
+          "Enabled": {"description": "enabled description", "type": "boolean"}
+        },
+        "type": "object"
+      }
+    }
+  },
+  "paths": {
+    "/Create": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "Config": {
+                    "$ref": "#/components/schemas/Config",
+                    "description": "reference-site description",
+                    "example": {"Enabled": true}
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}`
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatal(err)
+	}
+
+	params := extractParamsFromOpenAPI(&doc, "en")
+	if got := params["Config"].DescriptionEn; got != "reference-site description" {
+		t.Fatalf("Config description = %q, want reference-site description", got)
+	}
+	if got := params["Config"].ExampleEn; got != `{"Enabled": true}` {
+		t.Fatalf("Config example = %q", got)
+	}
+	if got := params["Config.Enabled"].DescriptionEn; got != "enabled description" {
+		t.Fatalf("nested description = %q", got)
+	}
+}
+
+func TestExtractParamsCapturesSwaggerRequirements(t *testing.T) {
+	var doc openAPIDoc
+	body := `{
+  "components": {
+    "schemas": {
+      "Config": {
+        "properties": {
+          "Enabled": {"type": "boolean"},
+          "Label": {"type": "string"}
+        },
+        "required": ["Enabled"],
+        "type": "object"
+      }
+    }
+  },
+  "paths": {
+    "/Create": {
+      "post": {
+        "parameters": [
+          {"name": "ProjectName", "required": true, "schema": {"type": "string"}}
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "Name": {"type": "string"},
+                  "Config": {"$ref": "#/components/schemas/Config"},
+                  "RequiredConfig": {"$ref": "#/components/schemas/Config"}
+                },
+                "required": ["Name", "RequiredConfig"],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}`
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatal(err)
+	}
+
+	params := extractParamsFromOpenAPI(&doc, "en")
+	wants := map[string]string{
+		"ProjectName":            "required",
+		"Name":                   "required",
+		"Config":                 "optional",
+		"Config.Enabled":         "conditional",
+		"Config.Label":           "optional",
+		"RequiredConfig":         "required",
+		"RequiredConfig.Enabled": "required",
+		"RequiredConfig.Label":   "optional",
+	}
+	for name, want := range wants {
+		data, err := json.Marshal(params[name])
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]interface{}
+		if err := json.Unmarshal(data, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := fields["requirement"].(string); got != want {
+			t.Errorf("%s requirement = %q, want %q; data=%s", name, got, want, data)
+		}
+	}
+}
+
+func TestExtractParamsExpandsStructuredQueryParameters(t *testing.T) {
+	var doc openAPIDoc
+	body := `{
+  "components": {
+    "schemas": {
+      "Entry": {
+        "properties": {
+          "Description": {"description": "entry description", "type": "string"},
+          "Labels": {
+            "description": "entry labels",
+            "items": {"type": "string"},
+            "type": "array"
+          },
+          "Value": {"description": "entry value", "type": "string"}
+        },
+        "required": ["Value"],
+        "type": "object"
+      }
+    }
+  },
+  "paths": {
+    "/Add": {
+      "get": {
+        "parameters": [
+          {
+            "description": "entries",
+            "name": "Entries",
+            "required": true,
+            "schema": {
+              "items": {"$ref": "#/components/schemas/Entry"},
+              "type": "array"
+            }
+          },
+          {
+            "description": "ids",
+            "name": "Ids",
+            "required": true,
+            "schema": {
+              "items": {"type": "string"},
+              "type": "array"
+            }
+          }
+        ]
+      }
+    }
+  }
+}`
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatal(err)
+	}
+
+	params := extractParamsFromOpenAPI(&doc, "en")
+	if got := params["Entries.N.Description"].DescriptionEn; got != "entry description" {
+		t.Errorf("Entries.N.Description = %q", got)
+	}
+	if got := params["Entries.N.Value"].DescriptionEn; got != "entry value" {
+		t.Errorf("Entries.N.Value = %q", got)
+	}
+	if got := params["Entries.N.Value"].Requirement; got != requirementRequired {
+		t.Errorf("Entries.N.Value requirement = %q, want %q", got, requirementRequired)
+	}
+	if got := params["Entries.N.Labels.N"]; got.DescriptionEn != "entry labels" || got.Requirement != requirementOptional {
+		t.Errorf("Entries.N.Labels.N = %+v", got)
+	}
+	if got := params["Ids.N"]; got.DescriptionEn != "ids" || got.Requirement != requirementRequired {
+		t.Errorf("Ids.N = %+v", got)
+	}
+}
+
+func TestExtractParamsPropagatesRequiredAncestor(t *testing.T) {
+	var doc openAPIDoc
+	body := `{
+  "components": {
+    "schemas": {
+      "NetworkInterface": {
+        "properties": {
+          "SubnetId": {"description": "subnet", "type": "string"}
+        },
+        "required": ["SubnetId"],
+        "type": "object"
+      }
+    }
+  },
+  "paths": {
+    "/Run": {
+      "get": {
+        "parameters": [
+          {
+            "name": "NetworkInterfaces",
+            "required": true,
+            "schema": {
+              "items": {"$ref": "#/components/schemas/NetworkInterface"},
+              "type": "array"
+            }
+          },
+          {
+            "name": "OptionalInterfaces",
+            "required": false,
+            "schema": {
+              "items": {"$ref": "#/components/schemas/NetworkInterface"},
+              "type": "array"
+            }
+          }
+        ]
+      }
+    }
+  }
+}`
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatal(err)
+	}
+
+	params := extractParamsFromOpenAPI(&doc, "en")
+	if got := params["NetworkInterfaces.N.SubnetId"].Requirement; got != requirementRequired {
+		t.Errorf("required parent child requirement = %q, want %q", got, requirementRequired)
+	}
+	if got := params["OptionalInterfaces.N.SubnetId"].Requirement; got != requirementConditional {
+		t.Errorf("optional parent child requirement = %q, want %q", got, requirementConditional)
 	}
 }
 

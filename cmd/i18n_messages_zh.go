@@ -1,6 +1,23 @@
 package cmd
 
 var simplifiedChineseCommandMessages = map[string]string{
+	"Search and fetch Volcengine documentation":                                   "检索和获取火山引擎文档",
+	"Search Volcengine documentation":                                             "检索火山引擎文档",
+	"Fetch a Volcengine documentation article":                                    "获取火山引擎文档正文",
+	"Ignored for public documentation requests":                                   "公开文档请求会忽略此参数",
+	"Maximum number of documents to return (positive integer)":                    "最多返回的文档数量（正整数）",
+	"Filter by service code; repeat for multiple codes":                           "按产品编码筛选；多个编码可重复指定",
+	"Maximum Unicode characters per snippet (positive integer)":                   "每条摘要最多包含的 Unicode 字符数（正整数）",
+	"Output format: json, text, yaml, or table":                                   "输出格式：json、text、yaml 或 table",
+	"Output format: json, text, or yaml":                                          "输出格式：json、text 或 yaml",
+	"JMESPath expression applied before formatting":                               "格式化前应用的 JMESPath 表达式",
+	"Zero-based Unicode character index at which to start":                        "从零开始的 Unicode 字符起始位置",
+	"Maximum Unicode characters to return (positive integer)":                     "最多返回的 Unicode 字符数（正整数）",
+	"No documents found.":                                                         "未找到相关文档。",
+	"Untitled":                                                                    "无标题",
+	"This URL has no specific article content.":                                   "该链接没有具体文章正文。",
+	"\n\n[Continue] %d characters remain. Run fetch again with --start-index %d.": "\n\n【续读】还有 %d 字。重新调用 fetch 并加参数 --start-index %d 继续读。",
+
 	"Log in to Volcengine Console": "登录火山引擎控制台",
 	`Authenticate with Volcengine Console and cache temporary STS credentials locally.
 

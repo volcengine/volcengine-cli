@@ -113,6 +113,43 @@ func TestReleasePublishesStablePointersAfterNPM(t *testing.T) {
 	}
 }
 
+func TestReleaseRefreshesStableCDNPointersAfterUpload(t *testing.T) {
+	workflow := readReleaseWorkflow(t)
+
+	publishStepName := "- name: Publish version manifest to TOS root"
+	refreshStepName := "- name: Refresh CDN release pointers"
+	publishStart := strings.Index(workflow, publishStepName)
+	refreshStart := strings.Index(workflow, refreshStepName)
+	if publishStart < 0 {
+		t.Fatalf("release workflow is missing %q", publishStepName)
+	}
+	if refreshStart < 0 {
+		t.Fatalf("release workflow is missing %q", refreshStepName)
+	}
+	if refreshStart <= publishStart {
+		t.Fatal("CDN pointer refresh must run after the stable pointers are uploaded")
+	}
+
+	refreshStep := workflow[refreshStart:]
+	for _, want := range []string{
+		`if: ${{ steps.version.outputs.npm_tag == 'latest' }}`,
+		`VOLCENGINE_ACCESS_KEY: ${{ secrets.VOLCENGINE_ACCESS_KEY }}`,
+		`VOLCENGINE_SECRET_KEY: ${{ secrets.VOLCENGINE_SECRET_KEY }}`,
+		`VOLCENGINE_REGION: ${{ vars.VOLCENGINE_REGION }}`,
+		`VOLCENGINE_CLI_SKIP_SKILLS: "1"`,
+		`VERSION: ${{ steps.version.outputs.version }}`,
+		`npm install -g "@volcengine/cli@1.1.5"`,
+		`ve cdn SubmitRefreshTask`,
+		`--Type file`,
+		`--UrlList.1 "https://cloudcache.volccdn.com/ve/latest"`,
+		`--UrlList.2 "https://cloudcache.volccdn.com/ve/version_manifest.json"`,
+	} {
+		if !strings.Contains(refreshStep, want) {
+			t.Fatalf("CDN pointer refresh step is missing %q", want)
+		}
+	}
+}
+
 // The channel move now happens inside the single release job, so a leftover
 // promote job would publish the same version twice.
 func TestReleaseHasNoPromoteJob(t *testing.T) {

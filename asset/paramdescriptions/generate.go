@@ -1,6 +1,6 @@
 package paramdescriptions
 
-// Source of truth for CLI -h parameter descriptions.
+// Source of truth for CLI -h parameter descriptions, examples, and requirements.
 // After replacing params.json, regenerate bindata:
 //
 //	go generate ./asset/paramdescriptions

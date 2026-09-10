@@ -180,6 +180,7 @@ func localizeHelpFlags(command *cobra.Command) {
 	localCommandNames := map[string]struct{}{
 		"completion": {},
 		"configure":  {},
+		"docs":       {},
 		"login":      {},
 		"logout":     {},
 		"mcp":        {},

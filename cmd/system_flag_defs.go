@@ -4,6 +4,8 @@ import (
 	"strings"
 )
 
+const customUserAgentFlagName = "user-agent"
+
 // Flag prefix contract (normative — do not relax without updating docs/4-Usage*.md):
 //
 //  1. Double dash `--name` is the ONLY public form of a system flag. Help,
@@ -59,6 +61,7 @@ var systemFlagDefs = []systemFlagDef{
 	{name: "region", public: true, legacyEscape: true, preprocess: true},
 	{name: "endpoint", public: true, legacyEscape: true, preprocess: true},
 	{name: "lang", public: true, legacyEscape: false, preprocess: true}, // stripped only by resolveSystemFlags
+	{name: customUserAgentFlagName, public: true, legacyEscape: true, preprocess: false},
 	{name: "version", public: true, legacyEscape: true, preprocess: false},
 	{name: "method", public: true, legacyEscape: true, preprocess: false},
 	{name: "force", public: true, legacyEscape: true, preprocess: false, presenceOnly: true},
@@ -145,6 +148,7 @@ func localizedSystemFlagsHelp() string {
   --region string      ` + tr("Override the region only for this invocation.") + `
   --endpoint string    ` + tr("Override the endpoint only for this invocation.") + `
   --lang string        ` + tr("Set the display language for this invocation (EN or ZH).") + `
+  --user-agent string  ` + tr("Append a custom value to the default User-Agent for this invocation.") + `
   --version string     ` + tr("API version; uses metadata when omitted (required with --force for unlisted services).") + `
   --method string      ` + tr("HTTP method GET or POST; explicit value overrides metadata, else metadata, else GET.") + `
   --force              ` + tr("Skip service/action metadata validation and force the call (presence-only; write --force alone, not --force true).") + `

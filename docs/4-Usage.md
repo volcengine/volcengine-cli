@@ -8,7 +8,7 @@ Basic command format:
 
 ```shell
 ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
-                      [--profile name] [--region region] [--endpoint endpoint] [--lang language]
+                      [--profile name] [--region region] [--endpoint endpoint] [--lang language] [--user-agent value]
                       [--version api-version] [--method GET|POST] [--force]
                       [--output json|table|table-num|text|yaml|off] [--query jmespath]
 ```
@@ -16,7 +16,7 @@ ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json
 Argument kinds:
 
 - **API parameters**: double-dash `--Param value` (enter request body/query; reserved names `body` / `header` excluded)
-- **Public system flags** (after the action): `--profile` / `--region` / `--endpoint` / `--lang` / `--version` / `--method` / `--force` / `--output` / `--query`
+- **Public system flags** (after the action): `--profile` / `--region` / `--endpoint` / `--lang` / `--user-agent` / `--version` / `--method` / `--force` / `--output` / `--query`
 - **Reserved double-dash controls**: `--header` (HTTP headers) and `--body` (JSON body); the controls themselves are **not** API parameters
 
 System flags in API calls use double hyphens and are placed after the action. If an action exposes an exact-name API parameter (case-sensitive), the double-dash form is parsed as the API parameter.
@@ -65,6 +65,21 @@ ve version
 ve -v
 ```
 
+## Search and Fetch Public Documentation
+
+```shell
+ve docs search "object storage quick start" --service-code tos --limit 3
+ve docs fetch "https://www.volcengine.com/docs/6349/74830" --max-length 1000
+```
+
+These commands do not require login. Before the first request that passes argument validation, the CLI generates an [RFC 9562 UUIDv4](https://www.rfc-editor.org/rfc/rfc9562.html#section-5.4), saves it in `~/.volcengine/client_id`, and sends it in the `X-Client-Id` header on documentation search and fetch requests. On Windows, the path is `%USERPROFILE%\.volcengine\client_id`.
+
+- The identifier contains 122 cryptographically random bits. It does not use a MAC address, hardware serial number, or account credentials.
+- A client is the local CLI configuration of one operating-system user. The identifier is reused across restarts, upgrades, logins, and profile switches. Other users or new devices generate independent identifiers.
+- The file is separate from `config.json` and login caches. Only these two documentation APIs automatically send the identifier; other APIs, User-Agent values, request bodies, and output formats retain their existing behavior. Help, version, and invalid arguments do not create the file.
+- First-time creation requires a writable directory and a filesystem supporting hard links, such as common Unix filesystems or Windows NTFS. Concurrent first callers publish only one complete identifier. Newly created directories and files use Unix modes `0700` and `0600`; an existing identifier only needs to be readable.
+- If the identifier cannot be read, persisted, or validated, the documentation command fails without sending a request with a missing or temporary identity. Deleting `client_id` causes the next documentation call to generate a new identifier. Exclude this file when copying configuration to another device or preparing an image so client identities are not duplicated.
+
 ## Call APIs
 
 Call without parameters:
@@ -89,10 +104,11 @@ Parameter names and values are separated by spaces. The supported syntax is:
 
 ```shell
 --Param value
+--user-agent deployment-tool/2.1
 --region cn-beijing
 ```
 
-Do not use `--Param=value`, `--region=cn-beijing`, or `--lang=ZH`. Flag names and values must be separated by a space.
+Do not use `--Param=value`, `--user-agent=deployment-tool/2.1`, `--region=cn-beijing`, or `--lang=ZH`. Flag names and values must be separated by a space.
 
 ## CLI System Flags
 
@@ -104,6 +120,7 @@ Public system flags use the standard double-hyphen form:
 | `--region` | Override region for this invocation |
 | `--endpoint` | Override endpoint for this invocation and clear endpoint resolver |
 | `--lang` | Set the language of CLI-owned help, prompts, and errors for this invocation |
+| `--user-agent` | Append a custom identifier to the default HTTP `User-Agent` for this invocation |
 | `--version` | Set the **API version** for this call; if omitted, uses the bundled service version (not the CLI binary version from root `ve -v` / `ve --version` / `ve version`) |
 | `--force` | Skip service/action metadata validation and force-call unlisted or newly released APIs; **unlisted services** require `--version` and a fixed endpoint (`--endpoint` or profile/`VOLCENGINE_ENDPOINT` when resolver is not `standard`); bundled services can fall back to metadata. Presence-only: write `--force` alone, not `--force true` |
 | `--method` | HTTP method (`GET`/`POST`); same rules on normal and `--force` paths: explicit value wins, else action metadata, else `GET` |
@@ -113,6 +130,15 @@ Public system flags use the standard double-hyphen form:
 After the action, a double-dash flag whose exact case-sensitive name is exposed by that action is parsed as an API parameter. Without such a conflict, it is parsed as a system flag.
 
 Names with different casing, such as `--Region` or `--Endpoint`, are always API parameters.
+
+`--user-agent` preserves the CLI default User-Agent and appends the supplied value. Leading and trailing whitespace is removed; empty values and values containing control characters such as newlines are rejected.
+
+```shell
+ve ecs DescribeInstances --user-agent deployment-tool/2.1
+ve ecs DescribeInstances \
+  --InstanceIds.1 i-1234567890abcdef0 \
+  --user-agent "inventory-sync/3.4 team/compute"
+```
 
 
 ### Reserved Double-Dash Controls

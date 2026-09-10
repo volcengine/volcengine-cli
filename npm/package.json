@@ -1,6 +1,6 @@
 {
   "name": "@volcengine/cli",
-  "version": "1.0.48",
+  "version": "1.1.7",
   "description": "Volcengine CLI npm installer",
   "bin": {
     "ve": "bin/ve"
