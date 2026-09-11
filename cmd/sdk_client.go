@@ -183,6 +183,10 @@ func hasEffectiveFixedEndpoint(c *Context) bool {
 //     c. Other modes: directly delegates to SDK CliProvider for credential resolution.
 //  2. If no profile is configured, use the SDK default credential chain (Env → OIDC → CliProvider → EcsRole).
 func NewSimpleClient(ctx *Context) (*SdkClient, error) {
+	return newSimpleClient(ctx, nil)
+}
+
+func newSimpleClient(ctx *Context, credentialOverride *credentials.Credentials) (*SdkClient, error) {
 	var (
 		creds            *credentials.Credentials
 		region, endpoint string
@@ -240,6 +244,19 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 		}
 		if currentProfile.UseDualStack != nil {
 			useDualStack = *currentProfile.UseDualStack
+		}
+	} else if credentialOverride != nil {
+		creds = credentialOverride
+		region = os.Getenv("VOLCENGINE_REGION")
+		endpoint = os.Getenv("VOLCENGINE_ENDPOINT")
+		endpointResolver = os.Getenv("VOLCENGINE_ENDPOINT_RESOLVER")
+		ssl := os.Getenv("VOLCENGINE_DISABLE_SSL")
+		if ssl == "true" || ssl == "false" {
+			disableSSl, _ = strconv.ParseBool(ssl)
+		}
+		dualStack := os.Getenv("VOLCENGINE_USE_DUALSTACK")
+		if dualStack == "true" || dualStack == "false" {
+			useDualStack, _ = strconv.ParseBool(dualStack)
 		}
 	} else {
 		// 禁用默认凭证链
@@ -456,6 +473,10 @@ func (s *SdkClient) initClient(svc string, version string) (*client.Client, erro
 }
 
 func (s *SdkClient) CallSdk(info SdkClientInfo, input interface{}) (output *map[string]interface{}, err error) {
+	return s.CallSdkWithContext(context.Background(), info, input)
+}
+
+func (s *SdkClient) CallSdkWithContext(ctx context.Context, info SdkClientInfo, input interface{}) (output *map[string]interface{}, err error) {
 	c, err := s.initClient(info.ServiceName, info.Version)
 	if err != nil {
 		return nil, err
@@ -470,6 +491,9 @@ func (s *SdkClient) CallSdk(info SdkClientInfo, input interface{}) (output *map[
 	}
 	output = &map[string]interface{}{}
 	req := c.NewRequest(op, input, output)
+	if ctx != nil {
+		req.SetContext(ctx)
+	}
 	applySdkRequestHeaders(req, info)
 	// The SDK query build handler canonicalizes JSON Content-Type while encoding
 	// the body. Restore the user's exact value after body construction and before

@@ -17,9 +17,9 @@ Starting from v1.1.3, `ve` can install and manage Skills (the `ve skills` comman
 
 ### Overview
 
-Volcengine CLI is a command-line tool for calling and managing Volcengine OpenAPI. You can use it to configure credentials, switch profiles, discover services and actions, call APIs, and obtain temporary credentials through SSO or Console Login.
+Volcengine CLI is a command-line tool for calling and managing Volcengine OpenAPI. You can use it to configure credentials, switch profiles, discover services and actions, call APIs, obtain temporary credentials through SSO or Console Login, and run an MCP server.
 
-Go 1.17 or later is required to build from source. Prebuilt Release and npm installations do not require Go.
+Go 1.18 or later is required to build from source. Prebuilt Release and npm installations do not require Go.
 
 ### Quick Install
 
@@ -131,6 +131,7 @@ ve sts GetCallerIdentity
 3. [Configuration](docs/3-Configuration.md): inspect, list, switch, update, and delete profiles.
 4. [Usage](docs/4-Usage.md): service discovery, API calls, system flags, JSON body, arrays and nested parameters, plus `--query` filtering and `--output` formats.
 5. [Advanced Usage](docs/5-Advanced.md): shell completion, colored output, debug logs, `--force` invocation, and FAQ.
+6. [MCP Server](docs/6-MCP.md): stdio, SSE, Streamable HTTP, OAuth, header credentials, and region resolution.
 
 ### Security and privacy
 This project takes security seriously.

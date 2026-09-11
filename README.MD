@@ -17,9 +17,9 @@
 
 ### 概述
 
-火山引擎 CLI 是用于调用和管理火山引擎 OpenAPI 的命令行工具。你可以通过它配置凭证、切换 profile、查询服务接口、调用 API，并使用 SSO 或 Console Login 获取临时凭证。
+火山引擎 CLI 是用于调用和管理火山引擎 OpenAPI 的命令行工具。你可以通过它配置凭证、切换 profile、查询服务接口、调用 API，使用 SSO 或 Console Login 获取临时凭证，也可以启动 MCP 服务。
 
-从源码编译需要 Go 1.17 或更高版本；使用 Release 预编译包或 npm 安装时不需要 Go。
+从源码编译需要 Go 1.18 或更高版本；使用 Release 预编译包或 npm 安装时不需要 Go。
 
 ### 快速安装
 
@@ -128,6 +128,7 @@ ve sts GetCallerIdentity
 3. [配置管理](docs/3-Configuration-zh.md)：profile 查看、列表、切换、修改、删除。
 4. [使用指南](docs/4-Usage-zh.md)：服务查询、API 调用、系统参数、JSON body、数组和嵌套参数，以及 `--query` 过滤和 `--output` 输出格式。
 5. [高级用法](docs/5-Advanced-zh.md)：自动补全、彩色输出、debug 日志、`--force` 强制泛化调用、常见问题。
+6. [MCP 服务](docs/6-MCP-zh.md)：stdio、SSE、Streamable HTTP、OAuth、Header 凭证与 Region。
 
 ### Security and privacy
 This project takes security seriously.

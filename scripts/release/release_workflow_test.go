@@ -138,7 +138,7 @@ func TestReleaseRefreshesStableCDNPointersAfterUpload(t *testing.T) {
 		`VOLCENGINE_REGION: ${{ vars.VOLCENGINE_REGION }}`,
 		`VOLCENGINE_CLI_SKIP_SKILLS: "1"`,
 		`VERSION: ${{ steps.version.outputs.version }}`,
-		`npm install -g "@volcengine/cli@${VERSION}"`,
+		`npm install -g "@volcengine/cli@1.1.5"`,
 		`ve cdn SubmitRefreshTask`,
 		`--Type file`,
 		`--UrlList.1 "https://cloudcache.volccdn.com/ve/latest"`,

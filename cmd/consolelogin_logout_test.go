@@ -53,6 +53,16 @@ func TestLogoutSingleProfile_NonLoginModeLocalized(t *testing.T) {
 }
 
 func TestLogoutAll_NoConfig(t *testing.T) {
+	_, cleanupConfigDir := withTestConfigDir(t)
+	defer cleanupConfigDir()
+	previousConfig := config
+	previousContextConfig := ctx.config
+	setRuntimeConfig(nil)
+	defer func() {
+		config = previousConfig
+		ctx.config = previousContextConfig
+	}()
+
 	// When no config exists, logoutAll should not panic and should print a message.
 	cl := &ConsoleLogout{All: true}
 	err := cl.Logout()
