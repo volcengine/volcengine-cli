@@ -351,6 +351,44 @@ func TestEmbeddedFallbackManifestIsValid(t *testing.T) {
 	if bytes.Contains(embeddedFallbackManifest, []byte("github.com")) {
 		t.Fatal("embedded fallback must use the proxy CLI CDN only")
 	}
+	wantArkAssets := map[string]ManifestAsset{
+		"darwin-amd64": {
+			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-darwin-amd64",
+			SHA256: "f30eef4761aac65638ef7b55201e2ea0e86972db64c4600be6a6121dd883e4f7", Size: 36559616,
+		},
+		"darwin-arm64": {
+			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-darwin-arm64",
+			SHA256: "67e29a6f7980f0393da6d3d2fe89e182e9b08bb8d48ed4f3df9a434cf16f38bf", Size: 34211154,
+		},
+		"linux-amd64": {
+			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-linux-amd64",
+			SHA256: "ffa6be8fbcab56eb49e858382f336c7a08228a4790d6f4989d7048811b3017ba", Size: 35487906,
+		},
+		"linux-arm64": {
+			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-linux-arm64",
+			SHA256: "08ef307e7583dee70c72651908c3a0438b362336c660796cce12c023c0660909", Size: 32899234,
+		},
+		"windows-amd64": {
+			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-windows-amd64.exe",
+			SHA256: "648d164859ab0fb6883c805947322a479bea4bdad683480e2621f5b5760b21c9", Size: 38099456,
+		},
+		"windows-arm64": {
+			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-windows-arm64.exe",
+			SHA256: "5ddf964eb66457b641d2b73f92be3a802abfe2ba097bc0030001d371ff1e197a", Size: 34854912,
+		},
+	}
+	ark := manifest.Tools[ToolArkCLI]
+	if ark.Version != "1.0.27" {
+		t.Fatalf("embedded arkcli fallback version = %q, want 1.0.27", ark.Version)
+	}
+	if len(ark.Platforms) != len(wantArkAssets) {
+		t.Fatalf("embedded arkcli fallback platforms = %d, want %d", len(ark.Platforms), len(wantArkAssets))
+	}
+	for platform, want := range wantArkAssets {
+		if got := ark.Platforms[platform]; got != want {
+			t.Errorf("embedded arkcli fallback %s = %+v, want %+v", platform, got, want)
+		}
+	}
 }
 
 func TestManifestSupportsAdditiveFieldsWithoutSchemaVersion(t *testing.T) {

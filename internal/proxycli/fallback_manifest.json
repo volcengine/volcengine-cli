@@ -1,31 +1,37 @@
 {
   "tools": {
     "arkcli": {
-      "version": "1.0.25",
+      "version": "1.0.27",
       "platforms": {
         "darwin-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.25/arkcli-1.0.25-darwin-amd64",
-          "sha256": "0cdc4d5d58000f2b464023ba97841693b68daf79cfc4639e9c320fb101eaba04"
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-darwin-amd64",
+          "sha256": "f30eef4761aac65638ef7b55201e2ea0e86972db64c4600be6a6121dd883e4f7",
+          "size": 36559616
         },
         "darwin-arm64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.25/arkcli-1.0.25-darwin-arm64",
-          "sha256": "ba8f5dccb3a6c1f0869373796f405493956e351118278f4a1c7db8def5bb0182"
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-darwin-arm64",
+          "sha256": "67e29a6f7980f0393da6d3d2fe89e182e9b08bb8d48ed4f3df9a434cf16f38bf",
+          "size": 34211154
         },
         "linux-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.25/arkcli-1.0.25-linux-amd64",
-          "sha256": "0f30caa448dd60e0be38f887fd3806a8803fa6e794153c6b52b0eb4e7f8b5721"
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-linux-amd64",
+          "sha256": "ffa6be8fbcab56eb49e858382f336c7a08228a4790d6f4989d7048811b3017ba",
+          "size": 35487906
         },
         "linux-arm64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.25/arkcli-1.0.25-linux-arm64",
-          "sha256": "fea4f62461b8af48d88ccd4d5b1df6f1521fc689a269634a4f48776f7b177fa5"
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-linux-arm64",
+          "sha256": "08ef307e7583dee70c72651908c3a0438b362336c660796cce12c023c0660909",
+          "size": 32899234
         },
         "windows-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.25/arkcli-1.0.25-windows-amd64.exe",
-          "sha256": "bd7d5dddda1f976f7cc9e07336f9b2615cbf182ca0a53e1f3acc3b465663d5ad"
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-windows-amd64.exe",
+          "sha256": "648d164859ab0fb6883c805947322a479bea4bdad683480e2621f5b5760b21c9",
+          "size": 38099456
         },
         "windows-arm64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.25/arkcli-1.0.25-windows-arm64.exe",
-          "sha256": "58d4215ea03cab30d3d9eaed3e0824c95f00135fd6ab7e285763285e6bed3287"
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-windows-arm64.exe",
+          "sha256": "5ddf964eb66457b641d2b73f92be3a802abfe2ba097bc0030001d371ff1e197a",
+          "size": 34854912
         }
       }
     },
