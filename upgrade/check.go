@@ -155,7 +155,7 @@ func ShouldSkipBackgroundCheck(args []string) bool {
 		return true
 	}
 	switch firstRootPositional(args) {
-	case "upgrade", "arkcli", "toscli", "proxycli", "_proxycli-update-check":
+	case "upgrade", "arkcli", "tosutil", "toscli", "proxycli", "_proxycli-update-check":
 		return true
 	default:
 		return false

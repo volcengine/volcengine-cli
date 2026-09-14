@@ -33,23 +33,18 @@ var (
 )
 
 func init() {
+	tosutilCommand := newProxyForwardCommand("tosutil", proxycli.ToolTOSUtil)
+	tosutilCommand.Aliases = []string{"toscli"}
 	rootCmd.AddCommand(
 		newProxyForwardCommand("arkcli", proxycli.ToolArkCLI),
-		newProxyForwardCommand("toscli", proxycli.ToolTOSUtil),
+		tosutilCommand,
 		newProxyCLIManagementCommand(),
 		newProxyCLIUpdateHelperCommand(),
 	)
 }
 
 func isProxyCLIForwardCommand(name string) bool {
-	return name == "arkcli" || name == "toscli"
-}
-
-func proxyAlias(tool proxycli.Tool) string {
-	if tool == proxycli.ToolTOSUtil {
-		return "toscli"
-	}
-	return string(tool)
+	return name == "arkcli" || name == "tosutil" || name == "toscli"
 }
 
 func newProxyForwardCommand(alias string, tool proxycli.Tool) *cobra.Command {
@@ -84,7 +79,7 @@ func runProxyCLI(command *cobra.Command, cliContext *Context, manager proxyCLIMa
 	if cliContext != nil && cliContext.fixedFlags != nil {
 		for _, name := range []string{"profile", "region", "endpoint"} {
 			if flag := cliContext.fixedFlags.GetByName(name); flag != nil && strings.TrimSpace(flag.GetValue()) != "" {
-				alias := proxyAlias(tool)
+				alias := executableLabel(tool)
 				return fmt.Errorf("ve --%s is not supported for delegated CLIs; pass the argument after the command so the delegated CLI parses it: ve %s --%s <value>", name, alias, name)
 			}
 		}
@@ -122,7 +117,7 @@ func runProxyCLI(command *cobra.Command, cliContext *Context, manager proxyCLIMa
 
 func printProxyUpdateNotice(command *cobra.Command, result proxycli.UpdateCheckResult) {
 	if result.HasUpdate {
-		fmt.Fprintf(command.ErrOrStderr(), "A newer %s version is available: %s (current %s). Run: ve proxycli upgrade %s\n", executableLabel(result.Tool), result.Latest, result.Current, proxyAlias(result.Tool))
+		fmt.Fprintf(command.ErrOrStderr(), "A newer %s version is available: %s (current %s). Run: ve proxycli upgrade %s\n", executableLabel(result.Tool), result.Latest, result.Current, executableLabel(result.Tool))
 	}
 }
 
@@ -173,13 +168,22 @@ func (e *proxyProcessExitError) ExitCode() int {
 
 func newProxyCLIManagementCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use:   "proxycli",
+		Use:   "proxycli [command]",
 		Short: "Manage delegated proxy CLIs",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, args []string) error {
 			return command.Help()
 		},
 	}
+	command.SetUsageTemplate(`Usage:
+  {{.UseLine}}
+{{if .HasAvailableSubCommands}}
+Available Commands:
+{{range .Commands}}{{if .IsAvailableCommand}}  {{rpad .Name .NamePadding }} {{.Short}}
+{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
+Flags:
+{{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}
+`)
 	command.AddCommand(newProxyCLIUpgradeCommand())
 	return command
 }
@@ -187,7 +191,7 @@ func newProxyCLIManagementCommand() *cobra.Command {
 func newProxyCLIUpgradeCommand() *cobra.Command {
 	var yes bool
 	command := &cobra.Command{
-		Use:   "upgrade [arkcli|toscli]",
+		Use:   "upgrade [arkcli|tosutil]",
 		Short: "Install or upgrade ve-managed proxy CLIs",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
@@ -225,7 +229,7 @@ func newProxyCLIUpgradeCommand() *cobra.Command {
 func confirmProxyCLIUpgrade(command *cobra.Command, tools []proxycli.Tool) (bool, error) {
 	names := make([]string, 0, len(tools))
 	for _, tool := range tools {
-		names = append(names, proxyAlias(tool))
+		names = append(names, executableLabel(tool))
 	}
 	fmt.Fprintf(command.OutOrStdout(), "Install or upgrade managed proxy CLI(s) %s? [y/N]: ", strings.Join(names, ", "))
 	line, err := bufio.NewReader(command.InOrStdin()).ReadString('\n')
@@ -240,11 +244,11 @@ func printProxyCLIUpgradeResult(command *cobra.Command, result proxycli.UpgradeR
 	for _, item := range result.Items {
 		switch item.Status {
 		case proxycli.StatusExternal:
-			fmt.Fprintf(command.OutOrStdout(), "%s: externally managed on PATH; skipped (%s)\n", proxyAlias(item.Tool), item.Path)
+			fmt.Fprintf(command.OutOrStdout(), "%s: externally managed on PATH; skipped (%s)\n", executableLabel(item.Tool), item.Path)
 		case proxycli.StatusCurrent:
-			fmt.Fprintf(command.OutOrStdout(), "%s: already current at %s (%s)\n", proxyAlias(item.Tool), item.Version, item.Path)
+			fmt.Fprintf(command.OutOrStdout(), "%s: already current at %s (%s)\n", executableLabel(item.Tool), item.Version, item.Path)
 		default:
-			fmt.Fprintf(command.OutOrStdout(), "%s: %s version %s from %s (%s)\n", proxyAlias(item.Tool), item.Status, item.Version, item.Source, item.Path)
+			fmt.Fprintf(command.OutOrStdout(), "%s: %s version %s from %s (%s)\n", executableLabel(item.Tool), item.Status, item.Version, item.Source, item.Path)
 		}
 	}
 }

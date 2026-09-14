@@ -46,7 +46,7 @@ func TestShouldSkipBackgroundCheck(t *testing.T) {
 	if !ShouldSkipBackgroundCheck([]string{"--", "upgrade"}) {
 		t.Fatal("expected skip after --")
 	}
-	for _, command := range []string{"arkcli", "toscli", "proxycli", "_proxycli-update-check"} {
+	for _, command := range []string{"arkcli", "tosutil", "toscli", "proxycli", "_proxycli-update-check"} {
 		if !ShouldSkipBackgroundCheck([]string{command}) {
 			t.Fatalf("expected skip for delegated command %s", command)
 		}

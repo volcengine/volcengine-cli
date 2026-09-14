@@ -42,10 +42,10 @@ func ParseTool(value string) (Tool, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "arkcli":
 		return ToolArkCLI, nil
-	case "toscli", "tosutil":
+	case "tosutil", "toscli":
 		return ToolTOSUtil, nil
 	default:
-		return "", fmt.Errorf("unsupported proxy CLI %q (expected arkcli or toscli)", value)
+		return "", fmt.Errorf("unsupported proxy CLI %q (expected arkcli or tosutil)", value)
 	}
 }
 

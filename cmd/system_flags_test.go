@@ -153,7 +153,7 @@ func TestResolveSystemLanguageAfterAction(t *testing.T) {
 }
 
 func TestResolveSystemFlagsLeavesProxyArgumentsUntouched(t *testing.T) {
-	for _, command := range []string{"arkcli", "toscli"} {
+	for _, command := range []string{"arkcli", "tosutil", "toscli"} {
 		args := []string{
 			command, "models", "search",
 			"--lang", "zh_cn", "--profile", "child-profile",
