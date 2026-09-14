@@ -244,10 +244,42 @@ func TestRunProxyCLIRejectsVeSystemOverrides(t *testing.T) {
 }
 
 func TestProxyCommandNamesAreRegistered(t *testing.T) {
-	for _, name := range []string{"arkcli", "toscli", "proxycli"} {
+	for _, name := range []string{"arkcli", "tosutil", "toscli", "proxycli"} {
 		if !isRegisteredRootSubcommand(name) {
 			t.Fatalf("root command %q is not registered", name)
 		}
+	}
+}
+
+func TestProxyManagementHelpUsesLocalCommandSyntax(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{"management", []string{"proxycli", "--help"}, []string{"ve proxycli [command]", "upgrade"}},
+		{"upgrade", []string{"proxycli", "upgrade", "--help"}, []string{"ve proxycli upgrade [arkcli|tosutil]", "--yes"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := &cobra.Command{Use: "ve"}
+			root.SetUsageTemplate(rootUsageTemplate())
+			root.AddCommand(newProxyCLIManagementCommand())
+			var output bytes.Buffer
+			root.SetOut(&output)
+			root.SetErr(&output)
+			root.SetArgs(test.args)
+			if err := root.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range test.want {
+				if !strings.Contains(output.String(), want) {
+					t.Fatalf("help missing %q: %s", want, output.String())
+				}
+			}
+			if strings.Contains(output.String(), "[service]") {
+				t.Fatalf("proxy management inherited API usage: %s", output.String())
+			}
+		})
 	}
 }
 
