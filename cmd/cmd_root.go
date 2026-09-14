@@ -142,6 +142,10 @@ func runMain() int {
 		if errors.Is(err, errVersionFlagShown) {
 			return 0
 		}
+		var exitErr *proxyProcessExitError
+		if errors.As(err, &exitErr) {
+			return exitErr.ExitCode()
+		}
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
@@ -183,6 +187,7 @@ func localizeHelpFlags(command *cobra.Command) {
 		"docs":       {},
 		"login":      {},
 		"logout":     {},
+		"proxycli":   {},
 		"mcp":        {},
 		"sso":        {},
 		"skills":     {},

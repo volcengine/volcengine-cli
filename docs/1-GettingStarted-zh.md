@@ -6,6 +6,10 @@
 
 本文介绍如何安装 `ve`、把它放入系统 PATH，并完成一次最小可用的 API 调用。
 
+`ve` 是火山引擎的统一命令行入口：通过 `ve <service> <action>` 调用通用 OpenAPI，通过 `ve arkcli <命令>` 和 `ve tosutil <命令>` 使用产品 CLI，同时提供凭证与配置、Skill 管理和 MCP 服务。
+
+产品 CLI 按需安装，具体命令、认证和参数遵循各工具的规则。调用方式和官方文档入口见[使用产品 CLI](4-Usage-zh.md#使用产品-cli)。
+
 ## 环境要求
 
 - 仅从源码编译时需要 Go 1.18 或更高版本；使用 Release 预编译包或 npm 安装时不需要 Go。

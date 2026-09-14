@@ -152,6 +152,28 @@ func TestResolveSystemLanguageAfterAction(t *testing.T) {
 	}
 }
 
+func TestResolveSystemFlagsLeavesProxyArgumentsUntouched(t *testing.T) {
+	for _, command := range []string{"arkcli", "tosutil", "toscli"} {
+		args := []string{
+			command, "models", "search",
+			"--lang", "zh_cn", "--profile", "child-profile",
+			"--region", "child-region", "--endpoint", "child-endpoint",
+			"--version", "child-version", "--force", "--output", "child-output",
+			"--query", "child-query", "--header", "child-header", "--body", "child-body",
+		}
+		resolution, err := resolveSystemFlags(args)
+		if err != nil {
+			t.Fatalf("resolveSystemFlags(%q): %v", command, err)
+		}
+		if !reflect.DeepEqual(resolution.args, args) {
+			t.Fatalf("resolveSystemFlags(%q) args = %q, want %q", command, resolution.args, args)
+		}
+		if len(resolution.fixedFlags) != 0 {
+			t.Fatalf("resolveSystemFlags(%q) fixed flags = %v", command, resolution.fixedFlags)
+		}
+	}
+}
+
 // TestResolveSystemFlagsDetailDoesNotConsumeLang ensures help meta --detail is
 // presence-only during preprocess so explicit --lang after -h --detail still wins.
 func TestResolveSystemFlagsDetailDoesNotConsumeLang(t *testing.T) {

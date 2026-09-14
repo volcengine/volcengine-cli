@@ -4,7 +4,7 @@
 
 ## Usage
 
-Basic command format:
+Native OpenAPI command format:
 
 ```shell
 ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
@@ -12,6 +12,8 @@ ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json
                       [--version api-version] [--method GET|POST] [--force]
                       [--output json|table|table-num|text|yaml|off] [--query jmespath]
 ```
+
+For `ve arkcli` and `ve tosutil`, see [Use Product CLIs](#use-product-clis) below. Native OpenAPI argument rules do not apply to these proxy commands; each child CLI parses its own arguments.
 
 Argument kinds:
 
@@ -23,11 +25,26 @@ System flags in API calls use double hyphens and are placed after the action. If
 
 ### Flag Prefix Contract
 
-The CLI has exactly one public flag prefix: **double dash `--name`**. System flags, API parameters and the reserved controls (`--header` / `--body`) all use double dashes.
+Native OpenAPI calls use the **double-dash `--name`** flag prefix. System flags, API parameters and the reserved controls (`--header` / `--body`) all use double dashes.
 
 - Help output, shell completion, error messages and documentation examples show the `--name` form only.
 - Conflicts are case-sensitive and resolved against the parameters the current action actually exposes: `--Region` and `--Lang` are always API parameters.
 - When an action exposes an API parameter with the **exact** name of a system flag, the double-dash form after that action is parsed as the API parameter; use an equivalent non-flag route for the system behaviour (see Known Name Conflicts).
+
+## Use Product CLIs
+
+For product CLIs invoked through `ve`, see each tool's official documentation for commands, authentication, configuration, and parameters:
+
+| Tool | Help for the installed version | Official documentation |
+| --- | --- | --- |
+| Ark CLI | `ve arkcli --help` | [Ark CLI usage guide](https://github.com/volcengine/ark-cli#readme) |
+| tosutil | `ve tosutil help` | [tosutil usage guide](https://www.volcengine.com/docs/6349/148775?lang=en) |
+
+Replace the leading `arkcli` in documented examples with `ve arkcli`, or `tosutil` with `ve tosutil`, and keep the remaining arguments unchanged. Support for flags such as `--profile` and `--output`, their meanings, and output formats follow the respective tool's rules.
+
+Invocations such as `ve --profile prod arkcli ...` are unsupported; flags supported by the child CLI must follow its command name. `ve` only attempts to refresh its current Console Login cache. Follow each tool's official documentation for its authentication and configuration.
+
+Missing tools are installed on first invocation, including help and version requests. `ve upgrade` upgrades `ve` itself; `ve proxycli upgrade tosutil` upgrades the managed tosutil installation. External installations on PATH remain managed by their original package manager. See [README: Proxy CLIs](../README.EN.MD#proxy-clis) for lookup order, login session refresh, and managed upgrades.
 
 ## Discover Services and Actions
 

@@ -1,0 +1,69 @@
+{
+  "tools": {
+    "arkcli": {
+      "version": "1.0.27",
+      "platforms": {
+        "darwin-amd64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-darwin-amd64",
+          "sha256": "f30eef4761aac65638ef7b55201e2ea0e86972db64c4600be6a6121dd883e4f7",
+          "size": 36559616
+        },
+        "darwin-arm64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-darwin-arm64",
+          "sha256": "67e29a6f7980f0393da6d3d2fe89e182e9b08bb8d48ed4f3df9a434cf16f38bf",
+          "size": 34211154
+        },
+        "linux-amd64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-linux-amd64",
+          "sha256": "ffa6be8fbcab56eb49e858382f336c7a08228a4790d6f4989d7048811b3017ba",
+          "size": 35487906
+        },
+        "linux-arm64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-linux-arm64",
+          "sha256": "08ef307e7583dee70c72651908c3a0438b362336c660796cce12c023c0660909",
+          "size": 32899234
+        },
+        "windows-amd64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-windows-amd64.exe",
+          "sha256": "648d164859ab0fb6883c805947322a479bea4bdad683480e2621f5b5760b21c9",
+          "size": 38099456
+        },
+        "windows-arm64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-windows-arm64.exe",
+          "sha256": "5ddf964eb66457b641d2b73f92be3a802abfe2ba097bc0030001d371ff1e197a",
+          "size": 34854912
+        }
+      }
+    },
+    "tosutil": {
+      "version": "4.1.2",
+      "platforms": {
+        "darwin-amd64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/tosutil/v4.1.2/tosutil-mac-amd64.zip",
+          "sha256": "8da4628a3178944d8c56814478d1ee3f935befd91ef248ebf3338e9ffb65c1ca",
+          "size": 9889161
+        },
+        "darwin-arm64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/tosutil/v4.1.2/tosutil-mac-arm64.zip",
+          "sha256": "dffdc78932c3c2c23cc1d4015d7a32be72d4cfe9cd1ca1cc69b36a86bc8dc272",
+          "size": 11106442
+        },
+        "linux-amd64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/tosutil/v4.1.2/tosutil-linux-amd64.zip",
+          "sha256": "40bbb4636b0182715b9832310463be7ba58f9b1db26a7aa008cd2e873e5c9310",
+          "size": 10121138
+        },
+        "linux-arm64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/tosutil/v4.1.2/tosutil-linux-arm64.zip",
+          "sha256": "ee25420f981a8c8c6a93db530db5c6b4304da7ffdd38801435ea0fbb8654a445",
+          "size": 9439377
+        },
+        "windows-amd64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/tosutil/v4.1.2/tosutil-windows-64.zip",
+          "sha256": "33967849ec5778ad3ae1df281a4913c94ae67a905c38cc479d5fa3f21bdf5285",
+          "size": 9213684
+        }
+      }
+    }
+  }
+}

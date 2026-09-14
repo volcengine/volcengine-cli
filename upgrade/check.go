@@ -91,6 +91,17 @@ func checkTTL() time.Duration {
 	return time.Duration(hours) * time.Hour
 }
 
+// UpdateCheckTTL exposes the configured background-check TTL to companion
+// managers that intentionally share ve's update policy.
+func UpdateCheckTTL() time.Duration {
+	return checkTTL()
+}
+
+// UpdateCheckFailureBackoff exposes ve's soft-failure retry interval.
+func UpdateCheckFailureBackoff() time.Duration {
+	return failureBackoff
+}
+
 // sameLocalCalendarDay reports whether a and b fall on the same local date.
 func sameLocalCalendarDay(a, b time.Time) bool {
 	ay, am, ad := a.In(time.Local).Date()
@@ -134,16 +145,21 @@ var rootValueFlags = map[string]struct{}{
 }
 
 // ShouldSkipBackgroundCheck returns true when the current invocation should not
-// run a background version check (e.g. ve upgrade itself).
+// run a background version check (e.g. ve upgrade itself or a delegated CLI).
 //
-// Only the first root positional argument is considered: if it is "upgrade",
-// skip. Flag values (and future root value-flags) are not mistaken for the
-// subcommand, and parameter values like --profile upgrade are not either.
+// Only the first root positional argument is considered. Flag values (and
+// future root value-flags) are not mistaken for the subcommand, and parameter
+// values like --profile upgrade are not either.
 func ShouldSkipBackgroundCheck(args []string) bool {
 	if UpdateCheckDisabled() {
 		return true
 	}
-	return firstRootPositional(args) == "upgrade"
+	switch firstRootPositional(args) {
+	case "upgrade", "arkcli", "tosutil", "toscli", "proxycli", "_proxycli-update-check":
+		return true
+	default:
+		return false
+	}
 }
 
 // firstRootPositional returns the first non-flag argv token after skipping root

@@ -195,6 +195,11 @@ function shouldInstallSkills(env) {
   return env.VOLCENGINE_CLI_SKIP_SKILLS !== "1";
 }
 
+function shouldInstallProxyCLIs(env) {
+  env = env || {};
+  return env.VOLCENGINE_CLI_INSTALL_PROXY_CLIS === "1";
+}
+
 function runSkillsInstall(binPath, deps) {
   deps = deps || {};
   const env = deps.env || process.env;
@@ -215,6 +220,31 @@ function runSkillsInstall(binPath, deps) {
       `Volcengine CLI installation succeeded, but Skill installation was skipped: ${
         (err && err.message) || err
       }. Run \`ve skills update\` to retry.`
+    );
+    return false;
+  }
+}
+
+function runProxyCLIInstall(binPath, deps) {
+  deps = deps || {};
+  const env = deps.env || process.env;
+  const run = deps.execFileSync || execFileSync;
+  const warn = deps.warn || console.warn;
+  if (!shouldInstallProxyCLIs(env)) {
+    return true;
+  }
+  try {
+    run(binPath, ["proxycli", "upgrade", "--yes"], {
+      stdio: "inherit",
+      timeout: 600000,
+      env,
+    });
+    return true;
+  } catch (err) {
+    warn(
+      `Volcengine CLI installation succeeded, but proxy CLI installation failed: ${
+        (err && err.message) || err
+      }. Run \`ve proxycli upgrade --yes\` to retry.`
     );
     return false;
   }
@@ -283,6 +313,7 @@ async function install() {
 
     console.log(`Volcengine CLI v${VERSION} installed for ${target.platform}/${target.arch}`);
     runSkillsInstall(binPath);
+    runProxyCLIInstall(binPath);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
@@ -305,8 +336,10 @@ module.exports = {
   downloadErrorMessage,
   normalizeBaseURL,
   parseChecksum,
+  runProxyCLIInstall,
   runSkillsInstall,
   sha256,
+  shouldInstallProxyCLIs,
   shouldInstallSkills,
   targetForPlatform,
   verifyArchiveChecksum,

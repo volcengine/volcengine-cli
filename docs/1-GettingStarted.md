@@ -6,6 +6,10 @@ Getting Started[(中文)](1-GettingStarted-zh.md) | [Authentication →](2-Authe
 
 This guide explains how to install `ve`, put it on your PATH, and make a minimal API call.
 
+`ve` is Volcengine's unified command-line entry point: use `ve <service> <action>` for general OpenAPI calls, or `ve arkcli <command>` and `ve tosutil <command>` for product CLIs. It also provides credential and configuration management, Skill management, and an MCP server.
+
+Product CLIs are installed on demand and retain their own command, authentication, and argument rules. See [Use Product CLIs](4-Usage.md#use-product-clis) for invocation examples and official documentation links.
+
 ## Requirements
 
 - Go 1.18 or later is required only when building from source. Prebuilt Release and npm installations do not require Go.

@@ -4,7 +4,7 @@
 
 ## 使用指南
 
-CLI 的基本调用格式：
+`ve` 的原生 OpenAPI 调用格式：
 
 ```shell
 ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
@@ -12,6 +12,8 @@ ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json
                       [--version api-version] [--method GET|POST] [--force]
                       [--output json|table|table-num|text|yaml|off] [--query jmespath]
 ```
+
+`ve arkcli` 和 `ve tosutil` 的调用方式见下文[使用产品 CLI](#使用产品-cli)。原生 OpenAPI 的参数规则不适用于这些代理命令；后续参数由对应 CLI 解析。
 
 参数分几类：
 
@@ -23,11 +25,26 @@ API 调用中的系统参数统一使用双横线并放在 Action 后。若当�
 
 ### 参数前缀规范
 
-CLI 对外只有一种参数前缀：**双横线 `--name`**。系统参数、API 业务参数、保留控制参数（`--header` / `--body`）一律使用双横线。
+原生 OpenAPI 调用的参数前缀为**双横线 `--name`**。系统参数、API 业务参数、保留控制参数（`--header` / `--body`）一律使用双横线。
 
 - 帮助信息、命令补全、报错文案和文档示例只出现 `--name` 一种写法。
 - 冲突判定区分大小写，并以当前 Action 实际暴露的参数为准：`--Region`、`--Lang` 等不同大小写始终是业务参数。
 - 当某个 Action 暴露了与系统参数**完全同名**的业务参数时，该 Action 后的双横线归业务参数解析，此时请改用等价的非参数途径传递系统语义（见下方「已知同名冲突」）。
+
+## 使用产品 CLI
+
+通过 `ve` 调用产品 CLI 时，具体命令、认证、配置和参数请参阅各工具的官方文档：
+
+| 工具 | 查看当前版本的帮助 | 官方使用文档 |
+| --- | --- | --- |
+| Ark CLI | `ve arkcli --help` | [Ark CLI 使用说明](https://github.com/volcengine/ark-cli#readme) |
+| tosutil | `ve tosutil help` | [tosutil 使用指南](https://www.volcengine.com/docs/6349/148775) |
+
+将文档示例开头的 `arkcli` 替换为 `ve arkcli`，将 `tosutil` 替换为 `ve tosutil`，后续参数保持原样。`--profile`、`--output` 等参数是否支持、如何解释，以及输出格式，都以对应工具为准。
+
+`ve --profile prod arkcli ...` 这类写法不受支持；子 CLI 自己支持的参数需要放在对应命令之后。`ve` 只尝试刷新当前 Console Login 缓存，子 CLI 的认证与配置仍以其官方文档为准。
+
+未安装的工具会在首次调用时按需安装，包括帮助和版本查询。`ve upgrade` 升级 `ve` 本身；`ve proxycli upgrade tosutil` 升级托管的 tosutil，PATH 上的外部安装由原包管理器负责。查找顺序、登录会话刷新和托管升级说明见 [README：代理 CLI](../README.MD#代理-cli)。
 
 ## 查看服务和接口
 
