@@ -17,7 +17,7 @@ func init() {
 }
 
 // docsUserAgent intentionally delegates to the exact formatter used by normal
-// signed service calls, including skill-invoker metadata for agent callers.
+// signed service calls, including agent and skill metadata.
 func docsUserAgent(getenv envGetter) string {
 	return clientUserAgent(getenv)
 }

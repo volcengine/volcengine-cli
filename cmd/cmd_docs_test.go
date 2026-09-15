@@ -301,18 +301,35 @@ func assertDocsHelpHidesCompatibilityFlags(t *testing.T, help string) {
 }
 
 func TestDocsUserAgentMatchesNormalServiceCLIUserAgent(t *testing.T) {
-	got := docsUserAgent(osLookupEnvForTest)
-	want := clientUserAgent(osLookupEnvForTest)
-	if got != want || !strings.Contains(got, "skill-invoker/codex") {
-		t.Fatalf("docs User-Agent = %q, normal CLI User-Agent = %q", got, want)
+	tests := []struct {
+		name     string
+		env      map[string]string
+		metadata string
+	}{
+		{
+			name:     "automatic detection",
+			env:      map[string]string{"CODEX_THREAD_ID": "thread"},
+			metadata: "skill-invoker/codex",
+		},
+		{
+			name: "explicit caller and skill without caller type",
+			env: map[string]string{
+				"VE_CALLER_NAME": "custom-agent",
+				"VE_SKILL_NAME":  "volcengine-docs",
+			},
+			metadata: "skill-invoker/custom-agent; skill/volcengine-docs",
+		},
 	}
-}
-
-func osLookupEnvForTest(key string) (string, bool) {
-	if key == "CODEX_THREAD_ID" {
-		return "thread", true
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			getenv := testEnv(tt.env)
+			got := docsUserAgent(getenv)
+			want := clientUserAgent(getenv)
+			if got != want || !strings.Contains(got, tt.metadata) {
+				t.Fatalf("docs User-Agent = %q, normal CLI User-Agent = %q, want metadata %q", got, want, tt.metadata)
+			}
+		})
 	}
-	return "", false
 }
 
 type fakeDocsModule struct {

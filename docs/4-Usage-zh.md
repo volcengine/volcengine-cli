@@ -44,6 +44,16 @@ API 调用中的系统参数统一使用双横线并放在 Action 后。若当�
 
 `ve --profile prod arkcli ...` 这类写法不受支持；子 CLI 自己支持的参数需要放在对应命令之后。`ve` 只尝试刷新当前 Console Login 缓存，子 CLI 的认证与配置仍以其官方文档为准。
 
+`ve arkcli` 继承父进程环境；未设置 `SOURCE_FROM` 时默认补充 `SOURCE_FROM=ve`。以下变量逐项映射，任意一项存在即可生效，无需同时设置三项：
+
+| 父进程环境变量 | 注入 Ark CLI 的环境变量 |
+| --- | --- |
+| `VE_CALLER_TYPE` | `ARKCLI_CALLER_TYPE` |
+| `VE_CALLER_NAME` | `ARKCLI_CALLER_NAME` |
+| `VE_SKILL_NAME` | `ARKCLI_SKILL_NAME` |
+
+映射原样复制值，包括显式设置的空字符串；源变量存在时覆盖对应的 `ARKCLI_*` 值，不存在时保留已有值。原始 `VE_*` 变量继续传递。这些注入仅作用于 Ark CLI 的执行环境，`ve tosutil`（含 `ve toscli`）继续继承原始环境。
+
 未安装的工具会在首次调用时按需安装，包括帮助和版本查询。`ve upgrade` 升级 `ve` 本身；`ve proxycli upgrade tosutil` 升级托管的 tosutil，PATH 上的外部安装由原包管理器负责。查找顺序、登录会话刷新和托管升级说明见 [README：代理 CLI](../README.MD#代理-cli)。
 
 ## 查看服务和接口
@@ -156,6 +166,33 @@ ve ecs DescribeInstances \
   --InstanceIds.1 i-1234567890abcdef0 \
   --user-agent "inventory-sync/3.4 team/compute"
 ```
+
+### Agent 与 Skill 标识
+
+普通 API 调用及 `ve docs search`、`ve docs fetch` 会通过环境变量识别 Agent 和当前 Skill，并将标识加入默认 User-Agent：
+
+| 环境变量 | 作用 |
+| --- | --- |
+| `VE_CALLER_TYPE` | 设置为 `ai_agent`，显式声明 Agent 调用；值忽略大小写及首尾空白 |
+| `VE_CALLER_NAME` | 指定 Agent 名称，优先级最高，无需设置 `VE_CALLER_TYPE`；不存在或留空时回退到环境探测 |
+| `VE_SKILL_NAME` | 指定当前使用的 Skill 名称；仅在识别为 Agent 调用时携带 |
+
+```shell
+VE_CALLER_TYPE=ai_agent \
+VE_CALLER_NAME=codex \
+VE_SKILL_NAME=volcengine-ecs \
+ve ecs DescribeInstances
+```
+
+默认 User-Agent 的格式为：
+
+```text
+volcengine-cli/<version>/(<go-version>; <os>; <arch>; skill-invoker/codex; skill/volcengine-ecs)
+```
+
+Agent 名称的识别顺序为：非空 `VE_CALLER_NAME` → 各 Agent 的环境变量探测 → `VE_CALLER_TYPE=ai_agent` 时使用通用名称 `agent`。`VE_CALLER_TYPE` 不会覆盖显式名称或阻止环境探测；三者均未识别出 Agent 时，不添加 Agent 或 Skill 标识。
+
+Agent 标识沿用 `skill-invoker/<agentName>`；提供非空 `VE_SKILL_NAME` 时，追加 `skill/<skillName>`。名称会移除首尾空白，并对分隔符、控制字符等进行百分号编码。`--user-agent` 指定的自定义值仍追加在完整默认 User-Agent 后。
 
 ### 双横线保留控制参数
 

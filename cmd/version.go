@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"runtime"
 	"strings"
@@ -12,7 +13,7 @@ import (
 
 const clientName = "volcengine-cli"
 
-var clientVersion = "1.1.9"
+var clientVersion = "1.1.10"
 
 type envGetter func(string) (string, bool)
 
@@ -157,9 +158,12 @@ var skillInvokerDetectors = []skillInvokerDetector{
 
 func clientUserAgent(getenv envGetter) string {
 	extra := []string{runtime.Version(), runtime.GOOS, runtime.GOARCH}
-	if getenv != nil {
-		for _, invoker := range detectSkillInvokers(getenv) {
-			extra = append(extra, "skill-invoker/"+invoker)
+	for _, invoker := range detectSkillInvokers(getenv) {
+		// Escape caller-supplied names so they cannot change the metadata
+		// separators or introduce invalid HTTP header characters.
+		extra = append(extra, "skill-invoker/"+url.PathEscape(invoker))
+		if skill := strings.TrimSpace(envValue(getenv, "VE_SKILL_NAME")); skill != "" {
+			extra = append(extra, "skill/"+url.PathEscape(skill))
 		}
 	}
 	return fmt.Sprintf("%s/%s/(%s)", clientName, clientVersion, strings.Join(extra, "; "))
@@ -195,12 +199,20 @@ func detectSkillInvokers(getenv envGetter) []string {
 		return nil
 	}
 
+	// An explicit caller name always takes priority over automatic detection.
+	if name := strings.TrimSpace(envValue(getenv, "VE_CALLER_NAME")); name != "" {
+		return []string{name}
+	}
+
 	// Stop probing as soon as one invoker matches: a single caller drives the
 	// CLI, so the first hit (specific invokers first, generic agent last) wins.
 	for _, detector := range skillInvokerDetectors {
 		if detector.match(getenv) {
 			return []string{detector.name}
 		}
+	}
+	if strings.EqualFold(strings.TrimSpace(envValue(getenv, "VE_CALLER_TYPE")), "ai_agent") {
+		return []string{"agent"}
 	}
 	return nil
 }

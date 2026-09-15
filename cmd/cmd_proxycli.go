@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -27,9 +28,7 @@ var (
 	}
 	ensureProxyLoginToken  = EnsureValidLoginToken
 	launchProxyUpdateCheck = defaultLaunchProxyUpdateCheck
-	runProxyExecutable     = func(path string, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
-		return defaultRunProxyExecutable(path, args, stdin, stdout, stderr, os.Environ())
-	}
+	runProxyExecutable     = defaultRunProxyExecutable
 )
 
 func init() {
@@ -112,7 +111,50 @@ func runProxyCLI(command *cobra.Command, cliContext *Context, manager proxyCLIMa
 		command.InOrStdin(),
 		command.OutOrStdout(),
 		command.ErrOrStderr(),
+		proxyCLIEnvironment(tool, os.Environ()),
 	)
+}
+
+func proxyCLIEnvironment(tool proxycli.Tool, env []string) []string {
+	if tool != proxycli.ToolArkCLI {
+		return env
+	}
+
+	values := map[string]string{"SOURCE_FROM": "ve"}
+	for _, entry := range env {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok {
+			continue
+		}
+		if runtime.GOOS == "windows" {
+			key = strings.ToUpper(key)
+		}
+		switch key {
+		case "SOURCE_FROM":
+			values[key] = value
+		case "VE_CALLER_TYPE", "VE_CALLER_NAME", "VE_SKILL_NAME":
+			values["ARKCLI_"+strings.TrimPrefix(key, "VE_")] = value
+		}
+	}
+
+	// Replace existing target entries instead of appending duplicate keys:
+	// Unix exec passes the environment directly to the child process.
+	childEnv := make([]string, 0, len(env)+len(values))
+	for _, entry := range env {
+		key, _, _ := strings.Cut(entry, "=")
+		if runtime.GOOS == "windows" {
+			key = strings.ToUpper(key)
+		}
+		if _, replaced := values[key]; !replaced {
+			childEnv = append(childEnv, entry)
+		}
+	}
+	for _, key := range []string{"SOURCE_FROM", "ARKCLI_CALLER_TYPE", "ARKCLI_CALLER_NAME", "ARKCLI_SKILL_NAME"} {
+		if value, exists := values[key]; exists {
+			childEnv = append(childEnv, key+"="+value)
+		}
+	}
+	return childEnv
 }
 
 func printProxyUpdateNotice(command *cobra.Command, result proxycli.UpdateCheckResult) {
