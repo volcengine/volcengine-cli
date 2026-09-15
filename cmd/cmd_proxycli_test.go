@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -39,6 +40,124 @@ func (f *fakeProxyManager) Upgrade(tools []proxycli.Tool) (proxycli.UpgradeResul
 	return f.result, f.err
 }
 
+func TestRunProxyCLIMapsArkCLIEnvironment(t *testing.T) {
+	tests := []struct {
+		name      string
+		tool      proxycli.Tool
+		env       map[string]string
+		additions map[string]string
+	}{
+		{
+			name:      "default source without caller metadata",
+			tool:      proxycli.ToolArkCLI,
+			additions: map[string]string{"SOURCE_FROM": "ve"},
+		},
+		{
+			name:      "caller type alone",
+			tool:      proxycli.ToolArkCLI,
+			env:       map[string]string{"VE_CALLER_TYPE": "ai_agent"},
+			additions: map[string]string{"SOURCE_FROM": "ve", "ARKCLI_CALLER_TYPE": "ai_agent"},
+		},
+		{
+			name:      "caller name alone",
+			tool:      proxycli.ToolArkCLI,
+			env:       map[string]string{"VE_CALLER_NAME": "custom-agent"},
+			additions: map[string]string{"SOURCE_FROM": "ve", "ARKCLI_CALLER_NAME": "custom-agent"},
+		},
+		{
+			name:      "skill name alone",
+			tool:      proxycli.ToolArkCLI,
+			env:       map[string]string{"VE_SKILL_NAME": "arkcli-models"},
+			additions: map[string]string{"SOURCE_FROM": "ve", "ARKCLI_SKILL_NAME": "arkcli-models"},
+		},
+		{
+			name: "all mappings replace existing targets and preserve raw values",
+			tool: proxycli.ToolArkCLI,
+			env: map[string]string{
+				"VE_CALLER_TYPE": "automation", "VE_CALLER_NAME": " custom=agent ", "VE_SKILL_NAME": "arkcli-models",
+				"ARKCLI_CALLER_TYPE": "old-type", "ARKCLI_CALLER_NAME": "old-agent", "ARKCLI_SKILL_NAME": "old-skill",
+			},
+			additions: map[string]string{
+				"SOURCE_FROM": "ve", "ARKCLI_CALLER_TYPE": "automation", "ARKCLI_CALLER_NAME": " custom=agent ", "ARKCLI_SKILL_NAME": "arkcli-models",
+			},
+		},
+		{
+			name: "explicitly empty source values are also mapped",
+			tool: proxycli.ToolArkCLI,
+			env: map[string]string{
+				"VE_CALLER_TYPE": "", "VE_CALLER_NAME": "", "VE_SKILL_NAME": "",
+				"ARKCLI_CALLER_TYPE": "old-type", "ARKCLI_CALLER_NAME": "old-agent", "ARKCLI_SKILL_NAME": "old-skill",
+			},
+			additions: map[string]string{
+				"SOURCE_FROM": "ve", "ARKCLI_CALLER_TYPE": "", "ARKCLI_CALLER_NAME": "", "ARKCLI_SKILL_NAME": "",
+			},
+		},
+		{
+			name: "existing source and unmapped arkcli values are preserved",
+			tool: proxycli.ToolArkCLI,
+			env: map[string]string{
+				"SOURCE_FROM": "custom-source", "ARKCLI_CALLER_TYPE": "ai_agent", "ARKCLI_CALLER_NAME": "direct-agent", "ARKCLI_SKILL_NAME": "direct-skill",
+			},
+		},
+		{
+			name: "tosutil receives the original environment",
+			tool: proxycli.ToolTOSUtil,
+			env: map[string]string{
+				"VE_CALLER_TYPE": "ai_agent", "VE_CALLER_NAME": "custom-agent", "VE_SKILL_NAME": "volcengine-tos",
+				"ARKCLI_CALLER_NAME": "direct-agent",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			keys := []string{
+				"SOURCE_FROM", "VE_CALLER_TYPE", "VE_CALLER_NAME", "VE_SKILL_NAME",
+				"ARKCLI_CALLER_TYPE", "ARKCLI_CALLER_NAME", "ARKCLI_SKILL_NAME", "PROXY_ENV_PASSTHROUGH",
+			}
+			tracked := make(map[string]bool, len(keys))
+			for _, key := range keys {
+				tracked[key] = true
+				t.Cleanup(unsetenvForTest(t, key))
+			}
+			want := map[string]string{"PROXY_ENV_PASSTHROUGH": "original=value"}
+			t.Setenv("PROXY_ENV_PASSTHROUGH", "original=value")
+			for key, value := range tt.env {
+				t.Setenv(key, value)
+				want[key] = value
+			}
+			for key, value := range tt.additions {
+				want[key] = value
+			}
+			parentEnv := os.Environ()
+			oldRun := runProxyExecutable
+			t.Cleanup(func() { runProxyExecutable = oldRun })
+			got := make(map[string]string)
+			runProxyExecutable = func(_ string, _ []string, _ io.Reader, _, _ io.Writer, env []string) error {
+				for _, entry := range env {
+					key, value, _ := strings.Cut(entry, "=")
+					if tracked[key] {
+						if _, exists := got[key]; exists {
+							t.Fatalf("duplicate child environment key %q", key)
+						}
+						got[key] = value
+					}
+				}
+				return nil
+			}
+			manager := &fakeProxyManager{resolved: proxycli.Resolution{Tool: tt.tool, Path: "/managed/" + string(tt.tool)}}
+			if err := runProxyCLI(&cobra.Command{}, nil, manager, tt.tool, []string{"--help"}); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("child metadata = %#v, want %#v", got, want)
+			}
+			if !reflect.DeepEqual(os.Environ(), parentEnv) {
+				t.Fatal("delegation changed the parent process environment")
+			}
+		})
+	}
+}
+
 func TestRunProxyCLIRefreshesConsoleLoginAndForwardsEveryArgument(t *testing.T) {
 	oldEnsure := ensureProxyLoginToken
 	oldRun := runProxyExecutable
@@ -61,7 +180,7 @@ func TestRunProxyCLIRefreshesConsoleLoginAndForwardsEveryArgument(t *testing.T) 
 	}
 	var gotPath string
 	var gotArgs []string
-	runProxyExecutable = func(path string, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	runProxyExecutable = func(path string, args []string, stdin io.Reader, stdout, stderr io.Writer, env []string) error {
 		gotPath = path
 		gotArgs = append([]string(nil), args...)
 		return nil
@@ -108,7 +227,7 @@ func TestRunProxyCLIDoesNotRefreshNonConsoleProfile(t *testing.T) {
 		t.Fatal("AK profile must not refresh console-login token")
 		return nil, nil
 	}
-	runProxyExecutable = func(string, []string, io.Reader, io.Writer, io.Writer) error { return nil }
+	runProxyExecutable = func(string, []string, io.Reader, io.Writer, io.Writer, []string) error { return nil }
 	manager := &fakeProxyManager{resolved: proxycli.Resolution{Path: "/bin/tosutil"}}
 
 	if err := runProxyCLI(&cobra.Command{}, ctx, manager, proxycli.ToolTOSUtil, []string{"version"}); err != nil {
@@ -134,7 +253,7 @@ func TestRunProxyCLIRefreshFailureWarnsAndContinues(t *testing.T) {
 	want := errors.New("refresh failed")
 	ensureProxyLoginToken = func(*Configure, string) (*STSCredentials, error) { return nil, want }
 	executed := false
-	runProxyExecutable = func(string, []string, io.Reader, io.Writer, io.Writer) error {
+	runProxyExecutable = func(string, []string, io.Reader, io.Writer, io.Writer, []string) error {
 		executed = true
 		return nil
 	}
@@ -174,7 +293,7 @@ func TestRunProxyCLINoLoginSessionContinuesWithoutRefresh(t *testing.T) {
 		t.Fatal("logged-out profile must not attempt refresh")
 		return nil, nil
 	}
-	runProxyExecutable = func(string, []string, io.Reader, io.Writer, io.Writer) error { return nil }
+	runProxyExecutable = func(string, []string, io.Reader, io.Writer, io.Writer, []string) error { return nil }
 	manager := &fakeProxyManager{resolved: proxycli.Resolution{Path: "/bin/arkcli"}}
 
 	if err := runProxyCLI(&cobra.Command{}, ctx, manager, proxycli.ToolArkCLI, []string{"models", "list"}); err != nil {
@@ -201,7 +320,7 @@ func TestRunProxyCLILocalHelpAndVersionSkipCredentialRead(t *testing.T) {
 		t.Fatal("local help/version must not read credentials")
 		return nil, nil
 	}
-	runProxyExecutable = func(string, []string, io.Reader, io.Writer, io.Writer) error { return nil }
+	runProxyExecutable = func(string, []string, io.Reader, io.Writer, io.Writer, []string) error { return nil }
 
 	for _, args := range [][]string{
 		{"--help"}, {"-h"}, {"--version"}, {"-v"}, {"help", "models"}, {"version"}, {"models", "list", "--help"},
@@ -286,7 +405,7 @@ func TestProxyManagementHelpUsesLocalCommandSyntax(t *testing.T) {
 func TestRunProxyCLIPrintsManagedUpdateNotice(t *testing.T) {
 	oldRun := runProxyExecutable
 	defer func() { runProxyExecutable = oldRun }()
-	runProxyExecutable = func(string, []string, io.Reader, io.Writer, io.Writer) error { return nil }
+	runProxyExecutable = func(string, []string, io.Reader, io.Writer, io.Writer, []string) error { return nil }
 	manager := &fakeProxyManagerWithUpdate{
 		fakeProxyManager: &fakeProxyManager{resolved: proxycli.Resolution{
 			Tool: proxycli.ToolArkCLI, Path: "/managed/arkcli", Version: "1.0.0", Source: proxycli.SourceManaged,
@@ -319,7 +438,7 @@ func TestRunProxyCLILaunchesUpdateHelperBeforeDelegation(t *testing.T) {
 		order = append(order, "helper:"+string(tool)+":"+current)
 		return nil
 	}
-	runProxyExecutable = func(string, []string, io.Reader, io.Writer, io.Writer) error {
+	runProxyExecutable = func(string, []string, io.Reader, io.Writer, io.Writer, []string) error {
 		order = append(order, "exec")
 		return nil
 	}

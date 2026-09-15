@@ -26,6 +26,143 @@ func TestClientUserAgentDefaultWithNilEnvGetter(t *testing.T) {
 	}
 }
 
+func TestClientUserAgentCallerAndSkillEnvironment(t *testing.T) {
+	tests := []struct {
+		name     string
+		env      map[string]string
+		metadata string
+	}{
+		{
+			name: "explicit caller overrides automatic detection",
+			env: map[string]string{
+				"VE_CALLER_TYPE": "ai_agent",
+				"VE_CALLER_NAME": "custom-agent",
+				"VE_SKILL_NAME":  "volcengine-ecs",
+				"CLAUDECODE":     "1",
+				"CODEX_CI":       "1",
+			},
+			metadata: "skill-invoker/custom-agent; skill/volcengine-ecs",
+		},
+		{
+			name: "agent without a skill",
+			env: map[string]string{
+				"VE_CALLER_TYPE": "ai_agent",
+				"VE_CALLER_NAME": "custom-agent",
+			},
+			metadata: "skill-invoker/custom-agent",
+		},
+		{
+			name: "caller type is case insensitive and names are trimmed",
+			env: map[string]string{
+				"VE_CALLER_TYPE": " AI_AGENT ",
+				"VE_CALLER_NAME": " Custom-Agent_1.0 ",
+				"VE_SKILL_NAME":  " volcengine-ecs ",
+			},
+			metadata: "skill-invoker/Custom-Agent_1.0; skill/volcengine-ecs",
+		},
+		{
+			name: "missing caller name uses automatic detection",
+			env: map[string]string{
+				"VE_CALLER_TYPE": "ai_agent",
+				"VE_SKILL_NAME":  "volcengine-ecs",
+				"CODEX_CI":       "1",
+			},
+			metadata: "skill-invoker/codex; skill/volcengine-ecs",
+		},
+		{
+			name: "blank caller name uses generic agent fallback",
+			env: map[string]string{
+				"VE_CALLER_TYPE": "ai_agent",
+				"VE_CALLER_NAME": " \t ",
+				"VE_SKILL_NAME":  "volcengine-ecs",
+			},
+			metadata: "skill-invoker/agent; skill/volcengine-ecs",
+		},
+		{
+			name: "explicit agent with no name or skill",
+			env: map[string]string{
+				"VE_CALLER_TYPE": "ai_agent",
+				"VE_SKILL_NAME":  " \t ",
+			},
+			metadata: "skill-invoker/agent",
+		},
+		{
+			name: "automatic agent detection can include a skill",
+			env: map[string]string{
+				"VE_SKILL_NAME": "volcengine-ecs",
+				"CODEX_CI":      "1",
+			},
+			metadata: "skill-invoker/codex; skill/volcengine-ecs",
+		},
+		{
+			name: "caller name alone overrides detection",
+			env: map[string]string{
+				"VE_CALLER_TYPE": " ",
+				"VE_CALLER_NAME": "custom-agent",
+				"CODEX_CI":       "1",
+			},
+			metadata: "skill-invoker/custom-agent",
+		},
+		{
+			name: "caller name and skill do not require a caller type",
+			env: map[string]string{
+				"VE_CALLER_NAME": "custom-agent",
+				"VE_SKILL_NAME":  "volcengine-ecs",
+			},
+			metadata: "skill-invoker/custom-agent; skill/volcengine-ecs",
+		},
+		{
+			name: "caller name takes priority over caller type and inherited markers",
+			env: map[string]string{
+				"VE_CALLER_TYPE": "human",
+				"VE_CALLER_NAME": "custom-agent",
+				"VE_SKILL_NAME":  "volcengine-ecs",
+				"CODEX_CI":       "1",
+			},
+			metadata: "skill-invoker/custom-agent; skill/volcengine-ecs",
+		},
+		{
+			name: "blank caller name falls back to detection regardless of caller type",
+			env: map[string]string{
+				"VE_CALLER_TYPE": "human",
+				"VE_CALLER_NAME": " \t ",
+				"VE_SKILL_NAME":  "volcengine-ecs",
+				"CODEX_CI":       "1",
+			},
+			metadata: "skill-invoker/codex; skill/volcengine-ecs",
+		},
+		{
+			name: "unknown caller type alone is not treated as an agent",
+			env: map[string]string{
+				"VE_CALLER_TYPE": "automation",
+				"VE_SKILL_NAME":  "volcengine-ecs",
+			},
+		},
+		{
+			name: "metadata separators and header control characters are escaped",
+			env: map[string]string{
+				"VE_CALLER_TYPE": "ai_agent",
+				"VE_CALLER_NAME": "custom/agent;()\\",
+				"VE_SKILL_NAME":  "volcengine/ecs\r\nInjected: yes",
+			},
+			metadata: "skill-invoker/custom%2Fagent%3B%28%29%5C; skill/volcengine%2Fecs%0D%0AInjected:%20yes",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := clientUserAgent(testEnv(tt.env))
+			want := clientName + "/" + clientVersion + "/(" + runtime.Version() + "; " + runtime.GOOS + "; " + runtime.GOARCH
+			if tt.metadata != "" {
+				want += "; " + tt.metadata
+			}
+			want += ")"
+			if got != want {
+				t.Fatalf("clientUserAgent() = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func TestDetectSkillInvokers(t *testing.T) {
 	tests := []struct {
 		name string
@@ -679,6 +816,8 @@ func TestClientVersionAndUserAgentHandlerAppendsCustomUserAgent(t *testing.T) {
 
 func TestCallSdkUsesUserAgentSystemParameter(t *testing.T) {
 	clearSkillInvokerEnv(t)
+	t.Setenv("VE_CALLER_NAME", "custom-agent")
+	t.Setenv("VE_SKILL_NAME", "volcengine-ecs")
 	defer setenvForTest(t, "VOLCENGINE_ACCESS_KEY", "ak-test")()
 	defer setenvForTest(t, "VOLCENGINE_SECRET_KEY", "sk-test")()
 	defer setenvForTest(t, "VOLCENGINE_REGION", "cn-beijing")()
@@ -726,6 +865,10 @@ func TestCallSdkUsesUserAgentSystemParameter(t *testing.T) {
 	if defaultIndex < 0 || customIndex < 0 || defaultIndex >= customIndex {
 		t.Fatalf("User-Agent = %q, want CLI default followed by custom value", gotUserAgent)
 	}
+	metadata := "skill-invoker/custom-agent; skill/volcengine-ecs"
+	if strings.Count(gotUserAgent, metadata) != 1 || strings.Index(gotUserAgent, metadata) > customIndex {
+		t.Fatalf("User-Agent = %q, want agent and skill metadata exactly once before custom value", gotUserAgent)
+	}
 	if gotAPIParameter != "" {
 		t.Fatalf("user-agent was sent as an API parameter: %q", gotAPIParameter)
 	}
@@ -740,6 +883,9 @@ func testEnv(values map[string]string) envGetter {
 
 func clearSkillInvokerEnv(t *testing.T) {
 	for _, key := range []string{
+		"VE_CALLER_TYPE",
+		"VE_CALLER_NAME",
+		"VE_SKILL_NAME",
 		"DOUBAO_OFFICE_APP_ID",
 		"DOUBAO_OFFICE_AGENT_NAME",
 		"AILY_SIGNATURE",

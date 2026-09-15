@@ -44,6 +44,16 @@ Replace the leading `arkcli` in documented examples with `ve arkcli`, or `tosuti
 
 Invocations such as `ve --profile prod arkcli ...` are unsupported; flags supported by the child CLI must follow its command name. `ve` only attempts to refresh its current Console Login cache. Follow each tool's official documentation for its authentication and configuration.
 
+`ve arkcli` inherits the parent process environment and defaults `SOURCE_FROM` to `ve` when it is unset. The following variables are mapped independently; any one can be provided without the others:
+
+| Parent environment variable | Environment variable injected into Ark CLI |
+| --- | --- |
+| `VE_CALLER_TYPE` | `ARKCLI_CALLER_TYPE` |
+| `VE_CALLER_NAME` | `ARKCLI_CALLER_NAME` |
+| `VE_SKILL_NAME` | `ARKCLI_SKILL_NAME` |
+
+Values are copied verbatim, including explicitly empty strings. A present source variable overrides its corresponding `ARKCLI_*` value; an absent source preserves any existing value. The original `VE_*` variables remain available. These additions apply only to the Ark CLI execution environment; `ve tosutil` and its `ve toscli` alias inherit the original environment.
+
 Missing tools are installed on first invocation, including help and version requests. `ve upgrade` upgrades `ve` itself; `ve proxycli upgrade tosutil` upgrades the managed tosutil installation. External installations on PATH remain managed by their original package manager. See [README: Proxy CLIs](../README.EN.MD#proxy-clis) for lookup order, login session refresh, and managed upgrades.
 
 ## Discover Services and Actions
@@ -157,6 +167,32 @@ ve ecs DescribeInstances \
   --user-agent "inventory-sync/3.4 team/compute"
 ```
 
+### Agent and Skill Identification
+
+Normal API calls, `ve docs search`, and `ve docs fetch` identify the agent and current Skill from environment variables and include them in the default User-Agent:
+
+| Environment variable | Purpose |
+| --- | --- |
+| `VE_CALLER_TYPE` | Set to `ai_agent` to explicitly identify an agent invocation; comparison ignores case and surrounding whitespace |
+| `VE_CALLER_NAME` | Set the agent name with highest priority, independently of `VE_CALLER_TYPE`; unset or blank values fall back to automatic detection |
+| `VE_SKILL_NAME` | Set the current Skill name; included only when the caller is identified as an agent |
+
+```shell
+VE_CALLER_TYPE=ai_agent \
+VE_CALLER_NAME=codex \
+VE_SKILL_NAME=volcengine-ecs \
+ve ecs DescribeInstances
+```
+
+The default User-Agent has this format:
+
+```text
+volcengine-cli/<version>/(<go-version>; <os>; <arch>; skill-invoker/codex; skill/volcengine-ecs)
+```
+
+Agent name resolution follows this order: a non-empty `VE_CALLER_NAME`, automatic detection through agent-specific environment variables, then the generic name `agent` when `VE_CALLER_TYPE=ai_agent`. The caller type neither overrides an explicit name nor suppresses automatic detection. If none of these identifies an agent, agent and Skill metadata are omitted.
+
+Agent metadata retains the `skill-invoker/<agentName>` format. A non-empty `VE_SKILL_NAME` adds `skill/<skillName>`. Names are trimmed, and separators, control characters, and other special characters are percent-encoded. A custom `--user-agent` value is still appended after the complete default User-Agent.
 
 ### Reserved Double-Dash Controls
 
