@@ -11,19 +11,14 @@ const path = require("path");
 // Constants
 // ---------------------------------------------------------------------------
 
-// The two CLI binaries this tool bootstraps. `arkcli` is the real bin name of
-// @volcengine/ark-cli; `ark-cli` is accepted as an alias because users often
-// spell it that way.
+// Bootstrap ve; its `ve arkcli` proxy manages Ark CLI on demand.
 const BINARIES = [
   { name: "ve", aliases: ["ve"], pkg: "@volcengine/cli" },
-  { name: "arkcli", aliases: ["arkcli", "ark-cli"], pkg: "@volcengine/ark-cli" },
 ];
 
 // The repo the skills bundle is built from (informational; the bundle itself
 // is downloaded pre-packaged, so this tool never clones it at runtime). Only
-// `skills/core` from `volcengine/volcengine-skills` is bundled — arkcli ships
-// its own skills when `@volcengine/ark-cli` is installed, so re-bundling them
-// here is redundant.
+// `skills/core` from `volcengine/volcengine-skills` is bundled.
 const SKILL_REPOS = ["volcengine/volcengine-skills"];
 
 // Default location of the legacy pre-packaged skills bundle (a .zip containing
@@ -61,18 +56,19 @@ const VALUE_FLAGS = { "--agent": "agent", "--skill": "skill" };
 const USAGE = [
   "Usage: skills-setup [options]",
   "",
-  "Ensure `ve` and `arkcli` are installed together with their agent skills.",
+  "Ensure `ve` is installed together with Volcengine agent skills.",
+  "Use `ve arkcli` for Ark CLI (ve >= 1.1.9); ve manages it on demand.",
   "A newly installed ve package includes skills, so no second install runs.",
   "An existing ve > 1.1.2 uses `ve skills update`; older versions use the",
   "built-in compatibility flow.",
   "",
   "Options:",
-  "  --local           Install ve/arkcli into the local project (npm i) rather",
+  "  --local           Install ve into the local project (npm i) rather",
   "                    than globally (npm i -g, the default).",
-  "  --skip-install    Skip ve/arkcli installation.",
+  "  --skip-install    Skip ve installation.",
   "  --skip-skills     Skip the separate skill update/compatibility step.",
-  "  --force           Reinstall ve/arkcli even if already present.",
-  "  --update          Force-upgrade ve/arkcli to @latest even if present.",
+  "  --force           Reinstall ve even if already present.",
+  "  --update          Force-upgrade ve to @latest even if present.",
   "  --dry-run         Print the planned commands without executing.",
   "  -h, --help        Show this help.",
   "",
@@ -239,20 +235,9 @@ function buildNpmInstallArgs(pkg, options) {
   // Always pin to `@latest` so a reinstall/update pulls the newest published
   // version (npm otherwise treats an existing satisfying version as up-to-date).
   const target = pkg + "@latest";
-  const args = options.scope === "local"
+  return options.scope === "local"
     ? ["install", target]
     : ["install", "-g", target];
-
-  // npm can reject an ark-cli update with EEXIST when its global bin already
-  // exists. Limit the overwrite escape hatch to that exact update scenario.
-  if (
-    options.update &&
-    options.scope !== "local" &&
-    pkg === "@volcengine/ark-cli"
-  ) {
-    args.push("--force");
-  }
-  return args;
 }
 
 // Build `skills add <source> ...` where source is a LOCAL directory (the
@@ -590,7 +575,7 @@ function renderSummary(plan, steps) {
   );
   if (plan.installs.some((s) => s.args.indexOf("-g") !== -1)) {
     lines.push(
-      "Note: the npm global bin dir must be on your PATH for ve/arkcli to be callable."
+      "Note: the npm global bin dir must be on your PATH for ve to be callable."
     );
   }
   return lines.join("\n");

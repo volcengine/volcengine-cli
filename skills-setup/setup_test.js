@@ -207,16 +207,6 @@ check("detectBinary found", () => {
     foundVia: "ve",
   });
 });
-check("detectBinary arkcli alias fallback (ark-cli)", () => {
-  const deps = {
-    platform: "linux",
-    env: UNIX_ENV,
-    isExecutable: fakeIsExecutable(["ark-cli"]),
-  };
-  const r = detectBinary(BINARIES[1], deps);
-  assert.strictEqual(r.found, true);
-  assert.strictEqual(r.foundVia, "ark-cli");
-});
 check("detectBinary not found", () => {
   const deps = {
     platform: "linux",
@@ -310,20 +300,6 @@ check("buildNpmInstallArgs", () => {
     "install",
     "@volcengine/cli@latest",
   ]);
-});
-check("buildNpmInstallArgs forces only global ark-cli updates", () => {
-  assert.deepStrictEqual(
-    buildNpmInstallArgs("@volcengine/ark-cli", { scope: "global", update: true }),
-    ["install", "-g", "@volcengine/ark-cli@latest", "--force"]
-  );
-  assert.deepStrictEqual(
-    buildNpmInstallArgs("@volcengine/cli", { scope: "global", update: true }),
-    ["install", "-g", "@volcengine/cli@latest"]
-  );
-  assert.deepStrictEqual(
-    buildNpmInstallArgs("@volcengine/ark-cli", { scope: "local", update: true }),
-    ["install", "@volcengine/ark-cli@latest"]
-  );
 });
 
 // --- buildSkillsAddArgs (local dir source) ---------------------------------
@@ -467,8 +443,8 @@ function detectDeps(present, env) {
     isExecutable: fakeIsExecutable(present),
   };
 }
-check("planSetup all present -> no installs, one bundle", () => {
-  const plan = planSetup(parseArgs(["--bundle-url", BUNDLE_URL]), detectDeps(["ve", "arkcli"]));
+check("planSetup ve present -> no installs, one bundle", () => {
+  const plan = planSetup(parseArgs(["--bundle-url", BUNDLE_URL]), detectDeps(["ve"]));
   assert.deepStrictEqual(plan.installs, []);
   assert.strictEqual(plan.vePresentAtStart, true);
   assert.ok(plan.bundle);
@@ -476,19 +452,24 @@ check("planSetup all present -> no installs, one bundle", () => {
   assert.strictEqual(plan.bundle.file, null);
 });
 check("planSetup bundle-file wins over url", () => {
-  const plan = planSetup(parseArgs(["--bundle-file", "./b.zip"]), detectDeps(["ve", "arkcli"]));
+  const plan = planSetup(parseArgs(["--bundle-file", "./b.zip"]), detectDeps(["ve"]));
   assert.strictEqual(plan.bundle.file, "./b.zip");
   assert.strictEqual(plan.bundle.url, "");
 });
-check("planSetup arkcli missing -> one install (ark), ve absent from installs", () => {
-  const plan = planSetup(parseArgs([]), detectDeps(["ve"]));
-  assert.strictEqual(plan.installs.length, 1);
-  assert.strictEqual(plan.installs[0].pkg, "@volcengine/ark-cli");
-  assert.deepStrictEqual(plan.installs[0].args, [
-    "install",
-    "-g",
-    "@volcengine/ark-cli@latest",
-  ]);
+check("planSetup only probes ve and does not install a missing arkcli", () => {
+  const probed = [];
+  const plan = planSetup(parseArgs([]), {
+    ...detectDeps(["ve"]),
+    isExecutable: (file) => {
+      const name = path.basename(file);
+      probed.push(name);
+      return name === "ve";
+    },
+  });
+  assert.deepStrictEqual(plan.installs, []);
+  assert.deepStrictEqual(plan.detections.map((d) => d.name), ["ve"]);
+  assert.ok(probed.length > 0);
+  assert.ok(probed.every((name) => name === "ve"));
 });
 check("planSetup skip-install / skip-skills / force", () => {
   const skipInstall = planSetup(parseArgs(["--skip-install"]), detectDeps([]));
@@ -498,34 +479,26 @@ check("planSetup skip-install / skip-skills / force", () => {
 
   const skipInstallWithVe = planSetup(
     parseArgs(["--skip-install"]),
-    detectDeps(["ve", "arkcli"])
+    detectDeps(["ve"])
   );
   assert.ok(skipInstallWithVe.bundle);
 
-  const skipSkills = planSetup(parseArgs(["--skip-skills"]), detectDeps(["ve", "arkcli"]));
+  const skipSkills = planSetup(parseArgs(["--skip-skills"]), detectDeps(["ve"]));
   assert.strictEqual(skipSkills.bundle, null);
 
-  const force = planSetup(parseArgs(["--force"]), detectDeps(["ve", "arkcli"]));
-  assert.strictEqual(force.installs.length, 2);
+  const force = planSetup(parseArgs(["--force"]), detectDeps(["ve"]));
+  assert.strictEqual(force.installs.length, 1);
   assert.strictEqual(force.installs[0].reason, "forced");
-  assert.strictEqual(force.installs[1].reason, "forced");
 });
-check("planSetup --update forces reinstall of present binaries", () => {
-  const update = planSetup(parseArgs(["--update"]), detectDeps(["ve", "arkcli"]));
-  assert.strictEqual(update.installs.length, 2);
+check("planSetup --update upgrades only ve", () => {
+  const update = planSetup(parseArgs(["--update"]), detectDeps(["ve"]));
+  assert.strictEqual(update.installs.length, 1);
   assert.strictEqual(update.installs[0].reason, "update");
-  assert.strictEqual(update.installs[1].reason, "update");
   // Update installs still pin to @latest.
   assert.deepStrictEqual(update.installs[0].args, [
     "install",
     "-g",
     "@volcengine/cli@latest",
-  ]);
-  assert.deepStrictEqual(update.installs[1].args, [
-    "install",
-    "-g",
-    "@volcengine/ark-cli@latest",
-    "--force",
   ]);
 });
 check("planSetup local scope", () => {
@@ -537,7 +510,7 @@ check("planSetup local scope", () => {
   assert.strictEqual(veCommandForPlan(plan, "win32"), path.join("node_modules", ".bin", "ve.cmd"));
 });
 check("veCommandForPlan uses PATH command without a local ve install", () => {
-  const plan = planSetup(parseArgs([]), detectDeps(["ve", "arkcli"]));
+  const plan = planSetup(parseArgs([]), detectDeps(["ve"]));
   assert.strictEqual(veCommandForPlan(plan, "linux"), "ve");
 });
 
@@ -551,7 +524,7 @@ check("aggregateExitCode", () => {
 
 // --- renderSummary ---------------------------------------------------------
 check("renderSummary is a string with a Result line + non-install steps", () => {
-  const plan = planSetup(parseArgs(["--bundle-url", BUNDLE_URL]), detectDeps(["ve", "arkcli"]));
+  const plan = planSetup(parseArgs(["--bundle-url", BUNDLE_URL]), detectDeps(["ve"]));
   const summary = renderSummary(plan, [
     { label: "download bundle", cmd: "download", ok: true, status: 0 },
     { label: "extract bundle", cmd: "extract", ok: true, status: 0 },
@@ -566,20 +539,21 @@ check("renderSummary install/reinstall + [FAIL] lines", () => {
   const plan = {
     detections: [
       { name: "ve", pkg: "@volcengine/cli", found: true, foundVia: "ve" },
-      { name: "arkcli", pkg: "@volcengine/ark-cli", found: false, foundVia: null },
     ],
     installs: [
       { pkg: "@volcengine/cli", args: ["install", "-g", "@volcengine/cli"] },
-      { pkg: "@volcengine/ark-cli", args: ["install", "-g", "@volcengine/ark-cli"] },
     ],
   };
   const s = renderSummary(plan, [
     { label: "install @volcengine/cli", cmd: "npm", ok: true, status: 0 },
-    { label: "install @volcengine/ark-cli", cmd: "npm", ok: false, status: 1 },
   ]);
   assert.ok(s.indexOf("[ok] tool ve reinstalled (@volcengine/cli)") !== -1);
+  plan.detections[0].found = false;
+  const failed = renderSummary(plan, [
+    { label: "install @volcengine/cli", cmd: "npm", ok: false, status: 1 },
+  ]);
   assert.ok(
-    s.indexOf("[FAIL] tool arkcli installed (@volcengine/ark-cli) — exit 1") !== -1
+    failed.indexOf("[FAIL] tool ve installed (@volcengine/cli) — exit 1") !== -1
   );
 });
 check("renderSummary reports 'updated' for --update installs", () => {
@@ -601,7 +575,7 @@ check("renderSummary reports 'updated' for --update installs", () => {
   assert.ok(s.indexOf("[ok] tool ve updated (@volcengine/cli)") !== -1);
 });
 check("renderSummary emits global-bin-dir Note only for global installs", () => {
-  const globalPlan = planSetup(parseArgs([]), detectDeps([])); // 2 global (-g) installs
+  const globalPlan = planSetup(parseArgs([]), detectDeps([])); // one global (-g) install
   assert.ok(
     renderSummary(globalPlan, []).indexOf("Note: the npm global bin dir") !== -1
   );
@@ -610,7 +584,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
     renderSummary(localPlan, []).indexOf("Note: the npm global bin dir"),
     -1
   );
-  const noInstall = planSetup(parseArgs(["--bundle-url", BUNDLE_URL]), detectDeps(["ve", "arkcli"]));
+  const noInstall = planSetup(parseArgs(["--bundle-url", BUNDLE_URL]), detectDeps(["ve"]));
   assert.strictEqual(
     renderSummary(noInstall, []).indexOf("Note: the npm global bin dir"),
     -1
@@ -624,7 +598,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
   // executePlan: ve 1.1.2 keeps bundle download+extract(tar)+npx
   {
     const parsed = opts(["--bundle-url", BUNDLE_URL]);
-    const plan = planSetup(parsed, detectDeps(["ve", "arkcli"]));
+    const plan = planSetup(parsed, detectDeps(["ve"]));
     const exec = fakeExec();
     const download = fakeDownload();
     const log = captureLog();
@@ -641,7 +615,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
   // executePlan: ve newer than 1.1.2 uses ve skills update only
   {
     const parsed = opts(["--bundle-url", BUNDLE_URL]);
-    const plan = planSetup(parsed, detectDeps(["ve", "arkcli"]));
+    const plan = planSetup(parsed, detectDeps(["ve"]));
     const exec = fakeExec({ veVersion: "1.1.3" });
     const download = fakeDownload();
     const log = captureLog();
@@ -660,7 +634,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
   // managed update failure is reported and never falls back to npx
   {
     const parsed = opts(["--bundle-url", BUNDLE_URL]);
-    const plan = planSetup(parsed, detectDeps(["ve", "arkcli"]));
+    const plan = planSetup(parsed, detectDeps(["ve"]));
     const exec = fakeExec({
       veVersion: "2.0.0",
       fail: ["ve skills update"],
@@ -706,7 +680,8 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
     });
     assert.strictEqual(res.code, 0);
     assert.strictEqual(download.calls.length, 0);
-    assert.deepStrictEqual(exec.calls.map((c) => c.cmd), ["npm", "npm"]);
+    assert.deepStrictEqual(exec.calls.map((c) => c.cmd), ["npm"]);
+    assert.deepStrictEqual(exec.calls[0].args, ["install", "-g", "@volcengine/cli@latest"]);
     assert.strictEqual(exec.calls.some((c) => c.cmd === "ve" || c.cmd === "npx"), false);
     passed += 1;
   }
@@ -714,7 +689,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
   // unrecognized ve output conservatively keeps the legacy install path
   {
     const parsed = opts(["--bundle-url", BUNDLE_URL]);
-    const plan = planSetup(parsed, detectDeps(["ve", "arkcli"]));
+    const plan = planSetup(parsed, detectDeps(["ve"]));
     const exec = fakeExec({ veVersion: null });
     const download = fakeDownload();
     const log = captureLog();
@@ -728,25 +703,28 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
     passed += 1;
   }
 
-  // executePlan: install (arkcli missing) then bundle
+  // executePlan: --update upgrades ve, then updates its managed skills
   {
-    const parsed = opts(["--bundle-url", BUNDLE_URL]);
+    const parsed = opts(["--update", "--bundle-url", BUNDLE_URL]);
     const plan = planSetup(parsed, detectDeps(["ve"]));
-    const exec = fakeExec();
+    const exec = fakeExec({ veVersion: "1.1.10" });
     const download = fakeDownload();
     const log = captureLog();
     const res = await executePlan(plan, {
       exec, download, log, platform: "linux", addOptions: parsed,
     });
     assert.strictEqual(res.code, 0);
-    assert.deepStrictEqual(exec.calls.map((c) => c.cmd), ["npm", "ve", "tar", "npx"]);
+    assert.deepStrictEqual(exec.calls.map((c) => c.cmd), ["npm", "ve", "ve"]);
+    assert.deepStrictEqual(exec.calls[0].args, ["install", "-g", "@volcengine/cli@latest"]);
+    assert.deepStrictEqual(exec.calls[2].args, ["skills", "update"]);
+    assert.strictEqual(download.calls.length, 0);
     passed += 1;
   }
 
   // extract fallback: tar missing (ENOENT) -> unzip succeeds
   {
     const parsed = opts(["--bundle-url", BUNDLE_URL]);
-    const plan = planSetup(parsed, detectDeps(["ve", "arkcli"]));
+    const plan = planSetup(parsed, detectDeps(["ve"]));
     const exec = fakeExec({ enoent: ["tar"] });
     const download = fakeDownload();
     const log = captureLog();
@@ -761,7 +739,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
   // extract: neither tar nor unzip present -> clear "install tar or unzip" error
   {
     const parsed = opts(["--bundle-url", BUNDLE_URL]);
-    const plan = planSetup(parsed, detectDeps(["ve", "arkcli"]));
+    const plan = planSetup(parsed, detectDeps(["ve"]));
     const exec = fakeExec({ enoent: ["tar", "unzip"] });
     const download = fakeDownload();
     const log = captureLog();
@@ -779,7 +757,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
   // extract: tar present but cannot read zip (GNU tar), unzip missing -> generic
   {
     const parsed = opts(["--bundle-url", BUNDLE_URL]);
-    const plan = planSetup(parsed, detectDeps(["ve", "arkcli"]));
+    const plan = planSetup(parsed, detectDeps(["ve"]));
     const exec = fakeExec({ fail: ["tar "], enoent: ["unzip"] });
     const download = fakeDownload();
     const log = captureLog();
@@ -794,7 +772,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
   // download failure -> recorded, no extract/npx
   {
     const parsed = opts(["--bundle-url", BUNDLE_URL]);
-    const plan = planSetup(parsed, detectDeps(["ve", "arkcli"]));
+    const plan = planSetup(parsed, detectDeps(["ve"]));
     const exec = fakeExec();
     const download = fakeDownload({ fail: "network down" });
     const log = captureLog();
@@ -812,7 +790,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
     const parsed = opts([]);
     // Simulate an empty default/env by handing executePlan a bundle with no
     // file and an empty url.
-    const plan = planSetup(parsed, detectDeps(["ve", "arkcli"]));
+    const plan = planSetup(parsed, detectDeps(["ve"]));
     plan.bundle = { file: null, url: "", label: "skills bundle" };
     const exec = fakeExec();
     const download = fakeDownload();
@@ -829,7 +807,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
   // temp dir is cleaned up on success (rmdir called once with the work dir)
   {
     const parsed = opts(["--bundle-url", BUNDLE_URL]);
-    const plan = planSetup(parsed, detectDeps(["ve", "arkcli"]));
+    const plan = planSetup(parsed, detectDeps(["ve"]));
     const rmCalls = [];
     const res = await executePlan(plan, {
       exec: fakeExec(), download: fakeDownload(), log: captureLog(),
@@ -844,7 +822,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
   // temp dir is cleaned up even when a step fails (extract fails -> still rm'd)
   {
     const parsed = opts(["--bundle-url", BUNDLE_URL]);
-    const plan = planSetup(parsed, detectDeps(["ve", "arkcli"]));
+    const plan = planSetup(parsed, detectDeps(["ve"]));
     const rmCalls = [];
     const res = await executePlan(plan, {
       exec: fakeExec({ enoent: ["tar", "unzip"] }),
@@ -859,7 +837,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
   // bundle-file: uses local zip (no download), extract + npx
   {
     const parsed = opts(["--bundle-file", "/tmp/local.zip"]);
-    const plan = planSetup(parsed, detectDeps(["ve", "arkcli"]));
+    const plan = planSetup(parsed, detectDeps(["ve"]));
     const exec = fakeExec();
     const download = fakeDownload();
     const log = captureLog();
@@ -876,7 +854,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
   // bundle-file missing on disk -> error, no extract
   {
     const parsed = opts(["--bundle-file", "/tmp/missing.zip"]);
-    const plan = planSetup(parsed, detectDeps(["ve", "arkcli"]));
+    const plan = planSetup(parsed, detectDeps(["ve"]));
     const exec = fakeExec();
     const log = captureLog();
     const res = await executePlan(plan, {
@@ -895,7 +873,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
     const log = captureLog();
     const code = await main(["--bundle-url", BUNDLE_URL, "--dry-run"], {
       exec, log, platform: "linux", env: UNIX_ENV,
-      isExecutable: fakeIsExecutable(["ve", "arkcli"]),
+      isExecutable: fakeIsExecutable(["ve"]),
     });
     assert.strictEqual(code, 0);
     assert.strictEqual(exec.calls.length, 0);
@@ -929,7 +907,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
     const log = captureLog();
     const code = await main(["--skip-install", "--skip-skills", "--dry-run"], {
       exec, log, platform: "linux", env: UNIX_ENV,
-      isExecutable: fakeIsExecutable(["ve", "arkcli"]),
+      isExecutable: fakeIsExecutable(["ve"]),
     });
     assert.strictEqual(code, 0);
     assert.ok(log.text().indexOf("(nothing to do)") !== -1);
@@ -964,7 +942,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
     const log = captureLog();
     const code = await main(["--bundle-url", BUNDLE_URL], {
       exec, download, log, platform: "linux", env: UNIX_ENV,
-      isExecutable: fakeIsExecutable(["ve", "arkcli"]),
+      isExecutable: fakeIsExecutable(["ve"]),
     });
     assert.strictEqual(code, 0);
     assert.deepStrictEqual(exec.calls.map((c) => c.cmd), ["ve", "tar", "npx"]);
@@ -974,7 +952,7 @@ check("renderSummary emits global-bin-dir Note only for global installs", () => 
   // --- package.json / bin shim --------------------------------------------
   assert.strictEqual(pkg.bin["skills-setup"], "bin/skills-setup");
   assert.strictEqual(pkg.name, "@volcengine/skills-setup");
-  assert.strictEqual(pkg.version, "0.8.0");
+  assert.strictEqual(pkg.version, "0.9.0");
   assert.strictEqual(pkg.engines.node, ">=20");
   assert.strictEqual(pkg.dependencies, undefined);
   assert.strictEqual(

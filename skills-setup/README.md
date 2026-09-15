@@ -2,12 +2,13 @@
 
 > **Language**: English · [中文](./README.zh.md)
 
-One command to install the Volcengine CLI (`ve`), the ARK CLI (`arkcli`), and
-their companion skills:
+One command to install the Volcengine CLI (`ve`) and its core agent skills:
 
 ```bash
 npx -y @volcengine/skills-setup
 ```
+
+Use Ark CLI through the `ve arkcli` proxy.
 
 > **Prerequisites**: Node.js **>= 20**. The compatibility path used with
 > `ve <= 1.1.2` also requires `unzip` (or `tar`) on your `PATH`. See
@@ -18,8 +19,8 @@ npx -y @volcengine/skills-setup
 `skills-setup` does three things, and every step is **idempotent** (safe to
 re-run):
 
-1. **Detect** whether `ve` and `arkcli` are already on your `PATH`.
-2. **Install** the missing CLI tools via npm, always pinned to `@latest`
+1. **Detect** whether `ve` is already on your `PATH`.
+2. **Install** `ve` if missing via npm, always pinned to `@latest`
    (nothing happens if already present — use `--update` to force an upgrade).
 3. **Install or update agent skills**. If `ve` was initially missing, the
    `@volcengine/cli` package installs the skills and no separate skill command
@@ -30,14 +31,20 @@ re-run):
 | Category | Item | Source | Where it lands |
 |---|---|---|---|
 | CLI tool | `ve` | `@volcengine/cli` (npm) | npm global bin (`--local` → project `node_modules/.bin`) |
-| CLI tool | `arkcli` | `@volcengine/ark-cli` (npm) | same as above (`ark-cli` spelling also accepted when detecting) |
 | Agent skills | core `volcengine/volcengine-skills` skills | `ve skills update`; pre-packaged **bundle zip** for old versions | the target agent's skills directory |
 
 > The compatibility bundle contains **only** `volcengine-cli`, `volcengine-troubleshooting`,
 > `volcengine-knowledge-search`, and `volcengine-find-skills` from `skills/core`.
-> The `arkcli-*` skills are **not** re-bundled: installing
-> `@volcengine/ark-cli` (step 2) already ships them, so bundling them again would
-> just install the same skills twice.
+
+Starting with skills-setup **0.9.0**, CLI installation and upgrades manage only `ve`;
+`@volcengine/ark-cli` is no longer installed separately. `ve arkcli` is available
+in **ve >= 1.1.9** and uses an existing Ark CLI or downloads a managed binary
+on first invocation. To upgrade an older `ve` and use the proxy:
+
+```bash
+npx -y @volcengine/skills-setup --update
+ve arkcli --help
+```
 
 **Skill installation rules**:
 
@@ -55,11 +62,11 @@ re-run):
 
 | Goal | Command |
 |---|---|
-| Install everything (default) | `npx -y @volcengine/skills-setup` |
+| Install ve and core skills (default) | `npx -y @volcengine/skills-setup` |
 | Skip CLI installation and update skills for an existing `ve` | `... --skip-install` |
 | Skip the separate skill update step | `... --skip-skills` |
-| Force-upgrade ve/arkcli to latest | `... --update` |
-| Install ve/arkcli into the local project | `... --local` |
+| Force-upgrade ve to latest | `... --update` |
+| Install ve into the local project | `... --local` |
 | Preview without executing | `... --dry-run` |
 
 ## Requirements
@@ -82,16 +89,16 @@ skills-setup [options]
 Common examples:
 
 ```bash
-# Defaults: ensure ve+arkcli (global), then install or update companion skills
+# Defaults: ensure ve (global), then install or update core skills
 node setup.js
 
 # See exactly what would run, without executing anything
 node setup.js --dry-run
 
-# Install ve/arkcli into the current project instead of globally
+# Install ve into the current project instead of globally
 node setup.js --local
 
-# Do not install CLIs; only update skills for an existing ve
+# Do not install ve; only update skills for an existing ve
 node setup.js --skip-install
 ```
 
@@ -99,11 +106,11 @@ node setup.js --skip-install
 
 | Flag | Default | Effect |
 |---|---|---|
-| `--local` | off (global) | `npm install` without `-g` for missing binaries. |
-| `--skip-install` | off | Skip ve/arkcli installation; update skills if `ve` exists. |
+| `--local` | off (global) | Install ve using `npm install` without `-g`. |
+| `--skip-install` | off | Skip ve installation; update skills if `ve` exists. |
 | `--skip-skills` | off | Skip the separate skill update/compatibility step. |
-| `--force` | off | Reinstall binaries even if already present. |
-| `--update` | off | Force-upgrade ve/arkcli to `@latest` even if present. |
+| `--force` | off | Reinstall ve even if already present. |
+| `--update` | off | Force-upgrade ve to `@latest` even if present. |
 | `--dry-run` | off | Print the version check and planned commands; run nothing. |
 | `-h`, `--help` | — | Show help. |
 

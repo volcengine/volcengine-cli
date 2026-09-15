@@ -2,11 +2,13 @@
 
 > **语言**: [English](./README.md) · 中文
 
-一条命令，快捷安装火山引擎命令行工具（`ve`）、ARK 命令行工具（`arkcli`）及配套 skill：
+一条命令，快捷安装火山引擎命令行工具（`ve`）及核心 agent skills：
 
 ```bash
 npx -y @volcengine/skills-setup
 ```
+
+Ark CLI 通过 `ve arkcli` 代理命令使用。
 
 > **前置依赖**：Node.js **>= 20**。当 `ve <= 1.1.2`、需要走兼容链路时，还需要
 > `PATH` 上有 `unzip`（或 `tar`）用于解压 skill bundle。详见
@@ -16,8 +18,8 @@ npx -y @volcengine/skills-setup
 
 `skills-setup` 做三件事，每一步都是**幂等的**（可安全重复运行）：
 
-1. **检测**：扫描 `PATH`，判断 `ve`、`arkcli` 是否已安装。
-2. **按需安装**：缺失的 CLI 工具用 npm 装上，始终固定为 `@latest`
+1. **检测**：扫描 `PATH`，判断 `ve` 是否已安装。
+2. **按需安装**：缺失时通过 npm 安装 `ve`，始终固定为 `@latest`
    （已存在则跳过；用 `--update` 可强制升级到最新版）。
 3. **安装或更新 agent skills**：若最初未检测到 `ve`，安装
    `@volcengine/cli` 时会一并安装 skill，不再执行单独的 skill 安装；若已有
@@ -28,13 +30,20 @@ npx -y @volcengine/skills-setup
 | 类别 | 内容 | 来源 | 落地位置 |
 |---|---|---|---|
 | CLI 工具 | `ve` | `@volcengine/cli`（npm） | npm 全局 bin（`--local` → 项目 `node_modules/.bin`） |
-| CLI 工具 | `arkcli` | `@volcengine/ark-cli`（npm） | 同上（检测时 `arkcli` / `ark-cli` 两种拼写都认） |
 | Agent Skills | `volcengine/volcengine-skills` 的核心 skill | `ve skills update`；旧版兼容链路使用预打包 **bundle zip** | 目标 agent 的 skills 目录 |
 
 > 兼容链路的 bundle 里**只含** `skills/core` 下的 `volcengine-cli`、
 > `volcengine-troubleshooting`、`volcengine-knowledge-search` 和
-> `volcengine-find-skills`；**不再打包** `arkcli-*`——因为第 2 步安装
-> `@volcengine/ark-cli` 时它自带这批 skill，再打包会重复安装同一批 skill。
+> `volcengine-find-skills`。
+
+从 skills-setup **0.9.0** 开始，CLI 安装和升级仅处理 `ve`，不再单独安装
+`@volcengine/ark-cli`。**ve >= 1.1.9** 提供 `ve arkcli` 代理入口，首次调用时
+复用已有的 Ark CLI，或按需下载托管二进制。已有旧版 `ve` 时，可先升级再使用：
+
+```bash
+npx -y @volcengine/skills-setup --update
+ve arkcli --help
+```
 
 **skill 安装规则**：
 
@@ -49,11 +58,11 @@ npx -y @volcengine/skills-setup
 
 | 需求 | 命令 |
 |---|---|
-| 默认全装 | `npx -y @volcengine/skills-setup` |
+| 默认安装 ve 与核心 skills | `npx -y @volcengine/skills-setup` |
 | 跳过 CLI 安装，只更新已有 `ve` 的 skill | `... --skip-install` |
 | 跳过单独的 skill 更新步骤 | `... --skip-skills` |
-| 强制升级 ve/arkcli 到最新 | `... --update` |
-| ve/arkcli 装到本地项目而非全局 | `... --local` |
+| 强制升级 ve 到最新 | `... --update` |
+| ve 装到本地项目而非全局 | `... --local` |
 | 先预览不执行 | `... --dry-run` |
 
 ## 环境要求
@@ -76,13 +85,13 @@ skills-setup [选项]
 常用示例：
 
 ```bash
-# 默认：确保 ve+arkcli（全局），安装或更新配套 skill
+# 默认：确保 ve（全局），安装或更新核心 skills
 node setup.js
 
 # 只预览将执行的命令，不真正执行
 node setup.js --dry-run
 
-# ve/arkcli 装到当前项目而非全局
+# ve 装到当前项目而非全局
 node setup.js --local
 
 # 不安装 CLI，只更新已有 ve 的 skill
@@ -93,11 +102,11 @@ node setup.js --skip-install
 
 | Flag | 默认值 | 作用 |
 |---|---|---|
-| `--local` | 关（全局） | 安装缺失二进制时 `npm install` 不带 `-g`。 |
-| `--skip-install` | 关 | 跳过 ve/arkcli 安装；若已有 `ve`，仍按版本更新 skill。 |
+| `--local` | 关（全局） | 安装 ve 时 `npm install` 不带 `-g`。 |
+| `--skip-install` | 关 | 跳过 ve 安装；若已有 `ve`，仍按版本更新 skill。 |
 | `--skip-skills` | 关 | 跳过单独的 skill 更新/兼容安装步骤。 |
-| `--force` | 关 | 即使已存在也重装二进制。 |
-| `--update` | 关 | 即使已存在也强制把 ve/arkcli 升级到 `@latest`。 |
+| `--force` | 关 | 即使已存在也重装 ve。 |
+| `--update` | 关 | 即使已存在也强制把 ve 升级到 `@latest`。 |
 | `--dry-run` | 关 | 打印版本判断及计划执行的命令，不真正执行。 |
 | `-h`, `--help` | — | 显示帮助。 |
 
