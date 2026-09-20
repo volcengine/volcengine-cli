@@ -24,7 +24,7 @@ func (r mcpServerRegistrar) RegisterTool(tool *protocol.Tool, handler mcpToolHan
 }
 
 type mcpAPIInvoker interface {
-	CallAPI(context.Context, string, string, string, map[string]interface{}) (map[string]interface{}, error)
+	CallAPI(context.Context, string, string, string, map[string]interface{}, bool) (map[string]interface{}, error)
 }
 
 func registerMCPTools(registrar mcpToolRegistrar, support *RootSupport, invoker mcpAPIInvoker) {
@@ -66,7 +66,7 @@ func registerMCPTools(registrar mcpToolRegistrar, support *RootSupport, invoker 
 		return mcpJSONResult(result)
 	})
 
-	callAPITool := protocol.NewToolWithRawSchema("call_api", "Call any supported Volcano Engine API. Cloud IAM permissions determine whether the call is allowed.", json.RawMessage(`{"type":"object","properties":{"service":{"type":"string"},"api":{"type":"string"},"region":{"type":"string","description":"Override the region for this API call.","pattern":"^[A-Za-z0-9][A-Za-z0-9-]{0,127}$"},"parameters":{"type":"object","additionalProperties":true}},"required":["service","api"]}`))
+	callAPITool := protocol.NewToolWithRawSchema("call_api", "Call any supported Volcano Engine API. Cloud IAM permissions and the local safety policy determine whether the call is allowed.", json.RawMessage(`{"type":"object","properties":{"service":{"type":"string"},"api":{"type":"string"},"region":{"type":"string","description":"Override the region for this API call.","pattern":"^[A-Za-z0-9][A-Za-z0-9-]{0,127}$"},"parameters":{"type":"object","additionalProperties":true},"yes":{"type":"boolean","description":"Set to true only after the user explicitly approves an operation that the safety policy requires confirmation for."}},"required":["service","api"]}`))
 	readOnly, destructive, idempotent, openWorld := false, true, false, true
 	callAPITool.Annotations = &protocol.ToolAnnotations{
 		ReadOnlyHint: &readOnly, DestructiveHint: &destructive, IdempotentHint: &idempotent, OpenWorldHint: &openWorld,
@@ -92,12 +92,28 @@ func registerMCPTools(registrar mcpToolRegistrar, support *RootSupport, invoker 
 		if err != nil {
 			return mcpErrorResult(err), nil
 		}
-		result, err := invoker.CallAPI(ctx, serviceName, api, region, parameters)
+		yes, err := mcpBoolArgument(request.Arguments, "yes")
+		if err != nil {
+			return mcpErrorResult(err), nil
+		}
+		result, err := invoker.CallAPI(ctx, serviceName, api, region, parameters, yes)
 		if err != nil {
 			return mcpErrorResult(err), nil
 		}
 		return mcpJSONResult(result)
 	})
+}
+
+func mcpBoolArgument(arguments map[string]interface{}, name string) (bool, error) {
+	value, exists := arguments[name]
+	if !exists || value == nil {
+		return false, nil
+	}
+	result, ok := value.(bool)
+	if !ok {
+		return false, fmt.Errorf("%s must be a boolean", name)
+	}
+	return result, nil
 }
 
 func mcpReadOnlyToolAnnotations() *protocol.ToolAnnotations {

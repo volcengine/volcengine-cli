@@ -147,6 +147,63 @@ ve configure delete --profile prod
 
 删除 profile 不会删除 SSO session，也不会删除 Console Login 的全局缓存目录。Console Login 缓存清理见 [认证与登录](2-Authentication-zh.md#console-logout)。
 
+## 安全策略（Safety Policy）
+
+安全策略是 `ve` 在客户端执行的 OpenAPI 操作防护，覆盖普通调用、`--force` 调用和 MCP `call_api`。它与火山引擎 IAM 互补，不能替代云端鉴权。`ve arkcli` 和 `ve tosutil` 属于参数原样透传的代理 CLI，不在拦截范围内。
+
+安全策略默认关闭，独立保存在 `~/.volcengine/safety-policy.json`，文件权限为 `0600`。可执行：
+
+```shell
+ve configure safety-policy enable
+ve configure safety-policy add --pattern '*:Delete*' --action deny
+ve configure safety-policy add --pattern '*:Update*' --action confirm
+ve configure safety-policy list
+```
+
+规则动作：
+
+- `allow`：显式允许命中的操作。通过 JSON 文件或 `VOLCENGINE_SAFETY_POLICY_RULES` 配置；`add` 命令有意只接受防护动作。
+- `deny`：在本地拒绝，不发送 API 请求。
+- `confirm`：发送请求前必须获得明确确认。
+- `forbid`：`confirm` 的别名。
+
+规则格式为 `service:action`，匹配不区分大小写，支持 `*` 通配符，并采用第一条匹配优先（first-match-wins）。未命中任何规则时默认允许。规则按命令写法匹配，不会自动展开别名，因此具体别名需要分别覆盖。
+
+```json
+{
+  "enabled": true,
+  "rules": [
+    {"pattern": "ecs:Describe*", "action": "allow"},
+    {"pattern": "ecs:*", "action": "deny"}
+  ]
+}
+```
+
+交互式终端命中 `confirm` 时会提示输入 `yes`。在 AI Agent、CI 等非交互环境中，第一次调用返回错误且不会发送 API 请求；用户明确确认后，使用 `--yes` 或 `-y` 重新执行同一命令：
+
+```shell
+ve ecs UpdateInstance --InstanceId i-xxxxx --yes
+```
+
+`--yes` 只能跳过 `confirm`，不能绕过 `deny`。MCP 客户端在重试 `call_api` 时传入 `yes: true`，详见 [MCP 服务](6-MCP-zh.md#安全策略)。
+
+环境变量优先级高于配置文件：
+
+| 变量 | 说明 |
+| --- | --- |
+| `VOLCENGINE_SAFETY_POLICY_ENABLED` | 覆盖 `enabled`（`true`/`false`，也接受 `1`/`0` 等 Go 布尔写法） |
+| `VOLCENGINE_SAFETY_POLICY_RULES` | 用逗号分隔的 `pattern=action` 完整替换文件规则 |
+| `VOLCENGINE_SAFETY_SKIP_CONFIRM` | 将当前进程的确认视为已批准（`1`、`true`、`yes` 或 `on`） |
+
+示例：
+
+```shell
+export VOLCENGINE_SAFETY_POLICY_ENABLED=true
+export VOLCENGINE_SAFETY_POLICY_RULES='ecs:Describe*=allow,*:Delete*=deny,*:Update*=confirm'
+```
+
+策略文件损坏或环境变量格式非法时采用 fail-closed：CLI 返回配置错误，不发送 API 请求。
+
 ## 配置选择示例
 
 ### 多环境切换

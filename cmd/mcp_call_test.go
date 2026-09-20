@@ -7,7 +7,49 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/volcengine/volcengine-cli/internal/safety"
 )
+
+func TestMCPInvokerSafetyPolicyRequiresExplicitApproval(t *testing.T) {
+	dir, cleanup := withTestConfigDir(t)
+	defer cleanup()
+	if err := safety.SavePolicy(dir, &safety.Policy{
+		Enabled: true,
+		Rules:   []safety.Rule{{Pattern: "sts:GetCallerIdentity", Action: safety.ActionConfirm}},
+	}); err != nil {
+		t.Fatalf("save safety policy: %v", err)
+	}
+
+	invoker, err := newVolcengineMCPInvoker(&Configure{Profiles: map[string]*Profile{}}, "", "cn-beijing")
+	if err != nil {
+		t.Fatalf("newVolcengineMCPInvoker() error = %v", err)
+	}
+	_, err = invoker.CallAPI(context.Background(), "sts", "GetCallerIdentity", "", map[string]interface{}{}, false)
+	if err == nil || !strings.Contains(err.Error(), "yes=true") {
+		t.Fatalf("unapproved MCP call error = %v", err)
+	}
+}
+
+func TestMCPInvokerSafetyPolicyDenyCannotBeApproved(t *testing.T) {
+	dir, cleanup := withTestConfigDir(t)
+	defer cleanup()
+	if err := safety.SavePolicy(dir, &safety.Policy{
+		Enabled: true,
+		Rules:   []safety.Rule{{Pattern: "sts:GetCallerIdentity", Action: safety.ActionDeny}},
+	}); err != nil {
+		t.Fatalf("save safety policy: %v", err)
+	}
+
+	invoker, err := newVolcengineMCPInvoker(&Configure{Profiles: map[string]*Profile{}}, "", "cn-beijing")
+	if err != nil {
+		t.Fatalf("newVolcengineMCPInvoker() error = %v", err)
+	}
+	_, err = invoker.CallAPI(context.Background(), "sts", "GetCallerIdentity", "", map[string]interface{}{}, true)
+	if err == nil || !strings.Contains(err.Error(), "blocked by safety policy") {
+		t.Fatalf("approved denied MCP call error = %v", err)
+	}
+}
 
 func TestMCPInvokerReloadsProfileConfigurationAfterStartup(t *testing.T) {
 	_, cleanup := withTestConfigDir(t)
@@ -79,7 +121,7 @@ func TestMCPInvokerFallsBackToHeaderCredentials(t *testing.T) {
 		},
 	}
 	ctx := context.WithValue(context.Background(), mcpRequestMetadataContextKey{}, metadata)
-	if _, err := invoker.CallAPI(ctx, "sts", "GetCallerIdentity", "ap-southeast-1", map[string]interface{}{}); err != nil {
+	if _, err := invoker.CallAPI(ctx, "sts", "GetCallerIdentity", "ap-southeast-1", map[string]interface{}{}, false); err != nil {
 		t.Fatalf("CallAPI() error = %v", err)
 	}
 
@@ -169,7 +211,7 @@ func TestMCPInvokerUsesDefaultChainBeforeHeaderCredentials(t *testing.T) {
 	}
 	metadata := mcpRequestMetadata{Credentials: &mcpCredentials{AccessKeyID: "header-ak", SecretAccessKey: "header-sk"}}
 	ctx := context.WithValue(context.Background(), mcpRequestMetadataContextKey{}, metadata)
-	if _, err := invoker.CallAPI(ctx, "sts", "GetCallerIdentity", "", map[string]interface{}{}); err != nil {
+	if _, err := invoker.CallAPI(ctx, "sts", "GetCallerIdentity", "", map[string]interface{}{}, false); err != nil {
 		t.Fatalf("CallAPI() error = %v", err)
 	}
 

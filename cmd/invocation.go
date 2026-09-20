@@ -16,6 +16,7 @@ func resetInvocationContext() {
 	}
 	ctx.fixedFlags = NewFlagSet()
 	ctx.dynamicFlags = NewFlagSet()
+	ctx.invokedService = ""
 }
 
 // parseInvocationArgs 重置 context 后解析参数，返回位置参数（如 action 名）。

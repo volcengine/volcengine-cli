@@ -350,7 +350,7 @@ VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity
 对外系统参数：
 
 ```text
---profile, --region, --endpoint, --lang, --force, --version, --method, --output, --query
+--profile, --region, --endpoint, --lang, --force, --yes, --version, --method, --output, --query
 ```
 
 双横线保留控制参数：

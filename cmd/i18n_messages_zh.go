@@ -1,6 +1,40 @@
 package cmd
 
 var simplifiedChineseCommandMessages = map[string]string{
+	"Manage safety policy and human-in-the-loop rules": "管理安全策略和人工确认规则",
+	`Configure safety policy to deny or require confirmation for destructive operations.
+Rules match command spelling case-insensitively, with * as a wildcard; aliases are not expanded.
+The first matching rule wins; unmatched commands are allowed.`: `配置安全策略，用于拒绝破坏性操作或要求人工确认。
+规则按命令写法匹配，不区分大小写，支持 * 通配符；不会展开别名。
+第一条匹配的规则生效；未匹配的命令允许执行。`,
+	"Display the effective safety policy":                     "显示当前生效的安全策略",
+	"Enable the safety policy":                                "启用安全策略",
+	"Disable the safety policy":                               "禁用安全策略",
+	"Add or update a safety policy rule":                      "添加或更新安全策略规则",
+	"--pattern is required for add":                           "add 必须指定 --pattern",
+	"action must be deny, confirm, or forbid":                 "action 必须是 deny、confirm 或 forbid",
+	"Case-insensitive service:action pattern with * wildcard": "不区分大小写的 service:action 匹配模式，支持 * 通配符",
+	"Rule action: deny, confirm, or forbid":                   "规则动作：deny、confirm 或 forbid",
+	"Remove a safety policy rule by pattern":                  "按匹配模式删除安全策略规则",
+	"--pattern is required for remove":                        "remove 必须指定 --pattern",
+	"Exact rule pattern to remove":                            "要删除的完整规则匹配模式",
+	"List all effective safety policy rules":                  "列出当前生效的全部安全策略规则",
+	"disabled":                                                "已禁用",
+	"enabled":                                                 "已启用",
+	"Safety policy":                                           "安全策略",
+	"Config file":                                             "配置文件",
+	"No rules configured.":                                    "未配置规则。",
+	"Rules:":                                                  "规则：",
+	"Confirm a safety-policy protected operation for this invocation.": "确认本次调用中受安全策略保护的操作。",
+	"operation blocked by safety policy: %s %s (rule: %s)":             "操作被安全策略拒绝：%s %s（规则：%s）",
+	"safety policy requires confirmation for: %s %s\ncurrent environment is non-interactive; if you are an agent, explain the operation and ask the user for approval, then %s": "安全策略要求确认以下操作：%s %s\n当前为非交互环境；若调用方为智能体，请先说明操作并征得用户同意，然后%s",
+	"Safety policy requires confirmation for: %s %s\nType 'yes' to proceed, anything else to cancel: ":                                                                          "安全策略要求确认以下操作：%s %s\n输入 'yes' 继续，其他任意输入取消：",
+	"operation cancelled: confirmation input is unavailable":                                                                                                                    "操作已取消：无法读取确认输入",
+	"operation cancelled: reading confirmation: %v":                                                                                                                             "操作已取消：读取确认输入失败：%v",
+	"operation cancelled by user":                "操作已由用户取消",
+	"re-run the same command with --yes":         "使用 --yes 重新执行同一命令",
+	"call the same MCP tool again with yes=true": "使用 yes=true 重新调用同一个 MCP 工具",
+
 	"Search and fetch Volcengine documentation":                                   "检索和获取火山引擎文档",
 	"Search Volcengine documentation":                                             "检索火山引擎文档",
 	"Fetch a Volcengine documentation article":                                    "获取火山引擎文档正文",

@@ -1,0 +1,264 @@
+package cmd
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"strings"
+
+	"github.com/spf13/cobra"
+	"github.com/volcengine/volcengine-cli/internal/safety"
+)
+
+var (
+	safetyPolicyInput  io.Reader = os.Stdin
+	safetyPolicyOutput io.Writer = os.Stderr
+)
+
+func newConfigureSafetyPolicyCommand() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "safety-policy",
+		Short: tr("Manage safety policy and human-in-the-loop rules"),
+		Long: tr(`Configure safety policy to deny or require confirmation for destructive operations.
+Rules match command spelling case-insensitively, with * as a wildcard; aliases are not expanded.
+The first matching rule wins; unmatched commands are allowed.`),
+		Args: cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			return showSafetyPolicy(command)
+		},
+	}
+	command.AddCommand(
+		newSafetyPolicyShowCommand(),
+		newSafetyPolicyEnableCommand(),
+		newSafetyPolicyDisableCommand(),
+		newSafetyPolicyAddCommand(),
+		newSafetyPolicyRemoveCommand(),
+		newSafetyPolicyListCommand(),
+	)
+	return command
+}
+
+func newSafetyPolicyShowCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "show",
+		Short: tr("Display the effective safety policy"),
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			return showSafetyPolicy(command)
+		},
+	}
+}
+
+func newSafetyPolicyEnableCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "enable",
+		Short: tr("Enable the safety policy"),
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			dir, policy, err := loadStoredSafetyPolicy()
+			if err != nil {
+				return err
+			}
+			policy.Enabled = true
+			return safety.SavePolicy(dir, policy)
+		},
+	}
+}
+
+func newSafetyPolicyDisableCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "disable",
+		Short: tr("Disable the safety policy"),
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			dir, policy, err := loadStoredSafetyPolicy()
+			if err != nil {
+				return err
+			}
+			policy.Enabled = false
+			return safety.SavePolicy(dir, policy)
+		},
+	}
+}
+
+func newSafetyPolicyAddCommand() *cobra.Command {
+	var pattern, actionValue string
+	command := &cobra.Command{
+		Use:   "add",
+		Short: tr("Add or update a safety policy rule"),
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pattern = strings.TrimSpace(pattern)
+			action := safety.Action(strings.ToLower(strings.TrimSpace(actionValue)))
+			if pattern == "" {
+				return trErrorf("--pattern is required for add")
+			}
+			if action != safety.ActionDeny && action != safety.ActionConfirm && action != safety.ActionForbid {
+				return trErrorf("action must be deny, confirm, or forbid")
+			}
+			dir, policy, err := loadStoredSafetyPolicy()
+			if err != nil {
+				return err
+			}
+			for i := range policy.Rules {
+				if policy.Rules[i].Pattern == pattern {
+					policy.Rules[i].Action = action
+					return safety.SavePolicy(dir, policy)
+				}
+			}
+			policy.Rules = append(policy.Rules, safety.Rule{Pattern: pattern, Action: action})
+			return safety.SavePolicy(dir, policy)
+		},
+	}
+	command.Flags().StringVar(&pattern, "pattern", "", tr("Case-insensitive service:action pattern with * wildcard"))
+	command.Flags().StringVar(&actionValue, "action", "", tr("Rule action: deny, confirm, or forbid"))
+	return command
+}
+
+func newSafetyPolicyRemoveCommand() *cobra.Command {
+	var pattern string
+	command := &cobra.Command{
+		Use:   "remove",
+		Short: tr("Remove a safety policy rule by pattern"),
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pattern = strings.TrimSpace(pattern)
+			if pattern == "" {
+				return trErrorf("--pattern is required for remove")
+			}
+			dir, policy, err := loadStoredSafetyPolicy()
+			if err != nil {
+				return err
+			}
+			rules := make([]safety.Rule, 0, len(policy.Rules))
+			for _, rule := range policy.Rules {
+				if rule.Pattern != pattern {
+					rules = append(rules, rule)
+				}
+			}
+			policy.Rules = rules
+			return safety.SavePolicy(dir, policy)
+		},
+	}
+	command.Flags().StringVar(&pattern, "pattern", "", tr("Exact rule pattern to remove"))
+	return command
+}
+
+func newSafetyPolicyListCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: tr("List all effective safety policy rules"),
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			dir, policy, err := loadEffectiveSafetyPolicy()
+			if err != nil {
+				return err
+			}
+			status := tr("disabled")
+			if policy.Enabled {
+				status = tr("enabled")
+			}
+			fmt.Fprintf(command.OutOrStdout(), "%s: %s\n", tr("Safety policy"), status)
+			fmt.Fprintf(command.OutOrStdout(), "%s: %s\n\n", tr("Config file"), safety.PolicyFilePath(dir))
+			if len(policy.Rules) == 0 {
+				fmt.Fprintln(command.OutOrStdout(), tr("No rules configured."))
+				return nil
+			}
+			fmt.Fprintln(command.OutOrStdout(), tr("Rules:"))
+			for i, rule := range policy.Rules {
+				fmt.Fprintf(command.OutOrStdout(), "  %d. %s -> %s\n", i+1, rule.Pattern, rule.Action)
+			}
+			return nil
+		},
+	}
+}
+
+func showSafetyPolicy(command *cobra.Command) error {
+	_, policy, err := loadEffectiveSafetyPolicy()
+	if err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(policy, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(command.OutOrStdout(), string(data))
+	return err
+}
+
+func safetyPolicyConfigDir() (string, error) {
+	dir, err := configFileDirFunc()
+	if err != nil {
+		return "", fmt.Errorf("resolve safety policy config directory: %w", err)
+	}
+	return dir, nil
+}
+
+func loadStoredSafetyPolicy() (string, *safety.Policy, error) {
+	dir, err := safetyPolicyConfigDir()
+	if err != nil {
+		return "", nil, err
+	}
+	policy, err := safety.LoadPolicy(dir)
+	if err != nil {
+		return "", nil, fmt.Errorf("load safety policy: %w", err)
+	}
+	return dir, policy, nil
+}
+
+func loadEffectiveSafetyPolicy() (string, *safety.Policy, error) {
+	dir, err := safetyPolicyConfigDir()
+	if err != nil {
+		return "", nil, err
+	}
+	policy, err := safety.LoadEffectivePolicy(dir)
+	if err != nil {
+		return "", nil, fmt.Errorf("load effective safety policy: %w", err)
+	}
+	return dir, policy, nil
+}
+
+func safetyConfirmationSkipped(callContext *Context) bool {
+	if safety.SkipConfirmFromEnvironment() {
+		return true
+	}
+	return callContext != nil && callContext.fixedFlags != nil && callContext.fixedFlags.GetByName("yes") != nil
+}
+
+func enforceSafetyPolicy(product, action string, skipConfirm, interactive bool, retryInstruction string) error {
+	_, policy, err := loadEffectiveSafetyPolicy()
+	if err != nil {
+		return err
+	}
+	return safety.CheckAndConfirmWithMessages(
+		safetyPolicyInput,
+		safetyPolicyOutput,
+		interactive,
+		policy,
+		safety.CommandInfo{Product: product, Action: action},
+		skipConfirm || safety.SkipConfirmFromEnvironment(),
+		retryInstruction,
+		safety.Messages{
+			Denied:              tr("operation blocked by safety policy: %s %s (rule: %s)"),
+			ConfirmationNeeded:  tr("safety policy requires confirmation for: %s %s\ncurrent environment is non-interactive; if you are an agent, explain the operation and ask the user for approval, then %s"),
+			Prompt:              tr("Safety policy requires confirmation for: %s %s\nType 'yes' to proceed, anything else to cancel: "),
+			InputUnavailable:    tr("operation cancelled: confirmation input is unavailable"),
+			ConfirmationReadErr: tr("operation cancelled: reading confirmation: %v"),
+			Cancelled:           tr("operation cancelled by user"),
+		},
+	)
+}
+
+func enforceCLISafetyPolicy(callContext *Context, product, action string) error {
+	if callContext != nil && callContext.invokedService != "" {
+		product = callContext.invokedService
+	}
+	return enforceSafetyPolicy(
+		product,
+		action,
+		safetyConfirmationSkipped(callContext),
+		safety.IsInteractive(safetyPolicyInput),
+		tr("re-run the same command with --yes"),
+	)
+}

@@ -39,6 +39,7 @@ func init() {
 	configureCmd.AddCommand(newConfigureSetCmd())
 	configureCmd.AddCommand(newConfigureSsoSessionCmd())
 	configureCmd.AddCommand(newConfigureSsoCmd())
+	configureCmd.AddCommand(newConfigureSafetyPolicyCommand())
 
 	rootCmd.AddCommand(configureCmd)
 }

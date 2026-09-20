@@ -8,8 +8,9 @@ const customUserAgentFlagName = "user-agent"
 
 // Flag prefix contract (normative — do not relax without updating docs/4-Usage*.md):
 //
-//  1. Double dash `--name` is the ONLY public form of a system flag. Help,
-//     completion, docs, error messages and examples must use `--name`.
+//  1. Double dash `--name` is the canonical public form of a system flag. The
+//     only shorthand is `-y` for `--yes`, matching confirmation conventions.
+//     Help, completion, docs, error messages and examples otherwise use `--name`.
 //  2. Triple dash `---name` is NOT a public form. It exists solely as a
 //     conflict escape: when the current action publishes an API parameter whose
 //     name matches a system flag exactly (case-sensitive), `--name` is routed to
@@ -48,8 +49,8 @@ type systemFlagDef struct {
 	// (allowedLegacyFixedFlags). lang is preprocess-only and has no parser legacy form.
 	legacyEscape bool
 	// preprocess marks flags that resolveSystemFlags may strip before cobra/parser
-	// (profile/region/endpoint/lang). force/version/method stay in-place for Parser
-	// so root `ve --version` and presence-only --force keep working.
+	// (profile/region/endpoint/lang). force/yes/version/method stay in-place for Parser
+	// so root `ve --version` and presence-only switches keep working.
 	preprocess bool
 	// presenceOnly: flag appears without consuming the next token when routed as system.
 	presenceOnly bool
@@ -65,6 +66,7 @@ var systemFlagDefs = []systemFlagDef{
 	{name: "version", public: true, legacyEscape: true, preprocess: false},
 	{name: "method", public: true, legacyEscape: true, preprocess: false},
 	{name: "force", public: true, legacyEscape: true, preprocess: false, presenceOnly: true},
+	{name: "yes", public: true, legacyEscape: true, preprocess: false, presenceOnly: true},
 	{name: "output", public: true, legacyEscape: true, preprocess: false},
 	{name: "query", public: true, legacyEscape: true, preprocess: false},
 }
@@ -152,6 +154,7 @@ func localizedSystemFlagsHelp() string {
   --version string     ` + tr("API version; uses metadata when omitted (required with --force for unlisted services).") + `
   --method string      ` + tr("HTTP method GET or POST; explicit value overrides metadata, else metadata, else GET.") + `
   --force              ` + tr("Skip service/action metadata validation and force the call (presence-only; write --force alone, not --force true).") + `
+  --yes, -y            ` + tr("Confirm a safety-policy protected operation for this invocation.") + `
   --output string      ` + tr("Set response output format (json|table|table-num|text|yaml|off). Default: json. table-num is table plus a row-number column. off still calls the API but skips response-dependent --query evaluation.") + `
   --query string       ` + tr("JMESPath expression to filter/project the full response (paths usually start at Result.*) before formatting.") + `
 

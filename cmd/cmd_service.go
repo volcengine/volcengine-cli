@@ -16,35 +16,36 @@ func generateServiceCommands() {
 		apiMetas := rootSupport.SupportTypes[svc]
 		svc := svc
 		validActions := rootSupport.GetAllAction(svc)
-		svcCmd := &cobra.Command{
-			Use:                svc,
-			Short:              formatServiceShort(svc),
-			DisableFlagParsing: true,
-			RunE: func(cmd *cobra.Command, args []string) error {
-				return runServiceCmd(cmd, svc, validActions, args)
-			},
-		}
-
-		svcCmd.SetUsageTemplate(usageTemplate)
-		svcCmd.ValidArgs = validActions
-
-		actionCmds := generateActionCmd(svc, actionMeta, apiMetas)
-		for i := 0; i < len(actionCmds); i++ {
-			svcCmd.AddCommand(actionCmds[i])
-		}
-
-		svcCmd.Flags().BoolP("help", "h", false, "")
-
-		rootCmd.AddCommand(svcCmd)
-
-		for _, v := range compatible_support_cmd {
-			if strings.ReplaceAll(v, "_", "") == svc {
-				//copy a non ptr value from svcCmd for compatible svc cmd with _
-				compatibleCmd := *svcCmd
-				compatibleCmd.Use = v
-				compatibleCmd.Hidden = true
-				rootCmd.AddCommand(&compatibleCmd)
+		spellings := []string{svc}
+		for _, name := range compatible_support_cmd {
+			if strings.ReplaceAll(name, "_", "") == svc {
+				spellings = append(spellings, name)
 			}
+		}
+		// Each spelling needs its own command tree: a shallow copy leaves the
+		// action's Parent pointing at the canonical service command.
+		for _, spelling := range spellings {
+			svcCmd := &cobra.Command{
+				Use:                spelling,
+				Hidden:             spelling != svc,
+				Short:              formatServiceShort(svc),
+				DisableFlagParsing: true,
+				RunE: func(cmd *cobra.Command, args []string) error {
+					return runServiceCmd(cmd, svc, validActions, args)
+				},
+			}
+
+			svcCmd.SetUsageTemplate(usageTemplate)
+			svcCmd.ValidArgs = validActions
+
+			actionCmds := generateActionCmd(svc, actionMeta, apiMetas)
+			for i := 0; i < len(actionCmds); i++ {
+				svcCmd.AddCommand(actionCmds[i])
+			}
+
+			svcCmd.Flags().BoolP("help", "h", false, "")
+
+			rootCmd.AddCommand(svcCmd)
 		}
 	}
 }
@@ -73,6 +74,7 @@ func runServiceCmd(cmd *cobra.Command, svc string, validActions []string, args [
 			break
 		}
 	}
+	ctx.invokedService = cmd.Name()
 	return dispatchServiceAction(ctx, svc, action, known)
 }
 

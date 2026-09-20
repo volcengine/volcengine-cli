@@ -350,7 +350,7 @@ VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity
 Public system flags:
 
 ```text
---profile, --region, --endpoint, --lang, --force, --version, --method, --output, --query
+--profile, --region, --endpoint, --lang, --force, --yes, --version, --method, --output, --query
 ```
 
 Reserved double-dash controls:

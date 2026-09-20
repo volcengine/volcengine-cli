@@ -9,7 +9,7 @@
 - `list_services`：列出 CLI 支持的全部服务及其 service code。
 - `list_apis`：传入 service code，列出该服务支持的全部 API。
 - `get_api_parameters`：查询请求参数、类型、必填项和示例。
-- `call_api`：调用 CLI 支持的任意 API。MCP 服务不维护 API 白名单，最终由请求使用的火山引擎 IAM 凭证进行权限判断。
+- `call_api`：调用 CLI 支持的任意 API。火山引擎 IAM 对云凭证进行权限判断；本地 CLI 安全策略会在解析凭证和发送请求之前执行检查。
 
 ## 传输协议
 
@@ -86,6 +86,23 @@ MCP API 调用按以下顺序解析 Region：
 5. `cn-beijing`。
 
 与普通 CLI API 命令不同，MCP 调用在没有任何 Region 配置时使用 `cn-beijing`，不会报错。
+
+<a id="安全策略"></a>
+
+## 安全策略
+
+每次 `call_api` 都会重新加载并检查 `~/.volcengine/safety-policy.json` 及其环境变量覆盖。命中 `deny` 时返回 Tool 错误，不发送云端请求；命中 `confirm` 时同样返回 Tool 错误，要求 Agent 说明操作并征求用户确认。用户明确同意后，使用 `yes: true` 重试同一个 Tool 调用：
+
+```json
+{
+  "service": "ecs",
+  "api": "UpdateInstance",
+  "parameters": {"InstanceId": "i-xxxxx"},
+  "yes": true
+}
+```
+
+`yes` 为非必填参数，默认 `false`。它只能跳过 `confirm`，不能绕过 `deny`。详见[配置管理：安全策略](3-Configuration-zh.md#安全策略safety-policy)。
 
 ## OAuth Resource Server
 

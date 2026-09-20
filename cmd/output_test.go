@@ -21,11 +21,14 @@ func withIsolatedInvocationFlags(t *testing.T) {
 	t.Helper()
 	previousFixedFlags := ctx.fixedFlags
 	previousDynamicFlags := ctx.dynamicFlags
+	previousService := ctx.invokedService
 	ctx.fixedFlags = NewFlagSet()
 	ctx.dynamicFlags = NewFlagSet()
+	ctx.invokedService = ""
 	t.Cleanup(func() {
 		ctx.fixedFlags = previousFixedFlags
 		ctx.dynamicFlags = previousDynamicFlags
+		ctx.invokedService = previousService
 	})
 }
 

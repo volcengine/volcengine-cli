@@ -9,7 +9,7 @@ Native OpenAPI command format:
 ```shell
 ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
                       [--profile name] [--region region] [--endpoint endpoint] [--lang language] [--user-agent value]
-                      [--version api-version] [--method GET|POST] [--force]
+                      [--version api-version] [--method GET|POST] [--force] [--yes]
                       [--output json|table|table-num|text|yaml|off] [--query jmespath]
 ```
 
@@ -18,16 +18,16 @@ For `ve arkcli` and `ve tosutil`, see [Use Product CLIs](#use-product-clis) belo
 Argument kinds:
 
 - **API parameters**: double-dash `--Param value` (enter request body/query; reserved names `body` / `header` excluded)
-- **Public system flags** (after the action): `--profile` / `--region` / `--endpoint` / `--lang` / `--user-agent` / `--version` / `--method` / `--force` / `--output` / `--query`
+- **Public system flags** (after the action): `--profile` / `--region` / `--endpoint` / `--lang` / `--user-agent` / `--version` / `--method` / `--force` / `--yes` / `--output` / `--query`
 - **Reserved double-dash controls**: `--header` (HTTP headers) and `--body` (JSON body); the controls themselves are **not** API parameters
 
 System flags in API calls use double hyphens and are placed after the action. If an action exposes an exact-name API parameter (case-sensitive), the double-dash form is parsed as the API parameter.
 
 ### Flag Prefix Contract
 
-Native OpenAPI calls use the **double-dash `--name`** flag prefix. System flags, API parameters and the reserved controls (`--header` / `--body`) all use double dashes.
+Native OpenAPI calls use the **double-dash `--name`** flag prefix. System flags, API parameters and the reserved controls (`--header` / `--body`) all use double dashes; `-y` is the sole shorthand and is equivalent to `--yes`.
 
-- Help output, shell completion, error messages and documentation examples show the `--name` form only.
+- Help output, shell completion, error messages and documentation examples use the `--name` form, except that confirmation help also displays `-y`.
 - Conflicts are case-sensitive and resolved against the parameters the current action actually exposes: `--Region` and `--Lang` are always API parameters.
 - When an action exposes an API parameter with the **exact** name of a system flag, the double-dash form after that action is parsed as the API parameter; use an equivalent non-flag route for the system behaviour (see Known Name Conflicts).
 
@@ -150,6 +150,7 @@ Public system flags use the standard double-hyphen form:
 | `--user-agent` | Append a custom identifier to the default HTTP `User-Agent` for this invocation |
 | `--version` | Set the **API version** for this call; if omitted, uses the bundled service version (not the CLI binary version from root `ve -v` / `ve --version` / `ve version`) |
 | `--force` | Skip service/action metadata validation and force-call unlisted or newly released APIs; **unlisted services** require `--version` and a fixed endpoint (`--endpoint` or profile/`VOLCENGINE_ENDPOINT` when resolver is not `standard`); bundled services can fall back to metadata. Presence-only: write `--force` alone, not `--force true` |
+| `--yes`, `-y` | Confirm an operation matched by a safety-policy `confirm` rule for this invocation; cannot bypass `deny` |
 | `--method` | HTTP method (`GET`/`POST`); same rules on normal and `--force` paths: explicit value wins, else action metadata, else `GET` |
 | `--output` | API response format: `json` (default), `table`, `table-num`, `text`, `yaml`, `off` |
 | `--query` | JMESPath expression to filter/project the full response JSON (including `ResponseMetadata` and `Result`) before formatting |
@@ -399,7 +400,7 @@ Missing region:
 region not set, please set it via profile, --region flag, or VOLCENGINE_REGION environment variable
 ```
 
-Public system flags (double-dash): `--profile`, `--region`, `--endpoint`, `--lang`, `--force`, `--version`, `--method`, `--output`, `--query`.
+Public system flags (double-dash): `--profile`, `--region`, `--endpoint`, `--lang`, `--force`, `--yes`, `--version`, `--method`, `--output`, `--query` (`-y` is also accepted for `--yes`).
 Reserved double-dash controls: `--header`, `--body` (see “Reserved Double-Dash Controls” above).
 
 ## Filtering and Output Formats

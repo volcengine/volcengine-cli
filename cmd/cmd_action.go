@@ -47,7 +47,8 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 				if err := parseInvocationFlags(args, publicParameters); err != nil {
 					return err
 				}
-				return dispatchServiceAction(ctx, cmd.Parent().Name(), cmd.Name(), true)
+				ctx.invokedService = cmd.Parent().Name()
+				return dispatchServiceAction(ctx, serviceName, cmd.Name(), true)
 			},
 		}
 
@@ -134,7 +135,11 @@ func registerActionSystemFlags(actionCmd *cobra.Command, actionParameters map[st
 			continue
 		}
 		if isPresenceOnlyFixedFlag(name) {
-			actionCmd.Flags().Bool(name, false, "")
+			if name == "yes" {
+				actionCmd.Flags().BoolP(name, "y", false, "")
+			} else {
+				actionCmd.Flags().Bool(name, false, "")
+			}
 			continue
 		}
 		actionCmd.Flags().String(name, "", "")
@@ -203,6 +208,9 @@ func sdkCallInput(built invocationInput) (interface{}, error) {
 var executeInvocationHook func(ctx *Context, p invocationParams, buildInput func() (invocationInput, error)) error
 
 func executeInvocation(ctx *Context, p invocationParams, buildInput func() (invocationInput, error)) (err error) {
+	if err := enforceCLISafetyPolicy(ctx, p.serviceName, p.action); err != nil {
+		return err
+	}
 	if executeInvocationHook != nil {
 		return executeInvocationHook(ctx, p, buildInput)
 	}

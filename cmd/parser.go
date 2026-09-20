@@ -61,7 +61,7 @@ func (p *Parser) hasFlagSyntaxAtPairStarts() bool {
 		if !strings.HasPrefix(a, "--") {
 			return false
 		}
-		// Presence-only system --force / ---force must not pair-consume the next token.
+		// Presence-only system flags such as --force/--yes must not pair-consume the next token.
 		if isSystemPresenceOnlyToken(a, p.actionParameters) {
 			return false
 		}
@@ -74,7 +74,9 @@ func (p *Parser) hasFlagSyntaxAtPairStarts() bool {
 }
 
 func flagNameFromToken(arg string) (name string, legacy bool) {
-	if strings.HasPrefix(arg, "---") {
+	if arg == "-y" {
+		return "yes", false
+	} else if strings.HasPrefix(arg, "---") {
 		name = arg[3:]
 		legacy = true
 	} else if strings.HasPrefix(arg, "--") {
@@ -164,7 +166,7 @@ func (p *Parser) readArg(ctx *Context) (arg string, flag *Flag, more bool, err e
 			arg = value
 		}
 	} else { //解析flag
-		// presence-only 语义适用于作为系统参数的 force（--force 无冲突或 ---force）。
+		// presence-only 语义适用于 force / yes 等纯开关系统参数。
 		isFixedFlag := ctx != nil && ctx.fixedFlags != nil && ctx.fixedFlags.GetByName(flag.Name) == flag
 		if isFixedFlag && isPresenceOnlyFixedFlag(flag.Name) {
 			// 纯开关固定参数：出现即启用，不消费后续 token。
@@ -188,7 +190,12 @@ func (p *Parser) currentFlagValueError(ctx *Context) error {
 }
 
 func (p *Parser) parseArg(arg string, ctx *Context) (flag *Flag, value string, err error) {
-	if strings.HasPrefix(arg, "---") {
+	if arg == "-y" {
+		flag, err = ctx.fixedFlags.AddByName("yes")
+		if flag != nil {
+			flag.prefix = "-y"
+		}
+	} else if strings.HasPrefix(arg, "---") {
 		// Triple-dash aliases force system-flag routing (conflict escape).
 		name := arg[3:]
 		if name == "" {
