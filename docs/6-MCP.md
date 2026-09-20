@@ -4,12 +4,14 @@
 
 ## MCP Server
 
-`ve mcp` exposes the CLI service metadata and API caller through the Model Context Protocol. It provides four tools:
+`ve mcp` exposes CLI service metadata, public documentation search and retrieval, and API calls through the Model Context Protocol. It provides six tools:
 
 - `list_services`: list every service and service code supported by the CLI.
 - `list_apis`: list every supported API for a given service code.
 - `get_api_parameters`: inspect request parameters, types, required fields, and an example.
 - `call_api`: call any API supported by the CLI. The MCP server does not maintain an API allowlist; Volcengine IAM evaluates the cloud credential used by the request.
+- `search_docs`: search public Volcengine documentation, optionally filter by service code, and return titles, URLs, and text snippets. This tool does not require cloud credentials.
+- `fetch_docs`: fetch a Volcengine documentation URL returned by `search_docs`, with Unicode character offsets for paginated reading. This tool does not require cloud credentials.
 
 ## Transports
 

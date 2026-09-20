@@ -156,6 +156,25 @@ func TestFetchSendsOnlyCleanURLAndPaginatesUnicode(t *testing.T) {
 	}
 }
 
+func TestFetchLargeMaxLengthDoesNotOverflowPagination(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		io.WriteString(writer, `{"ResponseMetadata":{"RequestId":"r"},"Result":{"Title":"文章","Content":"甲乙丙"}}`)
+	}))
+	defer server.Close()
+
+	result, err := newModule(server.Client(), server.URL, "ua", fixedClientID).Fetch(context.Background(), FetchOptions{
+		URL:        "https://www.volcengine.com/docs/1/2",
+		StartIndex: 1,
+		MaxLength:  int(^uint(0) >> 1),
+	})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if result.Content != "乙丙" || result.HasMore || result.NextStartIndex != nil || result.RemainingCharacters != 0 {
+		t.Fatalf("pagination result = %#v", result)
+	}
+}
+
 func TestFetchCanonicalizesDocumentHostCase(t *testing.T) {
 	var gotURL string
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
