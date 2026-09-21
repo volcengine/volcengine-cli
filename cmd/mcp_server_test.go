@@ -96,6 +96,11 @@ func TestMCPListToolsExposeEnumerationSchemas(t *testing.T) {
 	if _, ok := callSchema.Properties["yes"]; !ok {
 		t.Fatalf("call_api schema does not expose yes: %s", registrar.tools["call_api"].RawInputSchema)
 	}
+	for _, phrase := range []string{"Omit on every new operation", "only after a block", "new user reply", "ONE unchanged retry", "internally", "even on failure", "Cannot bypass deny"} {
+		if !strings.Contains(string(callSchema.Properties["yes"]), phrase) {
+			t.Errorf("yes schema missing approval instruction %q", phrase)
+		}
+	}
 	for _, required := range callSchema.Required {
 		if required == "region" || required == "yes" {
 			t.Fatalf("call_api region and yes must be optional: %s", registrar.tools["call_api"].RawInputSchema)

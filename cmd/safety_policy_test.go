@@ -258,6 +258,12 @@ func TestExecuteInvocationRequiresThenAcceptsExplicitApproval(t *testing.T) {
 	if called != 1 {
 		t.Fatalf("approved hook calls = %d, want 1", called)
 	}
+	if err := executeInvocation(NewContext(), params, func() (invocationInput, error) { return invocationInput{}, nil }); err == nil {
+		t.Fatal("next invocation without yes must require confirmation again")
+	}
+	if called != 1 {
+		t.Fatalf("approval persisted into next invocation: hook calls = %d", called)
+	}
 }
 
 func TestForceInvocationUsesSafetyPolicy(t *testing.T) {
@@ -309,5 +315,34 @@ func TestShortSafetyApprovalFlagMustFollowAction(t *testing.T) {
 	_, err := resolveSystemFlags([]string{"sts", "-y", "GetCallerIdentity"})
 	if err == nil || !strings.Contains(err.Error(), "must be specified after action") {
 		t.Fatalf("resolveSystemFlags() error = %v, want position error", err)
+	}
+}
+
+func TestSafetyConfirmationNoticeRequiresFreshApprovalInBothLanguages(t *testing.T) {
+	dir, cleanup := withTestConfigDir(t)
+	defer cleanup()
+	if err := safety.SavePolicy(dir, &safety.Policy{Enabled: true, Rules: []safety.Rule{{Pattern: "sts:*", Action: safety.ActionConfirm}}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		language Language
+		want     []string
+	}{
+		{LanguageEnglish, []string{"STOP:", "end this turn and wait", "NEW user reply", "Only after approval", "internally", "ONCE", "even on failure", "Start every new operation without --yes/yes=true", "explain and ask only if blocked", "Never reuse earlier approvals"}},
+		{LanguageSimplifiedChinese, []string{"停止", "简要说明", "结束当前轮次并等待", "用户的新回复", "仅在确认后", "内部", "仅重试一次", "无需向用户解释此参数", "即使失败", "每次新操作先不带 --yes/yes=true", "仅遇拦截才解释并询问", "不得复用历史批准"}},
+	} {
+		t.Run(string(tc.language), func(t *testing.T) {
+			restore := setLanguageForTest(tc.language)
+			defer restore()
+			err := enforceSafetyPolicy("sts", "GetCallerIdentity", false, false, tr("call the same MCP tool again with yes=true"))
+			if err == nil {
+				t.Fatal("unapproved invocation must be blocked")
+			}
+			for _, want := range append(tc.want, "yes=true") {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("notice missing %q: %s", want, err)
+				}
+			}
+		})
 	}
 }

@@ -102,7 +102,7 @@ Every `call_api` request reloads and evaluates `~/.volcengine/safety-policy.json
 }
 ```
 
-`yes` is optional and defaults to `false`. It skips only `confirm` and cannot bypass `deny`. See [Configuration: Safety Policy](3-Configuration.md#safety-policy).
+`yes` is optional and defaults to `false`. It skips only `confirm` and cannot bypass `deny`. Omit it on each new operation. Only after a confirmation error, briefly explain the target and impact, ask to continue, then end the turn and wait for a new user reply. After approval, internally set `yes: true` for one unchanged retry without asking the user to handle this parameter. Discard approval after the attempt, even on failure. Single-use approval is agent guidance, not enforced by this boolean. See [Configuration: Safety Policy](3-Configuration.md#safety-policy).
 
 ## OAuth Resource Server
 

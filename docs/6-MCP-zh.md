@@ -102,7 +102,7 @@ MCP API 调用按以下顺序解析 Region：
 }
 ```
 
-`yes` 为非必填参数，默认 `false`。它只能跳过 `confirm`，不能绕过 `deny`。详见[配置管理：安全策略](3-Configuration-zh.md#安全策略safety-policy)。
+`yes` 为非必填参数，默认 `false`，只能跳过 `confirm`，不能绕过 `deny`。每次新操作先不传此参数，仅遇确认拦截才简要说明目标和影响，询问是否继续，然后结束当前轮次并等待用户的新回复。确认后由 Agent 内部传入 `yes: true`，按原参数重试一次，无需用户理解或操作此参数。重试后即丢弃批准，即使失败。仅限一次是 Agent 行为约束，不是布尔参数强制保证。详见[配置管理：安全策略](3-Configuration-zh.md#安全策略safety-policy)。
 
 ## OAuth Resource Server
 

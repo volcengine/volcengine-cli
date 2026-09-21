@@ -27,7 +27,7 @@ System flags in API calls use double hyphens and are placed after the action. If
 
 Native OpenAPI calls use the **double-dash `--name`** flag prefix. System flags, API parameters and the reserved controls (`--header` / `--body`) all use double dashes; `-y` is the sole shorthand and is equivalent to `--yes`.
 
-- Help output, shell completion, error messages and documentation examples use the `--name` form, except that confirmation help also displays `-y`.
+- Help output, shell completion, error messages and documentation examples use the `--name` form. Safety approval flags (`--yes`, `-y`) are omitted from routine and detailed help, completion and flag-discovery errors; a confirmation-required error explains the approval workflow.
 - Conflicts are case-sensitive and resolved against the parameters the current action actually exposes: `--Region` and `--Lang` are always API parameters.
 - When an action exposes an API parameter with the **exact** name of a system flag, the double-dash form after that action is parsed as the API parameter; use an equivalent non-flag route for the system behaviour (see Known Name Conflicts).
 

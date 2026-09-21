@@ -127,7 +127,11 @@ func registerActionSystemFlags(actionCmd *cobra.Command, actionParameters map[st
 	// Completion only; DisableFlagParsing means values are handled by Parser.
 	// Skip names already registered or exact-name API parameters so business
 	// completions win over system flags when they conflict.
-	for _, name := range publicSystemFlagNames() {
+	for _, def := range systemFlagDefs {
+		if !def.public {
+			continue
+		}
+		name := def.name
 		if actionCmd.Flags().Lookup(name) != nil {
 			continue
 		}
@@ -140,9 +144,12 @@ func registerActionSystemFlags(actionCmd *cobra.Command, actionParameters map[st
 			} else {
 				actionCmd.Flags().Bool(name, false, "")
 			}
-			continue
+		} else {
+			actionCmd.Flags().String(name, "", "")
 		}
-		actionCmd.Flags().String(name, "", "")
+		if def.hidden {
+			_ = actionCmd.Flags().MarkHidden(name)
+		}
 	}
 }
 

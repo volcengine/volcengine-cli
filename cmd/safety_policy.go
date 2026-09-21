@@ -241,7 +241,7 @@ func enforceSafetyPolicy(product, action string, skipConfirm, interactive bool, 
 		retryInstruction,
 		safety.Messages{
 			Denied:              tr("operation blocked by safety policy: %s %s (rule: %s)"),
-			ConfirmationNeeded:  tr("safety policy requires confirmation for: %s %s\ncurrent environment is non-interactive; if you are an agent, explain the operation and ask the user for approval, then %s"),
+			ConfirmationNeeded:  tr(safety.ConfirmationNeededMessage),
 			Prompt:              tr("Safety policy requires confirmation for: %s %s\nType 'yes' to proceed, anything else to cancel: "),
 			InputUnavailable:    tr("operation cancelled: confirmation input is unavailable"),
 			ConfirmationReadErr: tr("operation cancelled: reading confirmation: %v"),

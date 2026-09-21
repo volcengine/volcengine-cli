@@ -30,6 +30,44 @@ func TestRootHelpIncludesFixedFlags(t *testing.T) {
 	}
 }
 
+func TestSafetyApprovalIsHiddenFromAPIHelp(t *testing.T) {
+	for _, language := range []Language{LanguageEnglish, LanguageSimplifiedChinese} {
+		t.Run(string(language), func(t *testing.T) {
+			restore := setLanguageForTest(language)
+			defer restore()
+			for _, detail := range []bool{false, true} {
+				action, _, err := rootCmd.Find([]string{"iam", "DeleteApiKey"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				previousOut := action.OutOrStdout()
+				previousErr := action.ErrOrStderr()
+				var output bytes.Buffer
+				action.SetOut(&output)
+				action.SetErr(&output)
+				args := []string{"--help"}
+				if detail {
+					args = append(args, "--detail")
+				}
+				err = action.RunE(action, args)
+				action.SetOut(previousOut)
+				action.SetErr(previousErr)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, forbidden := range []string{"--yes", "-y"} {
+					if strings.Contains(output.String(), forbidden) {
+						t.Errorf("detail=%v help exposes %q", detail, forbidden)
+					}
+				}
+				if flag := action.Flags().Lookup("yes"); flag == nil || !flag.Hidden {
+					t.Error("approval flag must remain parseable but hidden from completion")
+				}
+			}
+		})
+	}
+}
+
 func TestRootUsageIncludesServiceTableHeader(t *testing.T) {
 	out := rootUsageTemplate()
 	for _, want := range []string{

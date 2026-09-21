@@ -179,7 +179,7 @@ ve configure safety-policy list
 }
 ```
 
-交互式终端命中 `confirm` 时会提示输入 `yes`。在 AI Agent、CI 等非交互环境中，第一次调用返回错误且不会发送 API 请求；用户明确确认后，使用 `--yes` 或 `-y` 重新执行同一命令：
+交互式终端命中 `confirm` 时会提示输入 `yes`。Agent 每次先不带 `--yes` 调用，仅遇确认拦截（未发送 API 请求）才简要说明目标和影响，询问是否继续，然后结束当前轮次，等待用户的新回复。确认后由 Agent 内部添加 `--yes` 或 `-y`，按原参数重试一次，无需用户理解或操作此参数。重试后即丢弃批准，即使失败；下次操作重新从不带批准参数开始。这是 Agent 行为约束，不是 CLI 强制的一次性令牌。以下为获批后的重试示例：
 
 ```shell
 ve ecs UpdateInstance --InstanceId i-xxxxx --yes

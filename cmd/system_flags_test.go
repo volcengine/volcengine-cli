@@ -405,7 +405,7 @@ func TestSystemFlagsAreExposedToCompletionWithoutLegacyAliases(t *testing.T) {
 	completion := output.String()
 	// Derive both lists from systemFlagDefs so a newly added system flag is
 	// checked automatically: --name must be completable, ---name must not leak.
-	for _, name := range publicSystemFlagNames() {
+	for _, name := range visibleSystemFlagNames() {
 		if !strings.Contains(completion, "--"+name) {
 			t.Fatalf("completion missing --%s", name)
 		}
@@ -469,7 +469,10 @@ func TestTripleDashRejectsNonSystemNames(t *testing.T) {
 // TestSupportedMessageAdvertisesDoubleDashOnly guards clause (1): the public
 // supported-flag list derived from systemFlagDefs uses --name for every entry.
 func TestSupportedMessageAdvertisesDoubleDashOnly(t *testing.T) {
-	for _, name := range publicSystemFlagNames() {
+	if strings.Contains(systemFlags.supportedMessage, "--yes") {
+		t.Fatal("supported-flag discovery must not advertise safety approval")
+	}
+	for _, name := range visibleSystemFlagNames() {
 		if !strings.Contains(systemFlags.supportedMessage, "--"+name) {
 			t.Fatalf("supported list missing --%s: %q", name, systemFlags.supportedMessage)
 		}
@@ -478,7 +481,7 @@ func TestSupportedMessageAdvertisesDoubleDashOnly(t *testing.T) {
 
 func TestSystemFlagHelpMatchesDefs(t *testing.T) {
 	help := localizedSystemFlagsHelp()
-	for _, name := range publicSystemFlagNames() {
+	for _, name := range visibleSystemFlagNames() {
 		if !strings.Contains(help, "--"+name) {
 			t.Fatalf("localizedSystemFlagsHelp missing public system flag --%s", name)
 		}

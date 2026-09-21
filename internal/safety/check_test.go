@@ -116,3 +116,21 @@ func TestEnvironmentSkipsOnlyConfirmation(t *testing.T) {
 		})
 	}
 }
+
+func TestConfirmationNoticeRequiresFreshSingleUseApproval(t *testing.T) {
+	policy := &Policy{Enabled: true, Rules: []Rule{{Pattern: "*:*", Action: ActionConfirm}}}
+	for _, retry := range []string{"re-run the same command with --yes", "call the same MCP tool again with yes=true"} {
+		err := CheckAndConfirm(nil, nil, false, policy, CommandInfo{Product: "sts", Action: "GetCallerIdentity"}, false, retry)
+		if err == nil {
+			t.Fatal("unapproved invocation must be blocked")
+		}
+		for _, want := range []string{"STOP:", "Briefly explain", "end this turn and wait", "NEW user reply", "Only after approval", "internally", "ONCE", "unchanged arguments", "do not ask the user to handle this flag", "even on failure", "Start every new operation without --yes/yes=true", "explain and ask only if blocked", "Never reuse earlier approvals", retry} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("confirmation notice missing %q: %s", want, err)
+			}
+		}
+		if strings.Contains(err.Error(), "Explain this exact command, environment, target and parameters") {
+			t.Error("notice must not require a full command walkthrough")
+		}
+	}
+}

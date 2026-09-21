@@ -179,7 +179,7 @@ Rules use `service:action`, are matched case-insensitively, support `*`, and use
 }
 ```
 
-In an interactive terminal, a `confirm` match prompts for `yes`. In a non-interactive environment such as an AI agent or CI job, the first call returns an error and sends no API request. After the user explicitly approves the operation, repeat the same command with `--yes` or `-y`:
+In an interactive terminal, a `confirm` match prompts for `yes`. Agents must start each operation without `--yes`. Only after a confirmation error (no API request sent), briefly explain the target and impact, ask to continue, then end the turn and wait for a new user reply. After approval, internally add `--yes` or `-y` for one unchanged retry; do not ask the user to handle the flag. Discard approval after that attempt, even on failure. The next operation starts without approval again. This is agent guidance, not a single-use token enforced by the CLI. Example of the approved retry:
 
 ```shell
 ve ecs UpdateInstance --InstanceId i-xxxxx --yes

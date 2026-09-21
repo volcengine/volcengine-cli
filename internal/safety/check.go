@@ -11,6 +11,9 @@ import (
 	"github.com/chzyer/readline"
 )
 
+// ConfirmationNeededMessage is shared by the default and localized CLI/MCP errors.
+const ConfirmationNeededMessage = "safety policy requires confirmation for: %s %s\ncurrent environment is non-interactive.\nSTOP: Briefly explain the target and impact, ask to continue, then end this turn and wait for a NEW user reply.\nOnly after approval, internally %s ONCE with unchanged arguments; do not ask the user to handle this flag.\nDiscard approval after that attempt, even on failure. Start every new operation without --yes/yes=true; explain and ask only if blocked. Never reuse earlier approvals or weaken policy."
+
 type Messages struct {
 	Denied              string
 	ConfirmationNeeded  string
@@ -64,7 +67,7 @@ func (messages Messages) withDefaults() Messages {
 		messages.Denied = "operation blocked by safety policy: %s %s (rule: %s)"
 	}
 	if messages.ConfirmationNeeded == "" {
-		messages.ConfirmationNeeded = "safety policy requires confirmation for: %s %s\ncurrent environment is non-interactive; if you are an agent, explain the operation and ask the user for approval, then %s"
+		messages.ConfirmationNeeded = ConfirmationNeededMessage
 	}
 	if messages.Prompt == "" {
 		messages.Prompt = "Safety policy requires confirmation for: %s %s\nType 'yes' to proceed, anything else to cancel: "

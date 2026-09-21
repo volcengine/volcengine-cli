@@ -11,6 +11,8 @@ const customUserAgentFlagName = "user-agent"
 //  1. Double dash `--name` is the canonical public form of a system flag. The
 //     only shorthand is `-y` for `--yes`, matching confirmation conventions.
 //     Help, completion, docs, error messages and examples otherwise use `--name`.
+//     Safety approval flags are accepted but omitted from help and completion;
+//     a confirmation-required error explains their use after fresh approval.
 //  2. Triple dash `---name` is NOT a public form. It exists solely as a
 //     conflict escape: when the current action publishes an API parameter whose
 //     name matches a system flag exactly (case-sensitive), `--name` is routed to
@@ -45,6 +47,8 @@ type systemFlagDef struct {
 	name string
 	// public marks the flag as a double-dash system flag (publicSystemFlags).
 	public bool
+	// hidden omits a supported flag from help, completion, and discovery errors.
+	hidden bool
 	// legacyEscape marks ---name as a parser-accepted conflict escape
 	// (allowedLegacyFixedFlags). lang is preprocess-only and has no parser legacy form.
 	legacyEscape bool
@@ -66,7 +70,7 @@ var systemFlagDefs = []systemFlagDef{
 	{name: "version", public: true, legacyEscape: true, preprocess: false},
 	{name: "method", public: true, legacyEscape: true, preprocess: false},
 	{name: "force", public: true, legacyEscape: true, preprocess: false, presenceOnly: true},
-	{name: "yes", public: true, legacyEscape: true, preprocess: false, presenceOnly: true},
+	{name: "yes", public: true, hidden: true, legacyEscape: true, preprocess: false, presenceOnly: true},
 	{name: "output", public: true, legacyEscape: true, preprocess: false},
 	{name: "query", public: true, legacyEscape: true, preprocess: false},
 }
@@ -95,7 +99,9 @@ func newSystemFlagRegistry(defs []systemFlagDef) *systemFlagRegistry {
 	for _, d := range defs {
 		if d.public {
 			registry.public[d.name] = struct{}{}
-			publicNames = append(publicNames, "--"+d.name)
+			if !d.hidden {
+				publicNames = append(publicNames, "--"+d.name)
+			}
 		}
 		if d.legacyEscape {
 			registry.legacyEscapes[d.name] = struct{}{}
@@ -141,6 +147,16 @@ func publicSystemFlagNames() []string {
 	return out
 }
 
+func visibleSystemFlagNames() []string {
+	var names []string
+	for _, d := range systemFlagDefs {
+		if d.public && !d.hidden {
+			names = append(names, d.name)
+		}
+	}
+	return names
+}
+
 // localizedSystemFlagsHelp returns public double-dash system flag help plus
 // reserved double-dash controls. Triple-dash aliases are intentionally omitted.
 // Help strings are literal tr("...") constants so i18n catalog checks stay static.
@@ -154,7 +170,6 @@ func localizedSystemFlagsHelp() string {
   --version string     ` + tr("API version; uses metadata when omitted (required with --force for unlisted services).") + `
   --method string      ` + tr("HTTP method GET or POST; explicit value overrides metadata, else metadata, else GET.") + `
   --force              ` + tr("Skip service/action metadata validation and force the call (presence-only; write --force alone, not --force true).") + `
-  --yes, -y            ` + tr("Confirm a safety-policy protected operation for this invocation.") + `
   --output string      ` + tr("Set response output format (json|table|table-num|text|yaml|off). Default: json. table-num is table plus a row-number column. off still calls the API but skips response-dependent --query evaluation.") + `
   --query string       ` + tr("JMESPath expression to filter/project the full response (paths usually start at Result.*) before formatting.") + `
 
