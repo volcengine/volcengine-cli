@@ -58,6 +58,11 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "npm_tag=$npm_tag" >> "$GITHUB_OUTPUT"
 
+      - name: Verify CLI before publication
+        run: |
+          go test ./...
+          python3 scripts/test_proxy_catalog.py
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v3.0.0
         with:
@@ -245,15 +250,27 @@ jobs:
           VOLCENGINE_ACCESS_KEY: ${{ secrets.VOLCENGINE_ACCESS_KEY }}
           VOLCENGINE_SECRET_KEY: ${{ secrets.VOLCENGINE_SECRET_KEY }}
           VOLCENGINE_REGION: ${{ vars.VOLCENGINE_REGION }}
-          VOLCENGINE_CLI_SKIP_SKILLS: "1"
+          VOLCENGINE_CLI_DISABLE_UPDATE_CHECK: "1"
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           : "${VOLCENGINE_ACCESS_KEY:?missing secret VOLCENGINE_ACCESS_KEY}"
           : "${VOLCENGINE_SECRET_KEY:?missing secret VOLCENGINE_SECRET_KEY}"
           : "${VOLCENGINE_REGION:?missing variable VOLCENGINE_REGION}"
 
-          npm install -g "@volcengine/cli@1.1.5"
-          ve cdn SubmitRefreshTask \
+          # The freshly published npm version may not yet be visible to installs.
+          # Use the Linux/amd64 binary produced by this job's GoReleaser step.
+          ve_binary="dist/volcengine-cli_linux_amd64_v1/ve"
+          if [[ ! -x "$ve_binary" ]]; then
+            echo "Missing executable release artifact: $ve_binary" >&2
+            exit 1
+          fi
+          built_version="$("$ve_binary" --version)"
+          if [[ "$built_version" != "$VERSION" ]]; then
+            echo "Unexpected release artifact version: $built_version (expected $VERSION)" >&2
+            exit 1
+          fi
+
+          "$ve_binary" cdn SubmitRefreshTask \
             --Type file \
             --UrlList.1 "https://cloudcache.volccdn.com/ve/latest" \
             --UrlList.2 "https://cloudcache.volccdn.com/ve/version_manifest.json"

@@ -8,7 +8,7 @@
 
 `ve` 是火山引擎的统一命令行入口：通过 `ve <service> <action>` 调用通用 OpenAPI，通过 `ve arkcli <命令>` 和 `ve tosutil <命令>` 使用产品 CLI，同时提供凭证与配置、Skill 管理和 MCP 服务。
 
-产品 CLI 按需安装，具体命令、认证和参数遵循各工具的规则。调用方式和官方文档入口见[使用产品 CLI](4-Usage-zh.md#使用产品-cli)。
+产品 CLI 按需安装，具体命令、认证和参数遵循各工具的规则。功能说明与产品文档见 [Proxy-CLI](7-ProxyCLI-zh.md)。
 
 ## 环境要求
 

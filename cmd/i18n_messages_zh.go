@@ -1,6 +1,12 @@
 package cmd
 
 var simplifiedChineseCommandMessages = map[string]string{
+	"Validate a catalog before publication":                                       "发布前校验目录",
+	"List the local proxy CLI catalog":                                            "列出本地代理 CLI 目录",
+	"Show proxy CLI requirements and sources":                                     "查看代理 CLI 的安装条件与来源",
+	"Validate and refresh the proxy CLI catalog":                                  "校验并刷新代理 CLI 目录",
+	"Install a proxy CLI on demand":                                               "按需安装代理 CLI",
+	"Run a proxy CLI by stable id":                                                "通过稳定标识运行代理 CLI",
 	"Search and fetch Volcengine documentation":                                   "检索和获取火山引擎文档",
 	"Search Volcengine documentation":                                             "检索火山引擎文档",
 	"Fetch a Volcengine documentation article":                                    "获取火山引擎文档正文",

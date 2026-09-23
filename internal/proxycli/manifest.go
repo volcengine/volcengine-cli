@@ -20,8 +20,8 @@ const (
 	StateFileName      = "install-state.json"
 
 	maxManifestBytes = int64(1 << 20)
-	maxArtifactBytes = int64(128 << 20)
-	maxBinaryBytes   = int64(128 << 20)
+	maxArtifactBytes = int64(512 << 20)
+	maxBinaryBytes   = int64(256 << 20)
 )
 
 //go:embed fallback_manifest.json
@@ -34,65 +34,21 @@ const (
 	ToolTOSUtil Tool = "tosutil"
 )
 
-func KnownTools() []Tool {
+// LegacyTools is the historical default install set, not catalog enumeration.
+func LegacyTools() []Tool {
 	return []Tool{ToolArkCLI, ToolTOSUtil}
 }
 
-func ParseTool(value string) (Tool, error) {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "arkcli":
-		return ToolArkCLI, nil
-	case "tosutil", "toscli":
-		return ToolTOSUtil, nil
-	default:
-		return "", fmt.Errorf("unsupported proxy CLI %q (expected arkcli or tosutil)", value)
-	}
-}
+func ParseTool(value string) (Tool, error) { return EmbeddedSnapshot().ParseTool(value) }
 
-type archiveFormat int
-
-const (
-	archiveRaw archiveFormat = iota
-	archiveZip
-)
-
-type toolSpec struct {
-	binary        string
-	archiveBinary string
-	format        archiveFormat
-}
-
-func specFor(tool Tool) (toolSpec, error) {
-	switch tool {
-	case ToolArkCLI:
-		return toolSpec{binary: "arkcli", archiveBinary: "arkcli", format: archiveRaw}, nil
-	case ToolTOSUtil:
-		return toolSpec{binary: "tosutil", archiveBinary: "tosutil", format: archiveZip}, nil
-	default:
-		return toolSpec{}, fmt.Errorf("unsupported proxy CLI %q", tool)
-	}
-}
-
+// executableName is retained for v1 compatibility tests; installers resolve
+// names and formats from their per-invocation ToolSpec snapshot.
 func executableName(tool Tool, goos string) string {
-	spec, err := specFor(tool)
+	spec, err := EmbeddedSnapshot().Ready(tool)
 	if err != nil {
 		return ""
 	}
-	if goos == "windows" {
-		return spec.binary + ".exe"
-	}
-	return spec.binary
-}
-
-func archiveBinaryName(tool Tool, _ string) string {
-	spec, err := specFor(tool)
-	if err != nil {
-		return ""
-	}
-	// Official tosutil Windows archives currently contain a member named
-	// "tosutil" without the .exe suffix. The published target still uses
-	// tosutil.exe so exec.LookPath can discover it normally on Windows.
-	return spec.archiveBinary
+	return toolExecutableName(spec, goos)
 }
 
 func platformKey(goos, goarch string) string {
@@ -108,10 +64,12 @@ type ManifestTool struct {
 	Platforms map[string]ManifestAsset `json:"platforms"`
 }
 
+// ManifestAsset is deliberately identical for every product. Installation
+// uses the built-in native ZIP convention (Ark retains its legacy raw format).
 type ManifestAsset struct {
 	URL    string `json:"url"`
 	SHA256 string `json:"sha256"`
-	Size   int64  `json:"size,omitempty"`
+	Size   int64  `json:"size"`
 }
 
 func parseManifest(data []byte) (Manifest, error) {
@@ -127,7 +85,7 @@ func parseManifest(data []byte) (Manifest, error) {
 		return Manifest{}, fmt.Errorf("proxy CLI manifest contains no tools")
 	}
 	for tool, release := range manifest.Tools {
-		if _, err := specFor(tool); err != nil {
+		if _, err := EmbeddedSnapshot().Ready(tool); err != nil {
 			continue
 		}
 		if err := upgrade.ValidateVersion(release.Version); err != nil {
@@ -190,8 +148,10 @@ func resolveAssetURL(manifestURL, value string, allowHTTP bool) (string, error) 
 	if base.Scheme == "https" && resolved.Scheme != "https" {
 		return "", fmt.Errorf("refusing to redirect an https manifest to %s", resolved.Scheme)
 	}
-	if !allowHTTP && !strings.EqualFold(resolved.Hostname(), proxyCDNHost) {
-		return "", fmt.Errorf("proxy CLI download URL must use %s: %q", proxyCDNHost, resolved.String())
+	if !allowHTTP {
+		if err := requireTrustedArtifact(resolved.String()); err != nil {
+			return "", err
+		}
 	}
 	return resolved.String(), nil
 }

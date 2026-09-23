@@ -1,4 +1,4 @@
-[← 高级用法](5-Advanced-zh.md) | MCP 服务[(English)](6-MCP.md)
+[← 高级用法](5-Advanced-zh.md) | MCP 服务[(English)](6-MCP.md) | [Proxy-CLI →](7-ProxyCLI-zh.md)
 
 ---
 
@@ -160,4 +160,4 @@ HTTP 服务默认只监听 `127.0.0.1:8888`。只有在正确部署认证和 TLS
 
 ---
 
-[← 高级用法](5-Advanced-zh.md) | MCP 服务[(English)](6-MCP.md)
+[← 高级用法](5-Advanced-zh.md) | MCP 服务[(English)](6-MCP.md) | [Proxy-CLI →](7-ProxyCLI-zh.md)

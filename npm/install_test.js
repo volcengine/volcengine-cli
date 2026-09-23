@@ -224,9 +224,10 @@ withTempDir((dir) => {
   });
   assert.strictEqual(ok, true);
   assert.strictEqual(warnings.length, 0);
-  assert.strictEqual(calls.length, 1);
+  assert.strictEqual(calls.length, 2);
   assert.strictEqual(calls[0].command, binPath);
-  assert.deepStrictEqual(calls[0].args, ["proxycli", "upgrade", "--yes"]);
+  assert.deepStrictEqual(calls[0].args, ["proxycli", "upgrade", "arkcli", "--yes"]);
+  assert.deepStrictEqual(calls[1].args, ["proxycli", "upgrade", "tosutil", "--yes"]);
   assert.strictEqual(calls[0].options.timeout, 600000);
 });
 
@@ -242,7 +243,7 @@ withTempDir((dir) => {
     },
   });
   assert.strictEqual(ok, false);
-  assert.strictEqual(warnings.length, 1);
+  assert.strictEqual(warnings.length, 2);
   assert.match(warnings[0], /Volcengine CLI installation succeeded/);
   assert.match(warnings[0], /ve proxycli upgrade/);
 });
