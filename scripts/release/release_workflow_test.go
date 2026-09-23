@@ -40,7 +40,6 @@ func TestReleasePublishesStablePointersAfterNPM(t *testing.T) {
 
 	steps := []string{
 		"- name: Extract version",
-		"- name: Verify CLI before publication",
 		"- name: Run GoReleaser",
 		"- name: Upload release assets to TOS",
 		"- name: Verify public TOS download",

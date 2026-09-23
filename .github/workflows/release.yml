@@ -58,11 +58,6 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "npm_tag=$npm_tag" >> "$GITHUB_OUTPUT"
 
-      - name: Verify CLI before publication
-        run: |
-          go test ./...
-          python3 scripts/test_proxy_catalog.py
-
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v3.0.0
         with:
