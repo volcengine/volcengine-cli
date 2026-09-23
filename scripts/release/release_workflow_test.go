@@ -40,7 +40,6 @@ func TestReleasePublishesStablePointersAfterNPM(t *testing.T) {
 
 	steps := []string{
 		"- name: Extract version",
-		"- name: Run GoReleaser",
 		"- name: Upload release assets to TOS",
 		"- name: Verify public TOS download",
 		"- name: Test npm package",
@@ -137,12 +136,10 @@ func TestReleaseRefreshesStableCDNPointersAfterUpload(t *testing.T) {
 		`VOLCENGINE_ACCESS_KEY: ${{ secrets.VOLCENGINE_ACCESS_KEY }}`,
 		`VOLCENGINE_SECRET_KEY: ${{ secrets.VOLCENGINE_SECRET_KEY }}`,
 		`VOLCENGINE_REGION: ${{ vars.VOLCENGINE_REGION }}`,
-		`VOLCENGINE_CLI_DISABLE_UPDATE_CHECK: "1"`,
+		`VOLCENGINE_CLI_SKIP_SKILLS: "1"`,
 		`VERSION: ${{ steps.version.outputs.version }}`,
-		`ve_binary="dist/volcengine-cli_linux_amd64_v1/ve"`,
-		`built_version="$("$ve_binary" --version)"`,
-		`if [[ "$built_version" != "$VERSION" ]]; then`,
-		`"$ve_binary" cdn SubmitRefreshTask`,
+		`npm install -g "@volcengine/cli@1.1.5"`,
+		`ve cdn SubmitRefreshTask`,
 		`--Type file`,
 		`--UrlList.1 "https://cloudcache.volccdn.com/ve/latest"`,
 		`--UrlList.2 "https://cloudcache.volccdn.com/ve/version_manifest.json"`,
