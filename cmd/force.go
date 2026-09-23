@@ -187,7 +187,7 @@ func tryExecuteGenericInvoke(args []string) error {
 		return errNotGenericInvoke
 	}
 	// 已注册根命令（builtin + service + 兼容别名）一律交给 cobra；仅未注册名走 force。
-	if isRegisteredRootSubcommand(args[0]) {
+	if isRegisteredRootSubcommand(args[0]) || args[0] == "__complete" || args[0] == "__completeNoDesc" {
 		return errNotGenericInvoke
 	}
 

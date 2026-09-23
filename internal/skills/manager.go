@@ -97,6 +97,7 @@ type Manager struct {
 	ClaudeConfigDir   string
 	HermesHome        string
 	RunCommand        func(name string, args ...string) error
+	selectedNames     []string
 	allowHTTPForTests bool
 }
 
@@ -148,12 +149,15 @@ func (m *Manager) Install() (Result, error) {
 	}
 	rel, err := m.resolveRelease()
 	if err != nil {
-		if len(state.Skills) > 0 {
+		if len(state.Skills) > 0 || len(m.selectedNames) > 0 {
 			return Result{}, err
 		}
 		return m.installWithNPX(err)
 	}
 	payloads, err := extractBundle(rel)
+	if err == nil {
+		payloads, err = m.selectPayloads(payloads)
+	}
 	if err != nil {
 		return Result{}, err
 	}
@@ -266,6 +270,9 @@ func (m *Manager) Update() (Result, error) {
 		return Result{}, err
 	}
 	payloads, err := extractBundle(rel)
+	if err == nil {
+		payloads, err = m.selectPayloads(payloads)
+	}
 	if err != nil {
 		return Result{}, err
 	}
@@ -342,6 +349,9 @@ func (m *Manager) Uninstall() (Result, error) {
 	result := Result{}
 	names := sortedStateSkillNames(state.Skills)
 	for _, name := range names {
+		if !m.selected(name) {
+			continue
+		}
 		entry := state.Skills[name]
 		canonical := m.canonicalPath(name)
 		if err := recoverInterruptedDirectoryReplacement(canonical); err != nil {
@@ -1225,4 +1235,55 @@ func envOrDefault(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+// SelectNames restricts install/update/uninstall to verified catalog associations.
+// An explicit empty selection is an error: it must never install the core set.
+func (m *Manager) SelectNames(names []string) error {
+	if len(names) == 0 {
+		return fmt.Errorf("no verified Skills are associated with this tool")
+	}
+	seen := map[string]bool{}
+	selected := []string{}
+	for _, name := range names {
+		if !validSkillName(name) {
+			return fmt.Errorf("invalid Skill name %q", name)
+		}
+		if !seen[name] {
+			selected = append(selected, name)
+			seen[name] = true
+		}
+	}
+	m.selectedNames = selected
+	return nil
+}
+func (m *Manager) selected(name string) bool {
+	if len(m.selectedNames) == 0 {
+		return true
+	}
+	for _, n := range m.selectedNames {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+func (m *Manager) selectPayloads(payloads []skillPayload) ([]skillPayload, error) {
+	if len(m.selectedNames) == 0 {
+		return payloads, nil
+	}
+	result := []skillPayload{}
+	found := map[string]bool{}
+	for _, p := range payloads {
+		if m.selected(p.name) {
+			result = append(result, p)
+			found[p.name] = true
+		}
+	}
+	for _, name := range m.selectedNames {
+		if !found[name] {
+			return nil, fmt.Errorf("associated Skill %q is absent from the verified release bundle; CLI operation is unaffected", name)
+		}
+	}
+	return result, nil
 }

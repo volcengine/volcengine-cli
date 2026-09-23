@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -343,7 +344,7 @@ func TestEmbeddedFallbackManifestIsValid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("embedded fallback manifest: %v", err)
 	}
-	for _, tool := range KnownTools() {
+	for _, tool := range LegacyTools() {
 		if _, ok := manifest.Tools[tool]; !ok {
 			t.Fatalf("embedded fallback manifest is missing %s", tool)
 		}
@@ -353,39 +354,39 @@ func TestEmbeddedFallbackManifestIsValid(t *testing.T) {
 	}
 	wantArkAssets := map[string]ManifestAsset{
 		"darwin-amd64": {
-			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-darwin-amd64",
-			SHA256: "f30eef4761aac65638ef7b55201e2ea0e86972db64c4600be6a6121dd883e4f7", Size: 36559616,
+			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.34/arkcli-1.0.34-darwin-amd64",
+			SHA256: "0f52fae78e488aa1e15840a49ddf62bb2960c5adfcd91de418b631ee32bb153d", Size: 37451968,
 		},
 		"darwin-arm64": {
-			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-darwin-arm64",
-			SHA256: "67e29a6f7980f0393da6d3d2fe89e182e9b08bb8d48ed4f3df9a434cf16f38bf", Size: 34211154,
+			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.34/arkcli-1.0.34-darwin-arm64",
+			SHA256: "47f31bc8f22307b9b2f4620d26c213dadfdc03345d99fc8021fbcd9f48263ebf", Size: 34990770,
 		},
 		"linux-amd64": {
-			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-linux-amd64",
-			SHA256: "ffa6be8fbcab56eb49e858382f336c7a08228a4790d6f4989d7048811b3017ba", Size: 35487906,
+			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.34/arkcli-1.0.34-linux-amd64",
+			SHA256: "d293e5d6394a19a80c13fed3015221f21fb4f163a7a91cd915a5978cd8e673bd", Size: 36745378,
 		},
 		"linux-arm64": {
-			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-linux-arm64",
-			SHA256: "08ef307e7583dee70c72651908c3a0438b362336c660796cce12c023c0660909", Size: 32899234,
+			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.34/arkcli-1.0.34-linux-arm64",
+			SHA256: "a8a076fa9246d8315510587e6f181a60338e8c4d3aada805baacb9436f440768", Size: 34078882,
 		},
 		"windows-amd64": {
-			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-windows-amd64.exe",
-			SHA256: "648d164859ab0fb6883c805947322a479bea4bdad683480e2621f5b5760b21c9", Size: 38099456,
+			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.34/arkcli-1.0.34-windows-amd64.exe",
+			SHA256: "bf82ab1da703b02bb8a04ce598e1dba75a4ea3ab9c25b4afb2ce5b18c815cce3", Size: 38989312,
 		},
 		"windows-arm64": {
-			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.27/arkcli-1.0.27-windows-arm64.exe",
-			SHA256: "5ddf964eb66457b641d2b73f92be3a802abfe2ba097bc0030001d371ff1e197a", Size: 34854912,
+			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.34/arkcli-1.0.34-windows-arm64.exe",
+			SHA256: "36cca11175a27553b5813bc70d486aa4ee7bac5b8ab3706c8e95eea30201bf8f", Size: 35625472,
 		},
 	}
 	ark := manifest.Tools[ToolArkCLI]
-	if ark.Version != "1.0.27" {
-		t.Fatalf("embedded arkcli fallback version = %q, want 1.0.27", ark.Version)
+	if ark.Version != "1.0.34" {
+		t.Fatalf("embedded arkcli fallback version = %q, want 1.0.34", ark.Version)
 	}
 	if len(ark.Platforms) != len(wantArkAssets) {
 		t.Fatalf("embedded arkcli fallback platforms = %d, want %d", len(ark.Platforms), len(wantArkAssets))
 	}
 	for platform, want := range wantArkAssets {
-		if got := ark.Platforms[platform]; got != want {
+		if got := ark.Platforms[platform]; !reflect.DeepEqual(got, want) {
 			t.Errorf("embedded arkcli fallback %s = %+v, want %+v", platform, got, want)
 		}
 	}
@@ -618,7 +619,7 @@ func TestParseManifestRejectsTrailingData(t *testing.T) {
 
 func TestProxyAssetURLRejectsNonCDNHost(t *testing.T) {
 	_, err := resolveAssetURL(DefaultManifestURL, "https://github.com/volcengine/ark-cli/releases/download/v1/arkcli", false)
-	if err == nil || !strings.Contains(err.Error(), proxyCDNHost) {
+	if err == nil || !strings.Contains(err.Error(), "audited official") {
 		t.Fatalf("resolveAssetURL() error = %v", err)
 	}
 }
