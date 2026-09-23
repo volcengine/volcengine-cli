@@ -9,7 +9,17 @@ import (
 
 func TestMain(m *testing.M) {
 	setCurrentLanguage(LanguageEnglish)
-	os.Exit(m.Run())
+	// SDK requests now persist a client ID. Keep the default configuration
+	// directory inside the test suite's temporary workspace.
+	directory, err := ioutil.TempDir("", "volcengine-cli-suite-*")
+	if err != nil {
+		panic(err)
+	}
+	restore := withConfigDirForTest(directory)
+	code := m.Run()
+	restore()
+	_ = os.RemoveAll(directory)
+	os.Exit(code)
 }
 
 func tempDirForTest(t *testing.T) string {
