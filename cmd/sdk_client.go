@@ -502,6 +502,7 @@ func (s *SdkClient) CallSdkWithContext(ctx context.Context, info SdkClientInfo, 
 		Name: "volcengine-cli.apply-request-headers",
 		Fn: func(built *request.Request) {
 			applySdkRequestHeaders(built, info)
+			applyClientID(built)
 		},
 	})
 	err = req.Send()

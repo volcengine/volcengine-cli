@@ -13,7 +13,7 @@ ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json
                       [--output json|table|table-num|text|yaml|off] [--query jmespath]
 ```
 
-`ve arkcli` 和 `ve tosutil` 的调用方式见下文[使用产品 CLI](#使用产品-cli)。原生 OpenAPI 的参数规则不适用于这些代理命令；后续参数由对应 CLI 解析。
+本文介绍 VE 原生 OpenAPI 调用。产品 CLI 的功能与按需加载机制见 [Proxy-CLI](7-ProxyCLI-zh.md)。
 
 参数分几类：
 
@@ -30,31 +30,6 @@ API 调用中的系统参数统一使用双横线并放在 Action 后。若当�
 - 帮助信息、命令补全、报错文案和文档示例只出现 `--name` 一种写法。
 - 冲突判定区分大小写，并以当前 Action 实际暴露的参数为准：`--Region`、`--Lang` 等不同大小写始终是业务参数。
 - 当某个 Action 暴露了与系统参数**完全同名**的业务参数时，该 Action 后的双横线归业务参数解析，此时请改用等价的非参数途径传递系统语义（见下方「已知同名冲突」）。
-
-## 使用产品 CLI
-
-通过 `ve` 调用产品 CLI 时，具体命令、认证、配置和参数请参阅各工具的官方文档：
-
-| 工具 | 查看当前版本的帮助 | 官方使用文档 |
-| --- | --- | --- |
-| Ark CLI | `ve arkcli --help` | [Ark CLI 使用说明](https://github.com/volcengine/ark-cli#readme) |
-| tosutil | `ve tosutil help` | [tosutil 使用指南](https://www.volcengine.com/docs/6349/148775) |
-
-将文档示例开头的 `arkcli` 替换为 `ve arkcli`，将 `tosutil` 替换为 `ve tosutil`，后续参数保持原样。`--profile`、`--output` 等参数是否支持、如何解释，以及输出格式，都以对应工具为准。
-
-`ve --profile prod arkcli ...` 这类写法不受支持；子 CLI 自己支持的参数需要放在对应命令之后。`ve` 只尝试刷新当前 Console Login 缓存，子 CLI 的认证与配置仍以其官方文档为准。
-
-`ve arkcli` 继承父进程环境；未设置 `SOURCE_FROM` 时默认补充 `SOURCE_FROM=ve`。以下变量逐项映射，任意一项存在即可生效，无需同时设置三项：
-
-| 父进程环境变量 | 注入 Ark CLI 的环境变量 |
-| --- | --- |
-| `VE_CALLER_TYPE` | `ARKCLI_CALLER_TYPE` |
-| `VE_CALLER_NAME` | `ARKCLI_CALLER_NAME` |
-| `VE_SKILL_NAME` | `ARKCLI_SKILL_NAME` |
-
-映射原样复制值，包括显式设置的空字符串；源变量存在时覆盖对应的 `ARKCLI_*` 值，不存在时保留已有值。原始 `VE_*` 变量继续传递。这些注入仅作用于 Ark CLI 的执行环境，`ve tosutil`（含 `ve toscli`）继续继承原始环境。
-
-未安装的工具会在首次调用时按需安装，包括帮助和版本查询。`ve upgrade` 升级 `ve` 本身；`ve proxycli upgrade tosutil` 升级托管的 tosutil，PATH 上的外部安装由原包管理器负责。查找顺序、登录会话刷新和托管升级说明见 [README：代理 CLI](../README.MD#代理-cli)。
 
 ## 查看服务和接口
 
@@ -99,13 +74,19 @@ ve docs search "对象存储快速入门" --service-code tos --limit 3
 ve docs fetch "https://www.volcengine.com/docs/6349/74830" --max-length 1000
 ```
 
-这两个命令无需登录。首次通过参数校验的请求会生成一个 [RFC 9562 UUIDv4](https://www.rfc-editor.org/rfc/rfc9562.html#section-5.4)，保存到 `~/.volcengine/client_id`，并在搜索、获取请求中通过 `X-Client-Id` 请求头传递。Windows 对应 `%USERPROFILE%\.volcengine\client_id`。
+这两个命令无需登录。
+
+### 客户端标识
+
+普通 OpenAPI 请求（包括 `--force` 和 MCP 工具发起的 API 调用）与 `docs search/fetch` 共用一个客户端标识。首次通过参数校验的请求会生成一个 [RFC 9562 UUIDv4](https://www.rfc-editor.org/rfc/rfc9562.html#section-5.4)，保存到 `~/.volcengine/client_id`，并通过 `X-Client-Id` HTTP 请求头传递。Windows 对应 `%USERPROFILE%\.volcengine\client_id`。
 
 - 标识使用密码学随机数生成，包含 122 位随机熵，不使用 MAC 地址、硬件序列号或账号凭证。
 - 一个客户端指同一操作系统用户的本地 CLI 配置。重启、升级、登录或切换 profile 后继续使用同一标识；不同用户或新设备独立生成。
-- 标识文件独立于 `config.json` 和登录缓存。仅这两个文档接口自动携带标识，其他接口、User-Agent、请求体和输出格式保持原有行为。查看帮助、版本或参数校验失败不会创建标识文件。
+- 标识文件独立于 `config.json` 和登录缓存。GET、表单 POST 和 JSON POST 请求均携带该请求头；它不会作为 URL 查询参数或请求体字段传递，也不改变 User-Agent 和输出格式。OpenAPI 请求在签名前设置该请求头。
+- 查看帮助、版本或参数校验失败不会创建标识文件。`ve arkcli`、`ve tosutil`（含 `ve toscli`）的代理执行不生成或注入该标识。
 - 首次创建需要目录可写且文件系统支持硬链接（例如常见 Unix 文件系统、Windows NTFS）。并发首次调用只会发布一个完整标识；新建目录和文件的 Unix 权限分别为 `0700`、`0600`。已有标识只需可读。
-- 无法读取、保存或校验标识时，文档命令会报错，不发送没有稳定标识的请求。删除 `client_id` 后，下次文档调用会生成新标识。复制配置到另一台设备或制作镜像时，应排除该文件，避免复制客户端身份。
+- 无法读取、保存或校验标识时，OpenAPI 和文档命令会报错，不发送没有稳定标识的请求。删除 `client_id` 后，下次 OpenAPI 或文档调用会生成新标识。复制配置到另一台设备或制作镜像时，应排除该文件，避免复制客户端身份。
+- `X-Client-Id` 以本地持久化标识为准；通过 `--header` 传入同名请求头时，其值会被本地标识覆盖。
 
 ## 调用 API
 
@@ -215,6 +196,7 @@ ve newsvc Act --force --version 2024-01-01 --endpoint open.volcengineapi.com \
 - 无元数据且仅有 `--body` 时，默认 `Content-Type=application/json`
 - `--header` 与 `--body` 可同时使用；`--header` 不算 flattened 业务参数，不会与 `--body` 冲突
 - 不允许覆盖：`Host`、`Authorization`、`Content-Length`（与传输/签名冲突）
+- `X-Client-Id` 由 CLI 自动设置，自定义同名请求头的值会被本地客户端标识覆盖
 - 保留名：`--header`、`--body` 不能再作为普通 API 参数名使用
 
 示例：

@@ -82,3 +82,6 @@ coverage.xml
 /mcps/**
 /.gocache/**
 /.gomodcache/**
+
+# Proxy CLI working notes and release artifacts belong outside this repository.
+/docs/proxycli-*

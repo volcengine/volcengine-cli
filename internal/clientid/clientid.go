@@ -12,6 +12,9 @@ import (
 	"github.com/google/uuid"
 )
 
+// HeaderName identifies a local CLI installation in outgoing HTTP requests.
+const HeaderName = "X-Client-Id"
+
 // LoadOrCreate returns the UUIDv4 stored in directory/client_id. The ID is
 // independent of credentials, profiles, and CLI versions. It is never silently
 // replaced: an unreadable or invalid existing file is an error.

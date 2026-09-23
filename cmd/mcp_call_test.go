@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/volcengine/volcengine-cli/internal/clientid"
 )
 
 func TestMCPInvokerReloadsProfileConfigurationAfterStartup(t *testing.T) {
@@ -52,6 +54,8 @@ func TestMCPInvokerReloadsProfileConfigurationAfterStartup(t *testing.T) {
 }
 
 func TestMCPInvokerFallsBackToHeaderCredentials(t *testing.T) {
+	directory, cleanup := withTestConfigDir(t)
+	defer cleanup()
 	requests := make(chan *http.Request, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests <- r.Clone(r.Context())
@@ -84,6 +88,10 @@ func TestMCPInvokerFallsBackToHeaderCredentials(t *testing.T) {
 	}
 
 	request := <-requests
+	id, err := clientid.LoadOrCreate(directory)
+	if err != nil || request.Header.Get(clientid.HeaderName) != id {
+		t.Fatalf("MCP API client ID = %q, stored = %q, error = %v", request.Header.Get(clientid.HeaderName), id, err)
+	}
 	authorization := request.Header.Get("Authorization")
 	if !strings.Contains(authorization, "Credential=header-ak/") || !strings.Contains(authorization, "/ap-southeast-1/sts/request") {
 		t.Fatalf("unexpected Authorization header: %q", authorization)

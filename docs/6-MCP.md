@@ -1,4 +1,4 @@
-[← Advanced Usage](5-Advanced.md) | MCP Server[(中文)](6-MCP-zh.md)
+[← Advanced Usage](5-Advanced.md) | MCP Server[(中文)](6-MCP-zh.md) | [Proxy-CLI →](7-ProxyCLI.md)
 
 ---
 
@@ -160,4 +160,4 @@ The HTTP server binds to `127.0.0.1:8888` by default. Expose it beyond loopback 
 
 ---
 
-[← Advanced Usage](5-Advanced.md) | MCP Server[(中文)](6-MCP-zh.md)
+[← Advanced Usage](5-Advanced.md) | MCP Server[(中文)](6-MCP-zh.md) | [Proxy-CLI →](7-ProxyCLI.md)

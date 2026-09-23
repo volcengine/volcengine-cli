@@ -233,21 +233,26 @@ function runProxyCLIInstall(binPath, deps) {
   if (!shouldInstallProxyCLIs(env)) {
     return true;
   }
-  try {
-    run(binPath, ["proxycli", "upgrade", "--yes"], {
-      stdio: "inherit",
-      timeout: 600000,
-      env,
-    });
-    return true;
-  } catch (err) {
-    warn(
-      `Volcengine CLI installation succeeded, but proxy CLI installation failed: ${
-        (err && err.message) || err
-      }. Run \`ve proxycli upgrade --yes\` to retry.`
-    );
-    return false;
+  // Keep opt-in preinstallation fixed even as the catalog grows or the user
+  // has other managed tools. Each failure is independent.
+  let success = true;
+  for (const tool of ["arkcli", "tosutil"]) {
+    try {
+      run(binPath, ["proxycli", "upgrade", tool, "--yes"], {
+        stdio: "inherit",
+        timeout: 600000,
+        env,
+      });
+    } catch (err) {
+      success = false;
+      warn(
+        `Volcengine CLI installation succeeded, but ${tool} installation failed: ${
+          (err && err.message) || err
+        }. Run \`ve proxycli upgrade ${tool} --yes\` to retry.`
+      );
+    }
   }
+  return success;
 }
 
 async function install() {

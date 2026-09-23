@@ -13,7 +13,7 @@ ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json
                       [--output json|table|table-num|text|yaml|off] [--query jmespath]
 ```
 
-For `ve arkcli` and `ve tosutil`, see [Use Product CLIs](#use-product-clis) below. Native OpenAPI argument rules do not apply to these proxy commands; each child CLI parses its own arguments.
+This guide covers native VE OpenAPI calls. See [Proxy-CLI](7-ProxyCLI.md) for product CLI capabilities and on-demand loading.
 
 Argument kinds:
 
@@ -30,31 +30,6 @@ Native OpenAPI calls use the **double-dash `--name`** flag prefix. System flags,
 - Help output, shell completion, error messages and documentation examples show the `--name` form only.
 - Conflicts are case-sensitive and resolved against the parameters the current action actually exposes: `--Region` and `--Lang` are always API parameters.
 - When an action exposes an API parameter with the **exact** name of a system flag, the double-dash form after that action is parsed as the API parameter; use an equivalent non-flag route for the system behaviour (see Known Name Conflicts).
-
-## Use Product CLIs
-
-For product CLIs invoked through `ve`, see each tool's official documentation for commands, authentication, configuration, and parameters:
-
-| Tool | Help for the installed version | Official documentation |
-| --- | --- | --- |
-| Ark CLI | `ve arkcli --help` | [Ark CLI usage guide](https://github.com/volcengine/ark-cli#readme) |
-| tosutil | `ve tosutil help` | [tosutil usage guide](https://www.volcengine.com/docs/6349/148775?lang=en) |
-
-Replace the leading `arkcli` in documented examples with `ve arkcli`, or `tosutil` with `ve tosutil`, and keep the remaining arguments unchanged. Support for flags such as `--profile` and `--output`, their meanings, and output formats follow the respective tool's rules.
-
-Invocations such as `ve --profile prod arkcli ...` are unsupported; flags supported by the child CLI must follow its command name. `ve` only attempts to refresh its current Console Login cache. Follow each tool's official documentation for its authentication and configuration.
-
-`ve arkcli` inherits the parent process environment and defaults `SOURCE_FROM` to `ve` when it is unset. The following variables are mapped independently; any one can be provided without the others:
-
-| Parent environment variable | Environment variable injected into Ark CLI |
-| --- | --- |
-| `VE_CALLER_TYPE` | `ARKCLI_CALLER_TYPE` |
-| `VE_CALLER_NAME` | `ARKCLI_CALLER_NAME` |
-| `VE_SKILL_NAME` | `ARKCLI_SKILL_NAME` |
-
-Values are copied verbatim, including explicitly empty strings. A present source variable overrides its corresponding `ARKCLI_*` value; an absent source preserves any existing value. The original `VE_*` variables remain available. These additions apply only to the Ark CLI execution environment; `ve tosutil` and its `ve toscli` alias inherit the original environment.
-
-Missing tools are installed on first invocation, including help and version requests. `ve upgrade` upgrades `ve` itself; `ve proxycli upgrade tosutil` upgrades the managed tosutil installation. External installations on PATH remain managed by their original package manager. See [README: Proxy CLIs](../README.EN.MD#proxy-clis) for lookup order, login session refresh, and managed upgrades.
 
 ## Discover Services and Actions
 
@@ -99,13 +74,19 @@ ve docs search "object storage quick start" --service-code tos --limit 3
 ve docs fetch "https://www.volcengine.com/docs/6349/74830" --max-length 1000
 ```
 
-These commands do not require login. Before the first request that passes argument validation, the CLI generates an [RFC 9562 UUIDv4](https://www.rfc-editor.org/rfc/rfc9562.html#section-5.4), saves it in `~/.volcengine/client_id`, and sends it in the `X-Client-Id` header on documentation search and fetch requests. On Windows, the path is `%USERPROFILE%\.volcengine\client_id`.
+These commands do not require login.
+
+### Client Identification
+
+Normal OpenAPI requests (including `--force` and API calls made through MCP tools) share a client identifier with `docs search/fetch`. Before the first request that passes argument validation, the CLI generates an [RFC 9562 UUIDv4](https://www.rfc-editor.org/rfc/rfc9562.html#section-5.4), saves it in `~/.volcengine/client_id`, and sends it in the `X-Client-Id` HTTP header. On Windows, the path is `%USERPROFILE%\.volcengine\client_id`.
 
 - The identifier contains 122 cryptographically random bits. It does not use a MAC address, hardware serial number, or account credentials.
 - A client is the local CLI configuration of one operating-system user. The identifier is reused across restarts, upgrades, logins, and profile switches. Other users or new devices generate independent identifiers.
-- The file is separate from `config.json` and login caches. Only these two documentation APIs automatically send the identifier; other APIs, User-Agent values, request bodies, and output formats retain their existing behavior. Help, version, and invalid arguments do not create the file.
+- The file is separate from `config.json` and login caches. GET, form POST, and JSON POST requests carry the header; the identifier is never added as a URL query parameter or request body field. User-Agent values and output formats retain their existing behavior. OpenAPI requests set the header before signing.
+- Help, version, and invalid arguments do not create the file. Delegation through `ve arkcli`, `ve tosutil`, or the `ve toscli` alias does not generate or inject this identifier.
 - First-time creation requires a writable directory and a filesystem supporting hard links, such as common Unix filesystems or Windows NTFS. Concurrent first callers publish only one complete identifier. Newly created directories and files use Unix modes `0700` and `0600`; an existing identifier only needs to be readable.
-- If the identifier cannot be read, persisted, or validated, the documentation command fails without sending a request with a missing or temporary identity. Deleting `client_id` causes the next documentation call to generate a new identifier. Exclude this file when copying configuration to another device or preparing an image so client identities are not duplicated.
+- If the identifier cannot be read, persisted, or validated, the OpenAPI or documentation command fails without sending a request with a missing or temporary identity. Deleting `client_id` causes the next OpenAPI or documentation call to generate a new identifier. Exclude this file when copying configuration to another device or preparing an image so client identities are not duplicated.
+- The persisted local identity takes precedence over any `X-Client-Id` value supplied through `--header`.
 
 ## Call APIs
 
@@ -212,6 +193,7 @@ ve newsvc Act --force --version 2024-01-01 --endpoint open.volcengineapi.com \
 Notes:
 
 - Override `Content-Type` with `--header Content-Type=...`; forms with parameters (e.g. `application/json; charset=utf-8`) are still treated as JSON
+- `X-Client-Id` is set automatically; a custom header with the same name is overwritten with the local client identifier
 - With `--body` and no metadata, Content-Type defaults to `application/json`
 - `--header` can be used with `--body`; headers are not flattened API params and do not conflict with `--body`
 - Blocked header names: `Host`, `Authorization`, `Content-Length` (transport/signing)
