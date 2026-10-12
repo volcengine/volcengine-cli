@@ -296,13 +296,7 @@ func SavePolicy(configDir string, policy *Policy) error {
 
 	target := PolicyFilePath(configDir)
 	if err := os.Rename(tempName, target); err != nil {
-		// Windows does not replace an existing destination atomically.
-		if removeErr := os.Remove(target); removeErr != nil && !os.IsNotExist(removeErr) {
-			return err
-		}
-		if secondErr := os.Rename(tempName, target); secondErr != nil {
-			return secondErr
-		}
+		return err
 	}
 	return os.Chmod(target, 0o600)
 }
