@@ -8,7 +8,7 @@ This guide explains how to install `ve`, put it on your PATH, and make a minimal
 
 `ve` is Volcengine's unified command-line entry point: use `ve <service> <action>` for general OpenAPI calls, or `ve arkcli <command>` and `ve tosutil <command>` for product CLIs. It also provides credential and configuration management, Skill management, and an MCP server.
 
-Product CLIs are installed on demand and retain their own command, authentication, and argument rules. See [Use Product CLIs](4-Usage.md#use-product-clis) for invocation examples and official documentation links.
+Product CLIs are installed on demand and retain their own command, authentication, and argument rules. See [Proxy-CLI](7-ProxyCLI.md) for an overview and links to product documentation.
 
 ## Requirements
 

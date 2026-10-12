@@ -110,7 +110,10 @@ func runMain() int {
 	}
 	// Start the non-blocking check before early error returns so a ready cache
 	// notice can still print via defer when ---lang is malformed.
-	asyncCheck := upgrade.StartBackgroundCheck(clientVersion, checkArgs)
+	var asyncCheck *upgrade.AsyncCheck
+	if !localOnlyInvocation(checkArgs) {
+		asyncCheck = upgrade.StartBackgroundCheck(clientVersion, checkArgs)
+	}
 	defer upgrade.MaybePrintUpgradeNotice(os.Stderr, clientVersion, asyncCheck)
 
 	if processLanguageResolution.err != nil {
@@ -135,6 +138,9 @@ func runMain() int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
+
+	restoreSharedRouting := prepareSharedProxyRouting(rootCmd, processLanguageResolution.args)
+	defer restoreSharedRouting()
 
 	if err := rootCmd.Execute(); err != nil {
 		// -v/--version already printed the version; treat as success so defer

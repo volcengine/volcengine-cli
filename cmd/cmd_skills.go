@@ -51,7 +51,8 @@ func newSkillsActionCommand(
 	factory skillsManagerFactory,
 	action func(skillsManager) (skillmanager.Result, error),
 ) *cobra.Command {
-	return &cobra.Command{
+	var toolName string
+	command := &cobra.Command{
 		Use:   use,
 		Short: short,
 		Args:  cobra.NoArgs,
@@ -59,6 +60,19 @@ func newSkillsActionCommand(
 			manager, err := factory()
 			if err != nil {
 				return err
+			}
+			if command.Flags().Changed("tool") {
+				tool, ok := processProxyCatalog.Lookup(toolName)
+				if !ok {
+					return fmt.Errorf("unknown proxy CLI %q; run 've proxycli list'", toolName)
+				}
+				selector, ok := manager.(interface{ SelectNames([]string) error })
+				if !ok {
+					return fmt.Errorf("Skill manager does not support selection")
+				}
+				if err := selector.SelectNames(tool.Skills.Names); err != nil {
+					return fmt.Errorf("%s: %w; CLI operation is unaffected", tool.ID, err)
+				}
 			}
 			result, err := action(manager)
 			if err != nil {
@@ -68,6 +82,9 @@ func newSkillsActionCommand(
 			return nil
 		},
 	}
+	command.Flags().StringVar(&toolName, "tool", "", "Select verified Skills associated with a proxy CLI")
+	_ = command.RegisterFlagCompletionFunc("tool", proxyToolCompletion)
+	return command
 }
 
 func printSkillsResult(command *cobra.Command, action string, result skillmanager.Result) {

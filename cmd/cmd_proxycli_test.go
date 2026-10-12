@@ -377,7 +377,7 @@ func TestProxyManagementHelpUsesLocalCommandSyntax(t *testing.T) {
 		want []string
 	}{
 		{"management", []string{"proxycli", "--help"}, []string{"ve proxycli [command]", "upgrade"}},
-		{"upgrade", []string{"proxycli", "upgrade", "--help"}, []string{"ve proxycli upgrade [arkcli|tosutil]", "--yes"}},
+		{"upgrade", []string{"proxycli", "upgrade", "--help"}, []string{"ve proxycli upgrade [tool-id]", "--yes"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := &cobra.Command{Use: "ve"}
@@ -468,5 +468,32 @@ func TestProxyCLIManagedPathUsesEnvironmentOverride(t *testing.T) {
 	}
 	if !filepath.IsAbs(m.BinDir) {
 		t.Fatalf("BinDir is not absolute: %q", m.BinDir)
+	}
+}
+
+func TestProxyRuntimePrefixAndPackageEnvironment(t *testing.T) {
+	old := runProxyExecutable
+	defer func() { runProxyExecutable = old }()
+	manager := &fakeProxyManager{resolved: proxycli.Resolution{Tool: "emr-cli", Path: "/private/python", ArgsPrefix: []string{"-I", "-m", "scripts.cli"}, Environment: map[string]string{"PATH": "/private/bin", "LD_LIBRARY_PATH": "/private/lib"}}}
+	child := []string{"--profile", "", "Unicode 空格", "--help"}
+	runProxyExecutable = func(path string, args []string, _ io.Reader, _, _ io.Writer, env []string) error {
+		if path != "/private/python" || !reflect.DeepEqual(args, append([]string{"-I", "-m", "scripts.cli"}, child...)) {
+			t.Fatal(path, args)
+		}
+		for _, want := range []string{"PATH=/private/bin", "LD_LIBRARY_PATH=/private/lib"} {
+			count := 0
+			for _, entry := range env {
+				if entry == want {
+					count++
+				}
+			}
+			if count != 1 {
+				t.Fatal("package environment not replaced exactly once", want)
+			}
+		}
+		return nil
+	}
+	if err := runProxyCLI(&cobra.Command{}, nil, manager, "emr-cli", child); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -24,7 +24,7 @@ type proxyCLIUpdateChecker interface {
 
 var (
 	newProxyCLIManager = func() (proxyCLIManager, error) {
-		return proxycli.NewManager()
+		return proxycli.NewManagerWithCatalog(processProxyCatalog)
 	}
 	ensureProxyLoginToken  = EnsureValidLoginToken
 	launchProxyUpdateCheck = defaultLaunchProxyUpdateCheck
@@ -32,18 +32,26 @@ var (
 )
 
 func init() {
-	tosutilCommand := newProxyForwardCommand("tosutil", proxycli.ToolTOSUtil)
-	tosutilCommand.Aliases = []string{"toscli"}
-	rootCmd.AddCommand(
-		newProxyForwardCommand("arkcli", proxycli.ToolArkCLI),
-		tosutilCommand,
-		newProxyCLIManagementCommand(),
-		newProxyCLIUpdateHelperCommand(),
-	)
+	rootCmd.AddCommand(newProxyCLIManagementCommand(), newProxyCLIUpdateHelperCommand())
+	registerProxyCommands(rootCmd, processProxyCatalog)
 }
-
 func isProxyCLIForwardCommand(name string) bool {
-	return name == "arkcli" || name == "tosutil" || name == "toscli"
+	if reservedProxyCommand(name) {
+		if _, ok := sharedNativeTool(name); !ok {
+			return false
+		}
+	}
+	for _, spec := range processProxyCatalog.Catalog().Tools {
+		if spec.Readiness != "ready" {
+			continue
+		}
+		for _, n := range proxyDirectNames(spec) {
+			if n == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func newProxyForwardCommand(alias string, tool proxycli.Tool) *cobra.Command {
@@ -52,6 +60,9 @@ func newProxyForwardCommand(alias string, tool proxycli.Tool) *cobra.Command {
 		Short:              fmt.Sprintf("Run %s through the Volcengine CLI", executableLabel(tool)),
 		DisableFlagParsing: true,
 		RunE: func(command *cobra.Command, args []string) error {
+			if _, err := processProxyCatalog.Ready(tool); err != nil {
+				return err
+			}
 			manager, err := newProxyCLIManager()
 			if err != nil {
 				return err
@@ -68,10 +79,10 @@ All arguments after {{.Name}} are forwarded unchanged to the delegated CLI.
 }
 
 func executableLabel(tool proxycli.Tool) string {
-	if tool == proxycli.ToolTOSUtil {
-		return "tosutil"
+	if t, ok := processProxyCatalog.Lookup(string(tool)); ok {
+		return t.Command
 	}
-	return "arkcli"
+	return string(tool)
 }
 
 func runProxyCLI(command *cobra.Command, cliContext *Context, manager proxyCLIManager, tool proxycli.Tool, args []string) error {
@@ -107,11 +118,11 @@ func runProxyCLI(command *cobra.Command, cliContext *Context, manager proxyCLIMa
 	}
 	return runProxyExecutable(
 		resolution.Path,
-		append([]string(nil), args...),
+		append(append([]string(nil), resolution.ArgsPrefix...), args...),
 		command.InOrStdin(),
 		command.OutOrStdout(),
 		command.ErrOrStderr(),
-		proxyCLIEnvironment(tool, os.Environ()),
+		proxyLaunchEnvironment(proxyCLIEnvironment(tool, os.Environ()), resolution.Environment),
 	)
 }
 
@@ -227,19 +238,35 @@ Flags:
 {{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}
 `)
 	command.AddCommand(newProxyCLIUpgradeCommand())
+	addProxyCatalogCommands(command)
 	return command
 }
 
 func newProxyCLIUpgradeCommand() *cobra.Command {
 	var yes bool
 	command := &cobra.Command{
-		Use:   "upgrade [arkcli|tosutil]",
-		Short: "Install or upgrade ve-managed proxy CLIs",
-		Args:  cobra.MaximumNArgs(1),
+		Use:               "upgrade [tool-id]",
+		ValidArgsFunction: proxyToolCompletion,
+		Short:             "Install or upgrade ve-managed proxy CLIs",
+		Args:              cobra.MaximumNArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			tools := proxycli.KnownTools()
+			manager, err := newProxyCLIManager()
+			if err != nil {
+				return err
+			}
+			tools := proxycli.LegacyTools()
+			if len(args) == 0 {
+				if defaults, ok := manager.(interface {
+					DefaultUpgradeTools() ([]proxycli.Tool, error)
+				}); ok {
+					tools, err = defaults.DefaultUpgradeTools()
+					if err != nil {
+						return err
+					}
+				}
+			}
 			if len(args) == 1 {
-				tool, err := proxycli.ParseTool(args[0])
+				tool, err := processProxyCatalog.ParseTool(args[0])
 				if err != nil {
 					return err
 				}
@@ -254,10 +281,6 @@ func newProxyCLIUpgradeCommand() *cobra.Command {
 					fmt.Fprintln(command.OutOrStdout(), "Proxy CLI upgrade canceled.")
 					return nil
 				}
-			}
-			manager, err := newProxyCLIManager()
-			if err != nil {
-				return err
 			}
 			result, upgradeErr := manager.Upgrade(tools)
 			printProxyCLIUpgradeResult(command, result)
@@ -293,4 +316,28 @@ func printProxyCLIUpgradeResult(command *cobra.Command, result proxycli.UpgradeR
 			fmt.Fprintf(command.OutOrStdout(), "%s: %s version %s from %s (%s)\n", executableLabel(item.Tool), item.Status, item.Version, item.Source, item.Path)
 		}
 	}
+}
+
+func proxyLaunchEnvironment(env []string, values map[string]string) []string {
+	if len(values) == 0 {
+		return env
+	}
+	out := make([]string, 0, len(env)+len(values))
+	for _, entry := range env {
+		key, _, _ := strings.Cut(entry, "=")
+		found := false
+		for k := range values {
+			if key == k || runtime.GOOS == "windows" && strings.EqualFold(key, k) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			out = append(out, entry)
+		}
+	}
+	for key, value := range values {
+		out = append(out, key+"="+value)
+	}
+	return out
 }

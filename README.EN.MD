@@ -17,9 +17,7 @@ Starting from v1.1.3, `ve` can install and manage Skills (the `ve skills` comman
 
 ### Overview
 
-Volcengine CLI (`ve`) is a unified command-line entry point for developers, automation scripts, and AI agents using Volcengine. It provides general OpenAPI calls, credential and profile management, SSO, and Console Login. It also exposes product CLIs through `ve arkcli` and `ve tosutil`, with on-demand installation and managed upgrades, and provides Skill management and an MCP server for agents.
-
-Use `ve <service> <action>` for general cloud resource APIs, or `ve arkcli <command>` and `ve tosutil <command>` for the Ark and object storage product tools. Each product CLI retains its own commands, authentication settings, arguments, and output rules; see [Proxy CLIs](#proxy-clis) below.
+Volcengine CLI (`ve`) is a unified command-line entry point for developers, automation scripts, and AI agents using Volcengine. It provides general OpenAPI calls, credential and profile management, SSO, and Console Login. It also exposes native product commands through Proxy-CLI, with on-demand installation and managed upgrades, and provides Skill management and an MCP server for agents.
 
 Go 1.18 or later is required to build from source. Prebuilt Release and npm installations do not require Go.
 
@@ -87,41 +85,13 @@ ve skills uninstall
 - `update`: Update to the latest version and restore missing or modified core Skills to the latest official content. If no Skills are installed, it performs an installation.
 - `uninstall`: Remove core Skills installed by `ve` while preserving locally modified content.
 
-### Proxy CLIs
+### Proxy-CLI
 
-`ve` can run `arkcli` and `tosutil` as transparent second-level commands:
+Proxy-CLI brings Volcengine product CLIs into `ve`, giving users and agents a unified entry point while preserving each product's command semantics.
 
-```shell
-ve arkcli --help
-ve tosutil version
-```
+Product tools load on demand and are downloaded only when invoked without a usable local installation. Using native VE OpenAPI and configuration features does not download, install, or start product CLIs, and those workflows remain unchanged.
 
-The standard TOS entry point is `ve tosutil`; the previous `ve toscli` spelling remains a compatibility alias.
-
-See each tool's official documentation for its commands, authentication, configuration, and parameters:
-
-| Tool | Invocation through `ve` | Official documentation |
-| --- | --- | --- |
-| Ark CLI | `ve arkcli <command> [arguments...]` | [Ark CLI usage guide](https://github.com/volcengine/ark-cli#readme) |
-| tosutil | `ve tosutil <command> [arguments...]` | [tosutil usage guide](https://www.volcengine.com/docs/6349/148775?lang=en) |
-
-To run examples from those guides, replace the leading `arkcli` with `ve arkcli`, or `tosutil` with `ve tosutil`, and keep the remaining arguments unchanged. Use `ve arkcli --help` and `ve tosutil help` for help matching the installed version; argument syntax and output formats follow the respective tool's rules.
-
-The native `ve` API flags `--profile`, `--region`, and `--endpoint` cannot precede a proxy command. Place flags supported by the child CLI after `arkcli` or `tosutil` so that it can interpret them. Session refresh only applies to the current `ve` Console Login cache; it does not automatically translate all `ve` authentication or profile settings into child CLI configuration.
-
-Arguments after `arkcli` or `tosutil` are forwarded unchanged to the delegated CLI. Before forwarding, `ve` checks the current profile and attempts to refresh temporary STS credentials when the profile uses Console Login, has an active session, and is close to expiry. A missing login or refresh failure does not block delegation, so the child CLI can handle login itself; help and version invocations skip session refresh. On Unix, `ve` then replaces itself with the target CLI via `exec`, leaving no proxy parent process; Windows uses a minimal waiting wrapper.
-
-Lookup checks the system `PATH` first and then the ve-managed directory. The managed directory defaults to `~/.volcengine/proxy-cli/bin` and can be overridden with `VOLCENGINE_CLI_PROXY_PATH`. If neither location contains the command, the first invocation installs it automatically from the independent manifest at `https://cloudcache.volccdn.com/ve/proxycli/manifest.json`; when the manifest is unavailable, an embedded fixed-version manifest uses the same CDN and never GitHub. The default directory stores managed installation state in `~/.volcengine/proxy-cli/install-state.json`; custom managed directories receive independent path-keyed state files. Missing or corrupt state is treated as not installed and rebuilt.
-
-Managed versions follow the same background-notice model as `ve`: normal invocations launch an independent short-lived helper at most once every 24 hours, so the check neither blocks the target CLI nor dies during the Unix `exec` handoff. A later invocation prints an stderr notice when an update exists, leaving the upgrade decision to the user. External binaries found on `PATH` do not participate in this check; `VOLCENGINE_CLI_DISABLE_UPDATE_CHECK=1` disables background checks for both ve and managed proxy CLIs.
-
-```shell
-ve proxycli upgrade                 # install or upgrade all managed proxy CLIs
-ve proxycli upgrade arkcli          # manage arkcli only
-ve proxycli upgrade tosutil --yes    # manage tosutil only, without prompting
-```
-
-External installations found on `PATH` remain owned by their package manager and are never overwritten by `ve proxycli upgrade`. npm installations of `ve` do not install proxy CLIs by default; set `VOLCENGINE_CLI_INSTALL_PROXY_CLIS=1` to preinstall them.
+Prefix the native product command with `ve`, for example `ve arkcli --help` or `ve tosutil help`, and keep the remaining arguments unchanged. See the [Proxy-CLI usage guide](docs/7-ProxyCLI.md#quick-start) for steps, product examples, and official documentation.
 
 ### Quick Start
 
@@ -144,9 +114,10 @@ ve sts GetCallerIdentity
 1. [Getting Started](docs/1-GettingStarted.md): install, build from source, configure PATH, and make the first API call.
 2. [Authentication](docs/2-Authentication.md): AK/SK, default credential chain, OIDC, ECS instance role, SSO, and Console Login.
 3. [Configuration](docs/3-Configuration.md): inspect, list, switch, update, and delete profiles.
-4. [Usage](docs/4-Usage.md): native API and product CLI calls, official product documentation links, system flags, JSON body, arrays and nested parameters, plus `--query` filtering and `--output` formats.
+4. [Usage](docs/4-Usage.md): native API calls, system flags, JSON body, arrays and nested parameters, plus `--query` filtering and `--output` formats.
 5. [Advanced Usage](docs/5-Advanced.md): shell completion, colored output, debug logs, `--force` invocation, and FAQ. Safety-policy configuration is documented in [Configuration](docs/3-Configuration.md#safety-policy).
 6. [MCP Server](docs/6-MCP.md): stdio, SSE, Streamable HTTP, OAuth, header credentials, and region resolution.
+7. [Proxy-CLI](docs/7-ProxyCLI.md): product invocation, on-demand loading, installation, upgrades, and official documentation.
 
 ### Security and privacy
 This project takes security seriously.

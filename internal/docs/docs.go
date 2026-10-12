@@ -294,7 +294,7 @@ func (m *module) post(ctx context.Context, path string, payload, response interf
 	if err != nil {
 		return fmt.Errorf("load documentation client ID: %w", err)
 	}
-	request.Header.Set("X-Client-Id", id)
+	request.Header.Set(clientid.HeaderName, id)
 
 	httpResponse, err := m.client.Do(request)
 	if err != nil {

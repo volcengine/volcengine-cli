@@ -43,9 +43,19 @@ func resolveSystemFlagsWithRegistry(args []string, registry *systemFlagRegistry)
 	serviceName := ""
 	var actionParameters map[string]struct{}
 	leadingSystemFlag := ""
+	proxyManagement := false
+	proxyRun := false
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
+		// Stop scanning entirely once the child owns argv (including empty values).
+		if state == proxyCLICommand || (proxyRun && arg == "--") {
+			result.args = append(result.args, args[i:]...)
+			break
+		}
+		if proxyManagement && state == nonAPICommand && arg == "run" {
+			proxyRun = true
+		}
 		name, legacy, equals, candidate := parseSystemFlagTokenWithRegistry(arg, registry)
 		if candidate && state == beforeAPIAction {
 			return result, systemFlagPositionError(name, legacy)
@@ -91,8 +101,9 @@ func resolveSystemFlagsWithRegistry(args []string, registry *systemFlagRegistry)
 		switch state {
 		case beforeCommand:
 			serviceName = strings.ReplaceAll(arg, "_", "")
-			if isProxyCLIForwardCommand(arg) {
-				// A proxy command owns every token after its hard-coded second-level
+			proxyManagement = arg == "proxycli"
+			if isProxyCLIInvocation(arg, args[i+1:]) || arg == "__complete" || arg == "__completeNoDesc" {
+				// A proxy command owns every token after its catalog-provided second-level
 				// name. In particular, do not consume arkcli's --lang/--profile.
 				state = proxyCLICommand
 			} else if rootSupport.IsValidSvc(serviceName) {

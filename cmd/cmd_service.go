@@ -31,6 +31,13 @@ func generateServiceCommands() {
 				Short:              formatServiceShort(svc),
 				DisableFlagParsing: true,
 				RunE: func(cmd *cobra.Command, args []string) error {
+					if tool, shared := sharedNativeTool(cmd.Name()); shared && !sharedOpenAPIInvocation(svc, args) {
+						manager, err := newProxyCLIManager()
+						if err != nil {
+							return err
+						}
+						return runProxyCLI(cmd, ctx, manager, tool, args)
+					}
 					return runServiceCmd(cmd, svc, validActions, args)
 				},
 			}
