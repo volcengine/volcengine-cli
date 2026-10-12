@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 type Action string
@@ -209,8 +210,8 @@ func parseEnvironmentRules(value string) ([]Rule, error) {
 		}
 		pattern = strings.TrimSpace(pattern)
 		action := normalizeAction(Action(actionValue))
-		if pattern == "" {
-			return nil, fmt.Errorf("entry %d has an empty pattern", i+1)
+		if err := validatePattern(pattern); err != nil {
+			return nil, fmt.Errorf("entry %d: %w", i+1, err)
 		}
 		if !validConfiguredAction(action) {
 			return nil, fmt.Errorf("entry %d has invalid action %q", i+1, strings.TrimSpace(actionValue))
@@ -227,12 +228,23 @@ func validatePolicy(policy *Policy) error {
 	for i := range policy.Rules {
 		policy.Rules[i].Pattern = strings.TrimSpace(policy.Rules[i].Pattern)
 		policy.Rules[i].Action = normalizeAction(policy.Rules[i].Action)
-		if policy.Rules[i].Pattern == "" {
-			return fmt.Errorf("rules[%d].pattern is empty", i)
+		if err := validatePattern(policy.Rules[i].Pattern); err != nil {
+			return fmt.Errorf("rules[%d]: %w", i, err)
 		}
 		if !validConfiguredAction(policy.Rules[i].Action) {
 			return fmt.Errorf("rules[%d].action %q is invalid", i, policy.Rules[i].Action)
 		}
+	}
+	return nil
+}
+
+// validatePattern checks the service:action shape without consulting API
+// metadata, so rules can protect unlisted services and future force calls.
+// Callers trim surrounding whitespace before validation and storage.
+func validatePattern(pattern string) error {
+	service, action, separated := strings.Cut(pattern, ":")
+	if !separated || service == "" || action == "" || strings.Contains(action, ":") || strings.IndexFunc(pattern, unicode.IsSpace) >= 0 {
+		return fmt.Errorf("invalid safety policy pattern %q: expected service:action with non-empty parts and no whitespace (e.g. sts:GetCallerIdentity, sts:* or *:*)", pattern)
 	}
 	return nil
 }

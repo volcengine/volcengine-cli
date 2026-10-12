@@ -168,6 +168,8 @@ ve configure safety-policy list
 
 规则格式为 `service:action`，匹配不区分大小写，支持 `*` 通配符，并采用第一条匹配优先（first-match-wins）。未命中任何规则时默认允许。同一服务的所有写法视为同一服务，包括带版本号的命令名、带下划线的兼容命令名和 SDK 服务名。例如 `cloudtrail:Delete*`、`cloudtrail20180101:Delete*` 与 `cloud_trail:Delete*` 等价，对 `ve cloudtrail`、`ve cloudtrail20180101` 和 MCP `call_api` 同时生效；`rds_mysql:*` 同样覆盖 `ve rdsmysql`、`ve rdsmysqlv2` 和 `ve rds_mysql_v2`。API 名称按原样匹配，不做其他写法转换。
 
+pattern 必须且只能包含一个冒号，service 和 action 均不能为空，内部不能包含空白字符；首尾空白会被忽略。例如 `sts:GetCallerIdentity`、`sts:*`、`*:GetCallerIdentity`、`*:*` 均合法；只写 API 名、只写服务名、用点或空格分隔，以及单独的 `*` 都会被拒绝。这里只校验格式，允许配置未收录服务及通过 `--force` 调用的新 API。
+
 管理规则时，`add` 和 `remove` 按完整 pattern 文本进行不区分大小写的比较。`add` 原位更新找到的第一条规则，保持其顺序；未找到时追加。`remove` 删除所有相同 pattern 的规则，未找到时仍返回成功。查找已保存的 pattern 时不展开通配符或服务别名。
 
 ```json
@@ -203,7 +205,7 @@ export VOLCENGINE_SAFETY_POLICY_ENABLED=true
 export VOLCENGINE_SAFETY_POLICY_RULES='ecs:Describe*=allow,*:Delete*=deny,*:Update*=confirm'
 ```
 
-策略文件损坏或环境变量格式非法时采用 fail-closed：CLI 返回配置错误，不发送 API 请求。
+策略文件损坏或环境变量格式非法时采用 fail-closed：CLI 返回配置错误，不发送 API 请求。添加、保存、加载规则及解析环境变量时均校验 pattern 格式。如果已有策略文件包含错误 pattern，需要直接修正 `~/.volcengine/safety-policy.json` 后，再使用策略管理或 API 命令。
 
 ## 配置选择示例
 

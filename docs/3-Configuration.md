@@ -168,6 +168,8 @@ Actions:
 
 Rules use `service:action`, are matched case-insensitively, support `*`, and use first-match-wins order. An unmatched operation is allowed. Every spelling of a service is treated as the same service, including versioned commands, underscore-compatible commands, and the SDK service name. For example, `cloudtrail:Delete*`, `cloudtrail20180101:Delete*`, and `cloud_trail:Delete*` are equivalent and apply to `ve cloudtrail`, `ve cloudtrail20180101`, and MCP `call_api`; `rds_mysql:*` likewise covers `ve rdsmysql`, `ve rdsmysqlv2`, and `ve rds_mysql_v2`. API names are matched as written, with no other spelling conversion.
 
+Patterns must contain exactly one colon, with a non-empty service and action and no internal whitespace. Surrounding whitespace is ignored. For example, use `sts:GetCallerIdentity`, `sts:*`, `*:GetCallerIdentity`, or `*:*`; API-only names, service-only names, dot/space separators, and a lone `*` are rejected. Validation checks syntax only, so rules may cover unlisted services and future APIs used with `--force`.
+
 For rule management, `add` and `remove` compare the complete pattern text case-insensitively. `add` updates the first matching pattern in place, preserving its position; otherwise, it appends a rule. `remove` deletes all matching patterns and still succeeds if none exist. Wildcards and service aliases are not expanded when locating stored patterns.
 
 ```json
@@ -203,7 +205,7 @@ export VOLCENGINE_SAFETY_POLICY_ENABLED=true
 export VOLCENGINE_SAFETY_POLICY_RULES='ecs:Describe*=allow,*:Delete*=deny,*:Update*=confirm'
 ```
 
-Invalid policy files and invalid environment overrides fail closed: the CLI reports the configuration error and does not send the API request.
+Invalid policy files and invalid environment overrides fail closed: the CLI reports the configuration error and does not send the API request. Pattern syntax is validated when adding, saving, or loading rules and when parsing environment overrides. If an existing policy file contains malformed patterns, correct them directly in `~/.volcengine/safety-policy.json` before using policy management or API commands again.
 
 ## Selection Examples
 
