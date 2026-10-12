@@ -19,6 +19,7 @@ import (
 	"github.com/ThinkInAIXYZ/go-mcp/server"
 	"github.com/ThinkInAIXYZ/go-mcp/transport"
 	"github.com/spf13/cobra"
+	"github.com/volcengine/volcengine-cli/internal/docs"
 )
 
 const (
@@ -291,7 +292,7 @@ func newMCPServer(serverTransport transport.ServerTransport, invoker mcpAPIInvok
 	if err != nil {
 		return nil, err
 	}
-	registerMCPTools(mcpServerRegistrar{server: mcpServer}, rootSupport, invoker)
+	registerMCPTools(mcpServerRegistrar{server: mcpServer}, rootSupport, invoker, docs.New(docsUserAgent(os.LookupEnv)))
 	return mcpServer, nil
 }
 

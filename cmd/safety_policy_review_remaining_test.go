@@ -39,7 +39,7 @@ func TestReviewSafetyNullEnabledMeansDisabled(t *testing.T) {
 		t.Fatal(err)
 	}
 	registrar := &recordingMCPRegistrar{}
-	registerMCPTools(registrar, rootSupport, invoker)
+	registerMCPTools(registrar, rootSupport, invoker, &fakeDocsModule{})
 	callContext := context.WithValue(context.Background(), mcpRequestMetadataContextKey{}, mcpRequestMetadata{
 		Credentials: &mcpCredentials{AccessKeyID: "fake-ak", SecretAccessKey: "fake-sk"},
 	})

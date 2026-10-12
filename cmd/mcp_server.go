@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 
 	"github.com/ThinkInAIXYZ/go-mcp/protocol"
 	"github.com/ThinkInAIXYZ/go-mcp/server"
+	"github.com/volcengine/volcengine-cli/internal/docs"
 	"github.com/volcengine/volcengine-cli/internal/safety"
 )
 
@@ -56,7 +58,12 @@ func mcpCallAPIInputSchema(approvalDescription string) json.RawMessage {
 	return data
 }
 
-func registerMCPTools(registrar mcpToolRegistrar, support *RootSupport, invoker mcpAPIInvoker) {
+type mcpDocsModule interface {
+	Search(context.Context, docs.SearchOptions) (docs.SearchResult, error)
+	Fetch(context.Context, docs.FetchOptions) (docs.FetchResult, error)
+}
+
+func registerMCPTools(registrar mcpToolRegistrar, support *RootSupport, invoker mcpAPIInvoker, docsModule mcpDocsModule) {
 	listServicesTool := protocol.NewToolWithRawSchema("list_services", "List every Volcano Engine service code supported by this CLI. Use the returned service code with list_apis; no search query is needed.", json.RawMessage(`{"type":"object","properties":{}}`))
 	listServicesTool.Annotations = mcpReadOnlyToolAnnotations()
 	registrar.RegisterTool(listServicesTool, func(_ context.Context, _ *protocol.CallToolRequest) (*protocol.CallToolResult, error) {
@@ -131,6 +138,64 @@ func registerMCPTools(registrar mcpToolRegistrar, support *RootSupport, invoker 
 		}
 		return mcpJSONResult(result)
 	})
+
+	searchDocsTool := protocol.NewToolWithRawSchema("search_docs", "Search public Volcano Engine documentation and return matching titles, URLs, service codes, and text snippets.", json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"Text to search for.","minLength":1},"limit":{"type":"integer","description":"Maximum number of documents to return.","minimum":1,"default":10},"service_codes":{"type":"array","description":"Optional service codes used to filter results.","items":{"type":"string"}},"snippet_length":{"type":"integer","description":"Maximum number of Unicode characters per result snippet.","minimum":1,"default":600}},"required":["query"],"additionalProperties":false}`))
+	searchDocsTool.Annotations = mcpExternalReadOnlyToolAnnotations()
+	registrar.RegisterTool(searchDocsTool, func(ctx context.Context, request *protocol.CallToolRequest) (*protocol.CallToolResult, error) {
+		if docsModule == nil {
+			return mcpErrorResult(fmt.Errorf("documentation search is not configured")), nil
+		}
+		query, err := mcpStringArgument(request.Arguments, "query", true)
+		if err != nil {
+			return mcpErrorResult(err), nil
+		}
+		limit, err := mcpPositiveIntArgument(request.Arguments, "limit", docs.DefaultSearchLimit)
+		if err != nil {
+			return mcpErrorResult(err), nil
+		}
+		serviceCodes, err := mcpStringArrayArgument(request.Arguments, "service_codes")
+		if err != nil {
+			return mcpErrorResult(err), nil
+		}
+		snippetLength, err := mcpPositiveIntArgument(request.Arguments, "snippet_length", docs.DefaultSnippetLength)
+		if err != nil {
+			return mcpErrorResult(err), nil
+		}
+		result, err := docsModule.Search(ctx, docs.SearchOptions{
+			Query: query, Limit: limit, ServiceCodes: serviceCodes, SnippetLength: snippetLength,
+		})
+		if err != nil {
+			return mcpErrorResult(err), nil
+		}
+		return mcpJSONResult(result)
+	})
+
+	fetchDocsTool := protocol.NewToolWithRawSchema("fetch_docs", "Fetch a public Volcano Engine documentation article and return a Unicode-safe page of its cleaned text content.", json.RawMessage(`{"type":"object","properties":{"url":{"type":"string","description":"Volcano Engine documentation URL returned by search_docs.","minLength":1},"start_index":{"type":"integer","description":"Zero-based Unicode character index at which to start.","minimum":0,"default":0},"max_length":{"type":"integer","description":"Maximum number of Unicode characters to return.","minimum":1,"default":5000}},"required":["url"],"additionalProperties":false}`))
+	fetchDocsTool.Annotations = mcpExternalReadOnlyToolAnnotations()
+	registrar.RegisterTool(fetchDocsTool, func(ctx context.Context, request *protocol.CallToolRequest) (*protocol.CallToolResult, error) {
+		if docsModule == nil {
+			return mcpErrorResult(fmt.Errorf("documentation fetch is not configured")), nil
+		}
+		url, err := mcpStringArgument(request.Arguments, "url", true)
+		if err != nil {
+			return mcpErrorResult(err), nil
+		}
+		startIndex, err := mcpNonNegativeIntArgument(request.Arguments, "start_index", 0)
+		if err != nil {
+			return mcpErrorResult(err), nil
+		}
+		maxLength, err := mcpPositiveIntArgument(request.Arguments, "max_length", docs.DefaultFetchLength)
+		if err != nil {
+			return mcpErrorResult(err), nil
+		}
+		result, err := docsModule.Fetch(ctx, docs.FetchOptions{
+			URL: url, StartIndex: startIndex, MaxLength: maxLength,
+		})
+		if err != nil {
+			return mcpErrorResult(err), nil
+		}
+		return mcpJSONResult(result)
+	})
 }
 
 func mcpBoolArgument(arguments map[string]interface{}, name string) (bool, error) {
@@ -147,6 +212,13 @@ func mcpBoolArgument(arguments map[string]interface{}, name string) (bool, error
 
 func mcpReadOnlyToolAnnotations() *protocol.ToolAnnotations {
 	readOnly, destructive, idempotent, openWorld := true, false, true, false
+	return &protocol.ToolAnnotations{
+		ReadOnlyHint: &readOnly, DestructiveHint: &destructive, IdempotentHint: &idempotent, OpenWorldHint: &openWorld,
+	}
+}
+
+func mcpExternalReadOnlyToolAnnotations() *protocol.ToolAnnotations {
+	readOnly, destructive, idempotent, openWorld := true, false, true, true
 	return &protocol.ToolAnnotations{
 		ReadOnlyHint: &readOnly, DestructiveHint: &destructive, IdempotentHint: &idempotent, OpenWorldHint: &openWorld,
 	}
@@ -180,6 +252,74 @@ func mcpObjectArgument(arguments map[string]interface{}, name string) (map[strin
 		return nil, fmt.Errorf("%s must be an object", name)
 	}
 	return result, nil
+}
+
+func mcpPositiveIntArgument(arguments map[string]interface{}, name string, defaultValue int) (int, error) {
+	result, err := mcpIntArgument(arguments, name, defaultValue)
+	if err != nil {
+		return 0, err
+	}
+	if result <= 0 {
+		return 0, fmt.Errorf("%s must be a positive integer", name)
+	}
+	return result, nil
+}
+
+func mcpNonNegativeIntArgument(arguments map[string]interface{}, name string, defaultValue int) (int, error) {
+	result, err := mcpIntArgument(arguments, name, defaultValue)
+	if err != nil {
+		return 0, err
+	}
+	if result < 0 {
+		return 0, fmt.Errorf("%s must be a non-negative integer", name)
+	}
+	return result, nil
+}
+
+func mcpIntArgument(arguments map[string]interface{}, name string, defaultValue int) (int, error) {
+	value, exists := arguments[name]
+	if !exists || value == nil {
+		return defaultValue, nil
+	}
+	var result int
+	switch number := value.(type) {
+	case int:
+		result = number
+	case float64:
+		if math.IsNaN(number) || math.IsInf(number, 0) || math.Trunc(number) != number {
+			return 0, fmt.Errorf("%s must be an integer", name)
+		}
+		result = int(number)
+		if float64(result) != number {
+			return 0, fmt.Errorf("%s must be an integer", name)
+		}
+	default:
+		return 0, fmt.Errorf("%s must be an integer", name)
+	}
+	return result, nil
+}
+
+func mcpStringArrayArgument(arguments map[string]interface{}, name string) ([]string, error) {
+	value, exists := arguments[name]
+	if !exists || value == nil {
+		return nil, nil
+	}
+	switch values := value.(type) {
+	case []string:
+		return values, nil
+	case []interface{}:
+		result := make([]string, 0, len(values))
+		for _, value := range values {
+			text, ok := value.(string)
+			if !ok {
+				return nil, fmt.Errorf("%s must be an array of strings", name)
+			}
+			result = append(result, text)
+		}
+		return result, nil
+	default:
+		return nil, fmt.Errorf("%s must be an array of strings", name)
+	}
 }
 
 func mcpJSONResult(value interface{}) (*protocol.CallToolResult, error) {
