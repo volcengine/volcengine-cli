@@ -257,9 +257,9 @@ func (m *module) Fetch(ctx context.Context, options FetchOptions) (FetchResult, 
 	if options.StartIndex >= len(runes) {
 		return result, nil
 	}
-	end := options.StartIndex + options.MaxLength
-	if end > len(runes) {
-		end = len(runes)
+	end := len(runes)
+	if options.MaxLength < len(runes)-options.StartIndex {
+		end = options.StartIndex + options.MaxLength
 	}
 	result.Content = string(runes[options.StartIndex:end])
 	result.RemainingCharacters = len(runes) - end

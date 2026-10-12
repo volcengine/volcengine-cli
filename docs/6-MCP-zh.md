@@ -4,12 +4,14 @@
 
 ## MCP 服务
 
-`ve mcp` 通过 Model Context Protocol 暴露 CLI 的服务元数据和 API 调用能力，提供四个 Tool：
+`ve mcp` 通过 Model Context Protocol 暴露 CLI 的服务元数据、公开文档检索与读取以及 API 调用能力，提供六个 Tool：
 
 - `list_services`：列出 CLI 支持的全部服务及其 service code。
 - `list_apis`：传入 service code，列出该服务支持的全部 API。
 - `get_api_parameters`：查询请求参数、类型、必填项和示例。
 - `call_api`：调用 CLI 支持的任意 API。MCP 服务不维护 API 白名单，最终由请求使用的火山引擎 IAM 凭证进行权限判断。
+- `search_docs`：搜索公开的火山引擎文档，可按 service code 过滤，并返回标题、URL 和正文摘要。该工具无需云账号凭证。
+- `fetch_docs`：读取 `search_docs` 返回的火山引擎文档 URL，支持通过 Unicode 字符索引分段读取正文。该工具无需云账号凭证。
 
 ## 传输协议
 

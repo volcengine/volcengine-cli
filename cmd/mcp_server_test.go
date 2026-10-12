@@ -6,12 +6,14 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -21,6 +23,7 @@ import (
 	"github.com/ThinkInAIXYZ/go-mcp/protocol"
 	"github.com/ThinkInAIXYZ/go-mcp/transport"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/volcengine/volcengine-cli/internal/docs"
 )
 
 type recordingMCPRegistrar struct {
@@ -59,9 +62,9 @@ func (i recordingMCPInvoker) CallAPI(ctx context.Context, _, _, region string, _
 
 func TestRegisterMCPTools(t *testing.T) {
 	registrar := &recordingMCPRegistrar{}
-	registerMCPTools(registrar, rootSupport, stubMCPInvoker{})
+	registerMCPTools(registrar, rootSupport, stubMCPInvoker{}, &fakeDocsModule{})
 
-	want := []string{"list_services", "list_apis", "get_api_parameters", "call_api"}
+	want := []string{"list_services", "list_apis", "get_api_parameters", "call_api", "search_docs", "fetch_docs"}
 	for _, name := range want {
 		if registrar.tools[name] == nil {
 			t.Fatalf("tool %q was not registered", name)
@@ -71,7 +74,7 @@ func TestRegisterMCPTools(t *testing.T) {
 
 func TestMCPListToolsExposeEnumerationSchemas(t *testing.T) {
 	registrar := &recordingMCPRegistrar{}
-	registerMCPTools(registrar, rootSupport, stubMCPInvoker{})
+	registerMCPTools(registrar, rootSupport, stubMCPInvoker{}, &fakeDocsModule{})
 
 	servicesSchema := string(registrar.tools["list_services"].RawInputSchema)
 	if strings.Contains(servicesSchema, "query") || strings.Contains(servicesSchema, "limit") {
@@ -102,7 +105,7 @@ func TestMCPListToolsExposeEnumerationSchemas(t *testing.T) {
 func TestMCPCallAPIRegionIsOptionalAndValidated(t *testing.T) {
 	calls := make(chan recordedMCPCall, 2)
 	registrar := &recordingMCPRegistrar{}
-	registerMCPTools(registrar, rootSupport, recordingMCPInvoker{calls: calls})
+	registerMCPTools(registrar, rootSupport, recordingMCPInvoker{calls: calls}, &fakeDocsModule{})
 	handler := registrar.handlers["call_api"]
 
 	for _, test := range []struct {
@@ -129,6 +132,219 @@ func TestMCPCallAPIRegionIsOptionalAndValidated(t *testing.T) {
 	}})
 	if err != nil || !result.IsError {
 		t.Fatalf("invalid region result = %#v, error = %v", result, err)
+	}
+}
+
+func TestMCPSearchDocsDefaultsSchemaAndAnnotations(t *testing.T) {
+	docsModule := &fakeDocsModule{searchResult: docs.SearchResult{
+		RequestID: "request-id",
+		Documents: []docs.SearchDocument{{Title: "TOS quick start", URL: "https://www.volcengine.com/docs/6349/74830"}},
+	}}
+	registrar := &recordingMCPRegistrar{}
+	registerMCPTools(registrar, rootSupport, stubMCPInvoker{}, docsModule)
+
+	tool := registrar.tools["search_docs"]
+	if tool == nil {
+		t.Fatal("search_docs was not registered")
+	}
+	var schema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+		Required   []string                   `json:"required"`
+	}
+	if err := json.Unmarshal(tool.RawInputSchema, &schema); err != nil {
+		t.Fatalf("decode search_docs schema: %v", err)
+	}
+	for _, name := range []string{"query", "limit", "service_codes", "snippet_length"} {
+		if _, ok := schema.Properties[name]; !ok {
+			t.Errorf("search_docs schema missing %q: %s", name, tool.RawInputSchema)
+		}
+	}
+	if fmt.Sprint(schema.Required) != "[query]" {
+		t.Fatalf("search_docs required fields = %v, want [query]", schema.Required)
+	}
+	if annotations := tool.Annotations; annotations == nil || annotations.ReadOnlyHint == nil || !*annotations.ReadOnlyHint ||
+		annotations.DestructiveHint == nil || *annotations.DestructiveHint ||
+		annotations.IdempotentHint == nil || !*annotations.IdempotentHint ||
+		annotations.OpenWorldHint == nil || !*annotations.OpenWorldHint {
+		t.Fatalf("search_docs annotations = %#v", annotations)
+	}
+
+	result, err := registrar.handlers["search_docs"](context.Background(), &protocol.CallToolRequest{Arguments: map[string]interface{}{
+		"query": "object storage quick start",
+	}})
+	if err != nil || result.IsError {
+		t.Fatalf("search_docs result = %#v, error = %v", result, err)
+	}
+	wantOptions := docs.SearchOptions{
+		Query:         "object storage quick start",
+		Limit:         docs.DefaultSearchLimit,
+		SnippetLength: docs.DefaultSnippetLength,
+	}
+	if !reflect.DeepEqual(docsModule.searchOptions, wantOptions) {
+		t.Fatalf("SearchOptions = %#v, want %#v", docsModule.searchOptions, wantOptions)
+	}
+	if len(result.Content) != 1 || !strings.Contains(result.Content[0].(*protocol.TextContent).Text, `"request_id": "request-id"`) {
+		t.Fatalf("search_docs content = %#v", result.Content)
+	}
+}
+
+func TestMCPSearchDocsForwardsOptionsAndReturnsToolErrors(t *testing.T) {
+	docsModule := &fakeDocsModule{}
+	registrar := &recordingMCPRegistrar{}
+	registerMCPTools(registrar, rootSupport, stubMCPInvoker{}, docsModule)
+	handler := registrar.handlers["search_docs"]
+
+	result, err := handler(context.Background(), &protocol.CallToolRequest{Arguments: map[string]interface{}{
+		"query":          "TOS",
+		"limit":          float64(3),
+		"service_codes":  []interface{}{"tos", "billing"},
+		"snippet_length": float64(240),
+	}})
+	if err != nil || result.IsError {
+		t.Fatalf("search_docs result = %#v, error = %v", result, err)
+	}
+	wantOptions := docs.SearchOptions{Query: "TOS", Limit: 3, ServiceCodes: []string{"tos", "billing"}, SnippetLength: 240}
+	if !reflect.DeepEqual(docsModule.searchOptions, wantOptions) {
+		t.Fatalf("SearchOptions = %#v, want %#v", docsModule.searchOptions, wantOptions)
+	}
+
+	for _, test := range []struct {
+		name      string
+		arguments map[string]interface{}
+		want      string
+	}{
+		{name: "missing query", arguments: map[string]interface{}{}, want: "query is required"},
+		{name: "fractional limit", arguments: map[string]interface{}{"query": "q", "limit": 1.5}, want: "limit must be an integer"},
+		{name: "non-positive limit", arguments: map[string]interface{}{"query": "q", "limit": float64(0)}, want: "limit must be a positive integer"},
+		{name: "invalid service codes", arguments: map[string]interface{}{"query": "q", "service_codes": []interface{}{"tos", 1}}, want: "service_codes must be an array of strings"},
+		{name: "non-positive snippet length", arguments: map[string]interface{}{"query": "q", "snippet_length": float64(-1)}, want: "snippet_length must be a positive integer"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := handler(context.Background(), &protocol.CallToolRequest{Arguments: test.arguments})
+			if err != nil || !result.IsError {
+				t.Fatalf("result = %#v, error = %v", result, err)
+			}
+			if len(result.Content) != 1 || !strings.Contains(result.Content[0].(*protocol.TextContent).Text, test.want) {
+				t.Fatalf("content = %#v, want error containing %q", result.Content, test.want)
+			}
+		})
+	}
+
+	docsModule.searchErr = errors.New("documentation backend unavailable")
+	result, err = handler(context.Background(), &protocol.CallToolRequest{Arguments: map[string]interface{}{"query": "q"}})
+	if err != nil || !result.IsError || !strings.Contains(result.Content[0].(*protocol.TextContent).Text, docsModule.searchErr.Error()) {
+		t.Fatalf("upstream error result = %#v, error = %v", result, err)
+	}
+}
+
+func TestMCPFetchDocsDefaultsSchemaAndAnnotations(t *testing.T) {
+	nextStartIndex := 5000
+	docsModule := &fakeDocsModule{fetchResult: docs.FetchResult{
+		RequestID:           "request-id",
+		Title:               "TOS quick start",
+		URL:                 "https://www.volcengine.com/docs/6349/74830",
+		Content:             "document content",
+		StartIndex:          0,
+		NextStartIndex:      &nextStartIndex,
+		RemainingCharacters: 120,
+		HasMore:             true,
+		HasContent:          true,
+	}}
+	registrar := &recordingMCPRegistrar{}
+	registerMCPTools(registrar, rootSupport, stubMCPInvoker{}, docsModule)
+
+	tool := registrar.tools["fetch_docs"]
+	if tool == nil {
+		t.Fatal("fetch_docs was not registered")
+	}
+	var schema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+		Required   []string                   `json:"required"`
+	}
+	if err := json.Unmarshal(tool.RawInputSchema, &schema); err != nil {
+		t.Fatalf("decode fetch_docs schema: %v", err)
+	}
+	for _, name := range []string{"url", "start_index", "max_length"} {
+		if _, ok := schema.Properties[name]; !ok {
+			t.Errorf("fetch_docs schema missing %q: %s", name, tool.RawInputSchema)
+		}
+	}
+	if fmt.Sprint(schema.Required) != "[url]" {
+		t.Fatalf("fetch_docs required fields = %v, want [url]", schema.Required)
+	}
+	if annotations := tool.Annotations; annotations == nil || annotations.ReadOnlyHint == nil || !*annotations.ReadOnlyHint ||
+		annotations.DestructiveHint == nil || *annotations.DestructiveHint ||
+		annotations.IdempotentHint == nil || !*annotations.IdempotentHint ||
+		annotations.OpenWorldHint == nil || !*annotations.OpenWorldHint {
+		t.Fatalf("fetch_docs annotations = %#v", annotations)
+	}
+
+	result, err := registrar.handlers["fetch_docs"](context.Background(), &protocol.CallToolRequest{Arguments: map[string]interface{}{
+		"url": "https://www.volcengine.com/docs/6349/74830",
+	}})
+	if err != nil || result.IsError {
+		t.Fatalf("fetch_docs result = %#v, error = %v", result, err)
+	}
+	wantOptions := docs.FetchOptions{
+		URL:       "https://www.volcengine.com/docs/6349/74830",
+		MaxLength: docs.DefaultFetchLength,
+	}
+	if !reflect.DeepEqual(docsModule.fetchOptions, wantOptions) {
+		t.Fatalf("FetchOptions = %#v, want %#v", docsModule.fetchOptions, wantOptions)
+	}
+	if len(result.Content) != 1 || !strings.Contains(result.Content[0].(*protocol.TextContent).Text, `"content": "document content"`) {
+		t.Fatalf("fetch_docs content = %#v", result.Content)
+	}
+}
+
+func TestMCPFetchDocsForwardsOptionsAndReturnsToolErrors(t *testing.T) {
+	docsModule := &fakeDocsModule{}
+	registrar := &recordingMCPRegistrar{}
+	registerMCPTools(registrar, rootSupport, stubMCPInvoker{}, docsModule)
+	handler := registrar.handlers["fetch_docs"]
+
+	result, err := handler(context.Background(), &protocol.CallToolRequest{Arguments: map[string]interface{}{
+		"url":         "https://www.volcengine.com/docs/6349/74830",
+		"start_index": float64(120),
+		"max_length":  float64(240),
+	}})
+	if err != nil || result.IsError {
+		t.Fatalf("fetch_docs result = %#v, error = %v", result, err)
+	}
+	wantOptions := docs.FetchOptions{
+		URL: "https://www.volcengine.com/docs/6349/74830", StartIndex: 120, MaxLength: 240,
+	}
+	if !reflect.DeepEqual(docsModule.fetchOptions, wantOptions) {
+		t.Fatalf("FetchOptions = %#v, want %#v", docsModule.fetchOptions, wantOptions)
+	}
+
+	for _, test := range []struct {
+		name      string
+		arguments map[string]interface{}
+		want      string
+	}{
+		{name: "missing URL", arguments: map[string]interface{}{}, want: "url is required"},
+		{name: "fractional start index", arguments: map[string]interface{}{"url": "https://www.volcengine.com/docs/1/2", "start_index": 1.5}, want: "start_index must be an integer"},
+		{name: "negative start index", arguments: map[string]interface{}{"url": "https://www.volcengine.com/docs/1/2", "start_index": float64(-1)}, want: "start_index must be a non-negative integer"},
+		{name: "non-positive max length", arguments: map[string]interface{}{"url": "https://www.volcengine.com/docs/1/2", "max_length": float64(0)}, want: "max_length must be a positive integer"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := handler(context.Background(), &protocol.CallToolRequest{Arguments: test.arguments})
+			if err != nil || !result.IsError {
+				t.Fatalf("result = %#v, error = %v", result, err)
+			}
+			if len(result.Content) != 1 || !strings.Contains(result.Content[0].(*protocol.TextContent).Text, test.want) {
+				t.Fatalf("content = %#v, want error containing %q", result.Content, test.want)
+			}
+		})
+	}
+
+	docsModule.fetchErr = errors.New("documentation backend unavailable")
+	result, err = handler(context.Background(), &protocol.CallToolRequest{Arguments: map[string]interface{}{
+		"url": "https://www.volcengine.com/docs/1/2",
+	}})
+	if err != nil || !result.IsError || !strings.Contains(result.Content[0].(*protocol.TextContent).Text, docsModule.fetchErr.Error()) {
+		t.Fatalf("upstream error result = %#v, error = %v", result, err)
 	}
 }
 
@@ -353,7 +569,7 @@ func assertMCPClientTools(t *testing.T, client *mcpclient.Client) {
 		names = append(names, tool.Name)
 	}
 	sort.Strings(names)
-	want := []string{"call_api", "get_api_parameters", "list_apis", "list_services"}
+	want := []string{"call_api", "fetch_docs", "get_api_parameters", "list_apis", "list_services", "search_docs"}
 	if fmt.Sprint(names) != fmt.Sprint(want) {
 		t.Fatalf("tools = %v, want %v", names, want)
 	}
