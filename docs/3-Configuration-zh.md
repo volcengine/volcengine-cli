@@ -50,6 +50,14 @@ ve configure get
 no profile name specified, show current profile: [prod]
 ```
 
+默认情况下，敏感凭证值（`secret-key`、`session-token` 和 `login-session`）会显示为 `***MASKED***`。如需明确显示原始值，请使用：
+
+```shell
+ve configure get --show-sensitive
+```
+
+`access-key` 是标识符而非秘密信息，因此仍会正常显示。
+
 ## 查看指定 Profile
 
 ```shell
@@ -71,6 +79,12 @@ ve configure list
 ```
 
 然后逐个输出配置文件中的 profile。
+
+敏感凭证值默认会被脱敏。如需明确显示原始值，请使用：
+
+```shell
+ve configure list --show-sensitive
+```
 
 ## 切换 Current Profile
 

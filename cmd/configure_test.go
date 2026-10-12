@@ -1134,6 +1134,121 @@ func withTestCtxConfig(t *testing.T, cfg *Configure) func() {
 	return func() { ctx.config = old }
 }
 
+func sensitiveConfigureTestConfig() *Configure {
+	return &Configure{
+		Current: "secure",
+		Profiles: map[string]*Profile{
+			"secure": {
+				Name:         "secure",
+				Mode:         ModeAK,
+				AccessKey:    "visible-access-key",
+				SecretKey:    "sensitive-secret-key",
+				SessionToken: "sensitive-session-token",
+				LoginSession: "sensitive-login-session",
+				Region:       "cn-beijing",
+			},
+		},
+	}
+}
+
+func assertSensitiveConfigureOutput(t *testing.T, output string, wantSensitive bool) {
+	t.Helper()
+
+	if !strings.Contains(output, "visible-access-key") {
+		t.Fatalf("output should retain the non-secret access key:\n%s", output)
+	}
+
+	for _, secret := range []string{
+		"sensitive-secret-key",
+		"sensitive-session-token",
+		"sensitive-login-session",
+	} {
+		if got := strings.Contains(output, secret); got != wantSensitive {
+			t.Fatalf("sensitive value %q visibility = %t, want %t:\n%s", secret, got, wantSensitive, output)
+		}
+	}
+
+	maskedCount := strings.Count(output, `"`+maskedConfigValue+`"`)
+	if wantSensitive && maskedCount != 0 {
+		t.Fatalf("unmasked output contains %d masking placeholders:\n%s", maskedCount, output)
+	}
+	if !wantSensitive && maskedCount != len(sensitiveProfileFields) {
+		t.Fatalf("masked output contains %d masking placeholders, want %d:\n%s", maskedCount, len(sensitiveProfileFields), output)
+	}
+}
+
+func TestConfigureListMasksSensitiveValuesByDefault(t *testing.T) {
+	cfg := sensitiveConfigureTestConfig()
+	defer withTestCtxConfig(t, cfg)()
+
+	cmd := newConfigureListCmd()
+	var executeErr error
+	output := captureStdout(t, func() {
+		executeErr = cmd.Execute()
+	})
+	if executeErr != nil {
+		t.Fatalf("configure list execute: %v", executeErr)
+	}
+
+	assertSensitiveConfigureOutput(t, output, false)
+	if cfg.Profiles["secure"].SecretKey != "sensitive-secret-key" {
+		t.Fatalf("display masking must not mutate the stored profile")
+	}
+}
+
+func TestConfigureListShowSensitiveDisplaysSensitiveValues(t *testing.T) {
+	cfg := sensitiveConfigureTestConfig()
+	defer withTestCtxConfig(t, cfg)()
+
+	cmd := newConfigureListCmd()
+	cmd.SetArgs([]string{"--show-sensitive"})
+	var executeErr error
+	output := captureStdout(t, func() {
+		executeErr = cmd.Execute()
+	})
+	if executeErr != nil {
+		t.Fatalf("configure list --show-sensitive execute: %v", executeErr)
+	}
+
+	assertSensitiveConfigureOutput(t, output, true)
+}
+
+func TestConfigureGetMasksSensitiveValuesByDefault(t *testing.T) {
+	defer resetProfileFlagsForTest(t)()
+	cfg := sensitiveConfigureTestConfig()
+	defer withTestCtxConfig(t, cfg)()
+
+	cmd := newConfigureGetCmd()
+	cmd.SetArgs([]string{"--profile", "secure"})
+	var executeErr error
+	output := captureStdout(t, func() {
+		executeErr = cmd.Execute()
+	})
+	if executeErr != nil {
+		t.Fatalf("configure get execute: %v", executeErr)
+	}
+
+	assertSensitiveConfigureOutput(t, output, false)
+}
+
+func TestConfigureGetShowSensitiveDisplaysSensitiveValues(t *testing.T) {
+	defer resetProfileFlagsForTest(t)()
+	cfg := sensitiveConfigureTestConfig()
+	defer withTestCtxConfig(t, cfg)()
+
+	cmd := newConfigureGetCmd()
+	cmd.SetArgs([]string{"--profile", "secure", "--show-sensitive"})
+	var executeErr error
+	output := captureStdout(t, func() {
+		executeErr = cmd.Execute()
+	})
+	if executeErr != nil {
+		t.Fatalf("configure get --show-sensitive execute: %v", executeErr)
+	}
+
+	assertSensitiveConfigureOutput(t, output, true)
+}
+
 func TestConfigureSetPreservesPointerFlagsWhenNotPassed(t *testing.T) {
 	_, cleanupConfigDir := withTestConfigDir(t)
 	defer cleanupConfigDir()

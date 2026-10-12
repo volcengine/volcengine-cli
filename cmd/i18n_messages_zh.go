@@ -160,8 +160,9 @@ Modes:
   if no profile name specified, show default profile`: `说明：
   显示指定配置档案的信息
   未指定配置档案名称时，显示默认配置档案`,
-	"target profile name":                       "目标配置档案名称",
-	"add new profile, or modify target profile": "新增配置档案或修改指定配置档案",
+	"target profile name": "目标配置档案名称",
+	"display sensitive credential values without masking": "不脱敏显示敏感凭证值",
+	"add new profile, or modify target profile":           "新增配置档案或修改指定配置档案",
 	`Description:
   add new profile, or modify target profile:
       1. if profile not exist, add new;

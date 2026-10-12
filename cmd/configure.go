@@ -19,14 +19,17 @@ var configFileDirFunc = util.GetConfigFileDir
 
 // 定义模式枚举常量
 const (
-	ModeSSO          = "sso"
-	ModeConsoleLogin = "console-login"
-	ModeAK           = "ak"
-	ModeRamRoleArn   = "ramrolearn"
-	ModeOIDC         = "oidc"
-	ModeEcsRole      = "ecsrole"
-	ConfigFile       = "config.json"
+	ModeSSO           = "sso"
+	ModeConsoleLogin  = "console-login"
+	ModeAK            = "ak"
+	ModeRamRoleArn    = "ramrolearn"
+	ModeOIDC          = "oidc"
+	ModeEcsRole       = "ecsrole"
+	ConfigFile        = "config.json"
+	maskedConfigValue = "***MASKED***"
 )
+
+var sensitiveProfileFields = []string{"secret-key", "session-token", "login-session"}
 
 type Configure struct {
 	Current     string                 `json:"current"`
@@ -330,7 +333,7 @@ func cloneProfile(p *Profile) *Profile {
 	return &clone
 }
 
-func getConfigProfile(profileName string) error {
+func getConfigProfile(profileName string, showSensitive bool) error {
 	var (
 		exist          bool
 		currentProfile *Profile
@@ -353,15 +356,11 @@ func getConfigProfile(profileName string) error {
 		currentProfile = &Profile{}
 	}
 
-	if config == nil || !config.EnableColor {
-		util.ShowJson(currentProfile.ToMap(), false)
-	} else {
-		util.ShowJson(currentProfile.ToMap(), true)
-	}
+	util.ShowJson(currentProfile.ToDisplayMap(showSensitive), cfg.EnableColor)
 	return nil
 }
 
-func listConfigProfiles() error {
+func listConfigProfiles(showSensitive bool) error {
 	var (
 		cfg *Configure
 	)
@@ -374,7 +373,7 @@ func listConfigProfiles() error {
 
 	fmt.Printf(tr("*** current profile: %v ***\n"), ctx.config.Current)
 	for _, profile := range ctx.config.Profiles {
-		util.ShowJson(profile.ToMap(), config.EnableColor)
+		util.ShowJson(profile.ToDisplayMap(showSensitive), cfg.EnableColor)
 	}
 	return nil
 }
@@ -438,6 +437,20 @@ func (p *Profile) ToMap() map[string]interface{} {
 	m := make(map[string]interface{})
 	json.Unmarshal(data, &m)
 
+	return m
+}
+
+func (p *Profile) ToDisplayMap(showSensitive bool) map[string]interface{} {
+	m := p.ToMap()
+	if showSensitive {
+		return m
+	}
+
+	for _, field := range sensitiveProfileFields {
+		if value, ok := m[field]; ok && value != "" {
+			m[field] = maskedConfigValue
+		}
+	}
 	return m
 }
 
