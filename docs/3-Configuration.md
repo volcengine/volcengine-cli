@@ -50,13 +50,20 @@ Without `--profile`, the command shows the current profile:
 no profile name specified, show current profile: [prod]
 ```
 
-Sensitive credential values (`secret-key`, `session-token`, and `login-session`) are replaced with `***MASKED***` by default. To display their original values explicitly, use:
+Credential values are masked by default:
+
+| Field | Default display |
+| ----- | --------------- |
+| `secret-key`, `session-token` | Fully replaced with `***MASKED***` |
+| `access-key` | Only the last 4 characters are kept, for example `****************ABCD`, so you can still tell profiles apart. If the value is too short to mask safely, it is fully replaced with `***MASKED***` |
+
+To display the original values explicitly, use:
 
 ```shell
 ve configure get --show-sensitive
 ```
 
-`access-key` remains visible because it is an identifier rather than a secret.
+`login-session` is a session identifier rather than a credential, so it is always displayed.
 
 ## Show a Specific Profile
 
@@ -80,7 +87,7 @@ The output starts with current:
 
 Then each profile in the config file is printed.
 
-Sensitive credential values are masked by default. To display their original values explicitly, use:
+Credential values are masked by default, using the same rules as `ve configure get`. To display their original values explicitly, use:
 
 ```shell
 ve configure list --show-sensitive

@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/volcengine/volcengine-cli/util"
@@ -27,9 +28,26 @@ const (
 	ModeEcsRole       = "ecsrole"
 	ConfigFile        = "config.json"
 	maskedConfigValue = "***MASKED***"
+
+	// maskedConfigPadding 是部分遮盖时固定输出的星号个数，不随真实长度变化，避免泄露值的长度。
+	maskedConfigPadding = 16
 )
 
-var sensitiveProfileFields = []string{"secret-key", "session-token", "login-session"}
+// maskRule 描述 `configure get/list` 展示 profile 时某个字段的遮盖方式。
+type maskRule struct {
+	// Field 是 profile 的 JSON key，例如 "secret-key"。
+	Field string
+	// KeepLast 为 0 表示完全遮盖；大于 0 表示保留末尾 KeepLast 个字符，其余用星号代替。
+	KeepLast int
+}
+
+// profileMaskRules 声明默认需要遮盖的 profile 字段。
+// 新增敏感字段时只需在此追加一行，并按需指定保留的末尾位数。
+var profileMaskRules = []maskRule{
+	{Field: "secret-key", KeepLast: 0},
+	{Field: "session-token", KeepLast: 0},
+	{Field: "access-key", KeepLast: 4},
+}
 
 type Configure struct {
 	Current     string                 `json:"current"`
@@ -440,18 +458,37 @@ func (p *Profile) ToMap() map[string]interface{} {
 	return m
 }
 
+// ToDisplayMap 返回用于展示的 profile map。
+// showSensitive 为 false 时，按 profileMaskRules 遮盖敏感字段；该方法只改动返回的副本，不影响 profile 本身。
 func (p *Profile) ToDisplayMap(showSensitive bool) map[string]interface{} {
 	m := p.ToMap()
 	if showSensitive {
 		return m
 	}
 
-	for _, field := range sensitiveProfileFields {
-		if value, ok := m[field]; ok && value != "" {
-			m[field] = maskedConfigValue
+	for _, rule := range profileMaskRules {
+		if value, ok := m[rule.Field].(string); ok && value != "" {
+			m[rule.Field] = maskConfigValue(value, rule.KeepLast)
 		}
 	}
 	return m
+}
+
+// maskConfigValue 按 keepLast 遮盖 value。
+//   - keepLast <= 0：完全遮盖，返回 maskedConfigValue。
+//   - keepLast > 0：返回固定个数的星号加末尾 keepLast 个字符。
+//
+// 当值的长度不超过 2*keepLast 时，保留末尾字符会暴露过半内容，此时退回完全遮盖。
+// 按 rune 截取，避免切断多字节字符。空字符串原样返回。
+func maskConfigValue(value string, keepLast int) string {
+	if value == "" {
+		return ""
+	}
+	runes := []rune(value)
+	if keepLast <= 0 || len(runes) <= keepLast*2 {
+		return maskedConfigValue
+	}
+	return strings.Repeat("*", maskedConfigPadding) + string(runes[len(runes)-keepLast:])
 }
 
 func (p *Profile) String() string {

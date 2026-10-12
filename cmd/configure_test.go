@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -1141,10 +1142,10 @@ func sensitiveConfigureTestConfig() *Configure {
 			"secure": {
 				Name:         "secure",
 				Mode:         ModeAK,
-				AccessKey:    "visible-access-key",
+				AccessKey:    "AKLTsensitiveaccesskey1234",
 				SecretKey:    "sensitive-secret-key",
 				SessionToken: "sensitive-session-token",
-				LoginSession: "sensitive-login-session",
+				LoginSession: "trn:volcengine:iam:cn-beijing:2100123456:login/session",
 				Region:       "cn-beijing",
 			},
 		},
@@ -1154,14 +1155,29 @@ func sensitiveConfigureTestConfig() *Configure {
 func assertSensitiveConfigureOutput(t *testing.T, output string, wantSensitive bool) {
 	t.Helper()
 
-	if !strings.Contains(output, "visible-access-key") {
-		t.Fatalf("output should retain the non-secret access key:\n%s", output)
+	const (
+		accessKey         = "AKLTsensitiveaccesskey1234"
+		maskedAccessKey   = "****************1234"
+		loginSession      = "trn:volcengine:iam:cn-beijing:2100123456:login/session"
+		fullyMaskedFields = 2 // secret-key 和 session-token
+	)
+
+	// login-session 是会话标识而非凭据，无论是否脱敏都应保持可见。
+	if !strings.Contains(output, loginSession) {
+		t.Fatalf("output should retain the login-session identifier:\n%s", output)
+	}
+
+	// access-key 默认只显示末尾 4 位，--show-sensitive 时显示完整值。
+	if got := strings.Contains(output, accessKey); got != wantSensitive {
+		t.Fatalf("access-key full value visibility = %t, want %t:\n%s", got, wantSensitive, output)
+	}
+	if got := strings.Contains(output, `"`+maskedAccessKey+`"`); got == wantSensitive {
+		t.Fatalf("access-key partially masked value visibility = %t, want %t:\n%s", got, !wantSensitive, output)
 	}
 
 	for _, secret := range []string{
 		"sensitive-secret-key",
 		"sensitive-session-token",
-		"sensitive-login-session",
 	} {
 		if got := strings.Contains(output, secret); got != wantSensitive {
 			t.Fatalf("sensitive value %q visibility = %t, want %t:\n%s", secret, got, wantSensitive, output)
@@ -1172,8 +1188,114 @@ func assertSensitiveConfigureOutput(t *testing.T, output string, wantSensitive b
 	if wantSensitive && maskedCount != 0 {
 		t.Fatalf("unmasked output contains %d masking placeholders:\n%s", maskedCount, output)
 	}
-	if !wantSensitive && maskedCount != len(sensitiveProfileFields) {
-		t.Fatalf("masked output contains %d masking placeholders, want %d:\n%s", maskedCount, len(sensitiveProfileFields), output)
+	if !wantSensitive && maskedCount != fullyMaskedFields {
+		t.Fatalf("masked output contains %d masking placeholders, want %d:\n%s", maskedCount, fullyMaskedFields, output)
+	}
+}
+
+func TestMaskConfigValue(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		keepLast int
+		want     string
+	}{
+		{name: "empty stays empty", value: "", keepLast: 4, want: ""},
+		{name: "keepLast zero masks everything", value: "super-secret-value", keepLast: 0, want: maskedConfigValue},
+		{name: "negative keepLast masks everything", value: "super-secret-value", keepLast: -1, want: maskedConfigValue},
+		{name: "keeps last four", value: "AKLTabcdefghijklmnop1234", keepLast: 4, want: "****************1234"},
+		{name: "keeps last two", value: "abcdefghij", keepLast: 2, want: "****************ij"},
+		{name: "length equal to twice keepLast is fully masked", value: "12345678", keepLast: 4, want: maskedConfigValue},
+		{name: "length just above twice keepLast keeps tail", value: "123456789", keepLast: 4, want: "****************6789"},
+		{name: "short value is fully masked", value: "abc", keepLast: 4, want: maskedConfigValue},
+		{name: "value shorter than keepLast is fully masked", value: "ab", keepLast: 4, want: maskedConfigValue},
+		{name: "multibyte characters are not split", value: "密钥密钥密钥密钥密钥", keepLast: 4, want: "****************密钥密钥"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := maskConfigValue(tt.value, tt.keepLast); got != tt.want {
+				t.Fatalf("maskConfigValue(%q, %d) = %q, want %q", tt.value, tt.keepLast, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMaskConfigValuePaddingDoesNotRevealLength(t *testing.T) {
+	short := maskConfigValue("AKLT-0123456789", 4)
+	long := maskConfigValue("AKLT-0123456789-0123456789-0123456789", 4)
+	if len(short) != len(long) {
+		t.Fatalf("masked values leak length: %q (%d) vs %q (%d)", short, len(short), long, len(long))
+	}
+}
+
+func TestProfileMaskRulesAreValid(t *testing.T) {
+	// 规则表里的 Field 必须是 Profile 实际存在的 JSON key，否则遮盖会悄悄失效。
+	knownFields := make(map[string]bool)
+	profileType := reflect.TypeOf(Profile{})
+	for i := 0; i < profileType.NumField(); i++ {
+		tag := strings.Split(profileType.Field(i).Tag.Get("json"), ",")[0]
+		if tag != "" && tag != "-" {
+			knownFields[tag] = true
+		}
+	}
+
+	seen := make(map[string]bool)
+	for _, rule := range profileMaskRules {
+		if !knownFields[rule.Field] {
+			t.Errorf("mask rule field %q is not a JSON key of Profile", rule.Field)
+		}
+		if seen[rule.Field] {
+			t.Errorf("mask rule field %q is declared more than once", rule.Field)
+		}
+		seen[rule.Field] = true
+		if rule.KeepLast < 0 {
+			t.Errorf("mask rule field %q has negative KeepLast %d", rule.Field, rule.KeepLast)
+		}
+	}
+
+	// 这些字段承载真实凭据，必须始终在规则表里。
+	for _, field := range []string{"access-key", "secret-key", "session-token"} {
+		if !seen[field] {
+			t.Errorf("credential field %q must have a mask rule", field)
+		}
+	}
+	// login-session 只是会话标识，不应被遮盖。
+	if seen["login-session"] {
+		t.Errorf("login-session is an identifier and should not be masked")
+	}
+}
+
+func TestProfileToDisplayMapDoesNotMutateProfile(t *testing.T) {
+	profile := &Profile{
+		AccessKey:    "AKLTsensitiveaccesskey1234",
+		SecretKey:    "sensitive-secret-key",
+		SessionToken: "sensitive-session-token",
+	}
+
+	masked := profile.ToDisplayMap(false)
+	if masked["access-key"] != "****************1234" {
+		t.Fatalf("access-key = %v, want partially masked value", masked["access-key"])
+	}
+	if masked["secret-key"] != maskedConfigValue || masked["session-token"] != maskedConfigValue {
+		t.Fatalf("secret-key/session-token should be fully masked: %v / %v", masked["secret-key"], masked["session-token"])
+	}
+	if profile.AccessKey != "AKLTsensitiveaccesskey1234" || profile.SecretKey != "sensitive-secret-key" || profile.SessionToken != "sensitive-session-token" {
+		t.Fatalf("ToDisplayMap must not mutate the stored profile: %+v", profile)
+	}
+
+	plain := profile.ToDisplayMap(true)
+	if plain["access-key"] != "AKLTsensitiveaccesskey1234" || plain["secret-key"] != "sensitive-secret-key" {
+		t.Fatalf("showSensitive=true should return original values: %v", plain)
+	}
+}
+
+func TestProfileToDisplayMapKeepsEmptyValuesEmpty(t *testing.T) {
+	m := (&Profile{}).ToDisplayMap(false)
+	for _, rule := range profileMaskRules {
+		if value, ok := m[rule.Field]; ok && value != "" {
+			t.Fatalf("empty %s should stay empty, got %v", rule.Field, value)
+		}
 	}
 }
 
