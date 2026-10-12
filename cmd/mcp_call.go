@@ -67,9 +67,12 @@ func (i *volcengineMCPInvoker) resolveConfig() (*Configure, string, string, erro
 	return cfg, profileName, profileRegion, nil
 }
 
-func (i *volcengineMCPInvoker) CallAPI(ctx context.Context, serviceName, action, callRegion string, parameters map[string]interface{}) (map[string]interface{}, error) {
+func (i *volcengineMCPInvoker) CallAPI(ctx context.Context, serviceName, action, callRegion string, parameters map[string]interface{}, yes bool) (map[string]interface{}, error) {
 	if !rootSupport.IsValidAction(serviceName, action) {
 		return nil, fmt.Errorf("unsupported API %s.%s", serviceName, action)
+	}
+	if err := enforceSafetyPolicy(serviceName, action, yes, false, tr("call the same MCP tool again with yes=true")); err != nil {
+		return nil, err
 	}
 	callConfig, profileName, profileRegion, err := i.resolveConfig()
 	if err != nil {

@@ -47,7 +47,7 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 				if err := parseInvocationFlags(args, publicParameters); err != nil {
 					return err
 				}
-				return dispatchServiceAction(ctx, cmd.Parent().Name(), cmd.Name(), true)
+				return dispatchServiceAction(ctx, serviceName, cmd.Name(), true)
 			},
 		}
 
@@ -126,18 +126,29 @@ func registerActionSystemFlags(actionCmd *cobra.Command, actionParameters map[st
 	// Completion only; DisableFlagParsing means values are handled by Parser.
 	// Skip names already registered or exact-name API parameters so business
 	// completions win over system flags when they conflict.
-	for _, name := range publicSystemFlagNames() {
+	for _, def := range systemFlagDefs {
+		if !def.public {
+			continue
+		}
+		name := def.name
 		if actionCmd.Flags().Lookup(name) != nil {
 			continue
 		}
 		if _, conflict := actionParameters[name]; conflict {
 			continue
 		}
-		if isPresenceOnlyFixedFlag(name) {
-			actionCmd.Flags().Bool(name, false, "")
-			continue
+		if def.presenceOnly {
+			if name == "yes" {
+				actionCmd.Flags().BoolP(name, "y", false, "")
+			} else {
+				actionCmd.Flags().Bool(name, false, "")
+			}
+		} else {
+			actionCmd.Flags().String(name, "", "")
 		}
-		actionCmd.Flags().String(name, "", "")
+		if def.hidden {
+			_ = actionCmd.Flags().MarkHidden(name)
+		}
 	}
 }
 
@@ -203,6 +214,9 @@ func sdkCallInput(built invocationInput) (interface{}, error) {
 var executeInvocationHook func(ctx *Context, p invocationParams, buildInput func() (invocationInput, error)) error
 
 func executeInvocation(ctx *Context, p invocationParams, buildInput func() (invocationInput, error)) (err error) {
+	if err := enforceCLISafetyPolicy(ctx, p.serviceName, p.action); err != nil {
+		return err
+	}
 	if executeInvocationHook != nil {
 		return executeInvocationHook(ctx, p, buildInput)
 	}

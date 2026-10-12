@@ -18,16 +18,16 @@ This guide covers native VE OpenAPI calls. See [Proxy-CLI](7-ProxyCLI.md) for pr
 Argument kinds:
 
 - **API parameters**: double-dash `--Param value` (enter request body/query; reserved names `body` / `header` excluded)
-- **Public system flags** (after the action): `--profile` / `--region` / `--endpoint` / `--lang` / `--user-agent` / `--version` / `--method` / `--force` / `--output` / `--query`
+- **Visible system flags** (after the action): `--profile` / `--region` / `--endpoint` / `--lang` / `--user-agent` / `--version` / `--method` / `--force` / `--output` / `--query`
 - **Reserved double-dash controls**: `--header` (HTTP headers) and `--body` (JSON body); the controls themselves are **not** API parameters
 
 System flags in API calls use double hyphens and are placed after the action. If an action exposes an exact-name API parameter (case-sensitive), the double-dash form is parsed as the API parameter.
 
 ### Flag Prefix Contract
 
-Native OpenAPI calls use the **double-dash `--name`** flag prefix. System flags, API parameters and the reserved controls (`--header` / `--body`) all use double dashes.
+Native OpenAPI calls use the **double-dash `--name`** flag prefix. System flags, API parameters and the reserved controls (`--header` / `--body`) all use double dashes; `-y` is the sole shorthand and is equivalent to `--yes`.
 
-- Help output, shell completion, error messages and documentation examples show the `--name` form only.
+- Help output, shell completion, error messages and documentation examples use the `--name` form. Safety approval flags (`--yes`, `-y`) are omitted from routine and detailed help, completion and flag-discovery errors; a confirmation-required error explains the approval workflow.
 - Conflicts are case-sensitive and resolved against the parameters the current action actually exposes: `--Region` and `--Lang` are always API parameters.
 - When an action exposes an API parameter with the **exact** name of a system flag, the double-dash form after that action is parsed as the API parameter; use an equivalent non-flag route for the system behaviour (see Known Name Conflicts).
 
@@ -120,7 +120,7 @@ Do not use `--Param=value`, `--user-agent=deployment-tool/2.1`, `--region=cn-bei
 
 ## CLI System Flags
 
-Public system flags use the standard double-hyphen form:
+Visible system flags use the standard double-hyphen form:
 
 | Flag | Purpose |
 | --- | --- |
@@ -134,6 +134,8 @@ Public system flags use the standard double-hyphen form:
 | `--method` | HTTP method (`GET`/`POST`); same rules on normal and `--force` paths: explicit value wins, else action metadata, else `GET` |
 | `--output` | API response format: `json` (default), `table`, `table-num`, `text`, `yaml`, `off` |
 | `--query` | JMESPath expression to filter/project the full response JSON (including `ResponseMetadata` and `Result`) before formatting |
+
+Safety approval (`--yes`, alias `-y`) remains accepted but hidden from routine help and completion. Use it only for the approved retry described in [Safety Policy](3-Configuration.md#safety-policy); it cannot bypass `deny`.
 
 After the action, a double-dash flag whose exact case-sensitive name is exposed by that action is parsed as an API parameter. Without such a conflict, it is parsed as a system flag.
 
@@ -381,7 +383,7 @@ Missing region:
 region not set, please set it via profile, --region flag, or VOLCENGINE_REGION environment variable
 ```
 
-Public system flags (double-dash): `--profile`, `--region`, `--endpoint`, `--lang`, `--force`, `--version`, `--method`, `--output`, `--query`.
+Visible system flags (double-dash): `--profile`, `--region`, `--endpoint`, `--lang`, `--user-agent`, `--force`, `--version`, `--method`, `--output`, `--query`. Hidden approval flags are described in [Safety Policy](3-Configuration.md#safety-policy).
 Reserved double-dash controls: `--header`, `--body` (see “Reserved Double-Dash Controls” above).
 
 ## Filtering and Output Formats

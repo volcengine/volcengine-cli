@@ -160,7 +160,7 @@ func runMain() int {
 
 func registerRootSystemFlags() {
 	// Only preprocessable system flags are registered on root (completion/help).
-	// force/version/method are action-scoped and stay off the root cobra flag set
+	// force/yes/version/method are action-scoped and stay off the root cobra flag set
 	// so root `ve --version` remains the CLI binary version switch.
 	flags := rootCmd.Flags()
 	for _, d := range systemFlagDefs {

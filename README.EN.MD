@@ -115,7 +115,7 @@ ve sts GetCallerIdentity
 2. [Authentication](docs/2-Authentication.md): AK/SK, default credential chain, OIDC, ECS instance role, SSO, and Console Login.
 3. [Configuration](docs/3-Configuration.md): inspect, list, switch, update, and delete profiles.
 4. [Usage](docs/4-Usage.md): native API calls, system flags, JSON body, arrays and nested parameters, plus `--query` filtering and `--output` formats.
-5. [Advanced Usage](docs/5-Advanced.md): shell completion, colored output, debug logs, `--force` invocation, and FAQ.
+5. [Advanced Usage](docs/5-Advanced.md): shell completion, colored output, debug logs, `--force` invocation, and FAQ. Safety-policy configuration is documented in [Configuration](docs/3-Configuration.md#safety-policy).
 6. [MCP Server](docs/6-MCP.md): stdio, SSE, Streamable HTTP, OAuth, header credentials, and region resolution.
 7. [Proxy-CLI](docs/7-ProxyCLI.md): product invocation, on-demand loading, installation, upgrades, and official documentation.
 

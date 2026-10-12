@@ -9,7 +9,7 @@
 - `list_services`: list every service and service code supported by the CLI.
 - `list_apis`: list every supported API for a given service code.
 - `get_api_parameters`: inspect request parameters, types, required fields, and an example.
-- `call_api`: call any API supported by the CLI. The MCP server does not maintain an API allowlist; Volcengine IAM evaluates the cloud credential used by the request.
+- `call_api`: call any API supported by the CLI. Volcengine IAM evaluates the cloud credential, and the local CLI safety policy is checked before credentials are resolved or a request is sent.
 - `search_docs`: search public Volcengine documentation, optionally filter by service code, and return titles, URLs, and text snippets. This tool does not require cloud credentials.
 - `fetch_docs`: fetch a Volcengine documentation URL returned by `search_docs`, with Unicode character offsets for paginated reading. This tool does not require cloud credentials.
 
@@ -88,6 +88,23 @@ Region resolution order for MCP API calls is:
 5. `cn-beijing`.
 
 Unlike regular CLI API commands, MCP calls use `cn-beijing` when no region is configured.
+
+<a id="safety-policy"></a>
+
+## Safety Policy
+
+Every `call_api` request reloads and evaluates `~/.volcengine/safety-policy.json` and its environment overrides. A `deny` match returns a tool error without sending the cloud request. A `confirm` match also returns a tool error instructing the agent to explain the operation and ask the user for approval. After explicit approval, repeat the same tool call with `yes: true`:
+
+```json
+{
+  "service": "ecs",
+  "api": "UpdateInstance",
+  "parameters": {"InstanceId": "i-xxxxx"},
+  "yes": true
+}
+```
+
+`yes` is optional and defaults to `false`. It skips only `confirm` and cannot bypass `deny`. Omit it on each new operation. Only after a confirmation error, briefly explain the target and impact, ask to continue, then end the turn and wait for a new user reply. After approval, internally set `yes: true` for one unchanged retry without asking the user to handle this parameter. Discard approval after the attempt, even on failure. Single-use approval is agent guidance, not enforced by this boolean. See [Configuration: Safety Policy](3-Configuration.md#safety-policy).
 
 ## OAuth Resource Server
 

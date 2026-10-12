@@ -18,16 +18,16 @@ ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json
 参数分几类：
 
 - **API 业务参数**：双横线 `--Param value`，进入请求体/查询参数（保留名 `body` / `header` 除外）
-- **对外系统参数**（放在 Action 后）：`--profile` / `--region` / `--endpoint` / `--lang` / `--user-agent` / `--version` / `--method` / `--force` / `--output` / `--query`
+- **常规可见系统参数**（放在 Action 后）：`--profile` / `--region` / `--endpoint` / `--lang` / `--user-agent` / `--version` / `--method` / `--force` / `--output` / `--query`
 - **双横线保留控制参数**：`--header`（HTTP 头）和 `--body`（JSON 请求体）；这些控制参数自身**不是**业务参数
 
 API 调用中的系统参数统一使用双横线并放在 Action 后。若当前 Action 暴露了大小写完全相同的业务参数，双横线优先按 API 参数解析。
 
 ### 参数前缀规范
 
-原生 OpenAPI 调用的参数前缀为**双横线 `--name`**。系统参数、API 业务参数、保留控制参数（`--header` / `--body`）一律使用双横线。
+原生 OpenAPI 调用的参数前缀为**双横线 `--name`**。系统参数、API 业务参数、保留控制参数（`--header` / `--body`）一律使用双横线；唯一的短参数是 `-y`，等价于 `--yes`。
 
-- 帮助信息、命令补全、报错文案和文档示例只出现 `--name` 一种写法。
+- 帮助信息、命令补全、报错文案和文档示例使用 `--name` 写法。安全确认参数（`--yes`、`-y`）不在普通或详细帮助、命令补全及参数发现错误中展示；命中确认规则后，由错误提示说明确认流程。
 - 冲突判定区分大小写，并以当前 Action 实际暴露的参数为准：`--Region`、`--Lang` 等不同大小写始终是业务参数。
 - 当某个 Action 暴露了与系统参数**完全同名**的业务参数时，该 Action 后的双横线归业务参数解析，此时请改用等价的非参数途径传递系统语义（见下方「已知同名冲突」）。
 
@@ -120,7 +120,7 @@ ve rds_mysql ListDBInstanceIPLists --InstanceId mysql-xxxxxx --GroupName default
 
 ## CLI 系统参数
 
-系统参数对外统一使用双横线：
+常规可见系统参数统一使用双横线：
 
 | 参数 | 作用 |
 | --- | --- |
@@ -134,6 +134,8 @@ ve rds_mysql ListDBInstanceIPLists --InstanceId mysql-xxxxxx --GroupName default
 | `--method` | 指定 HTTP 方法（`GET`/`POST`）；正常路径与 `--force` 路径规则一致：显式值优先，否则用 action 元数据，均无则默认 `GET` |
 | `--output` | 设置 API 响应输出格式：`json`（默认）、`table`、`table-num`、`text`、`yaml`、`off` |
 | `--query` | JMESPath 表达式，在格式化前过滤/投影完整响应 JSON（含 `ResponseMetadata` 与 `Result`） |
+
+安全确认参数（`--yes`，别名 `-y`）仍可解析，但不在常规帮助和补全中展示。仅用于[安全策略](3-Configuration-zh.md#安全策略safety-policy)规定的获批重试，不能绕过 `deny`。
 
 Action 后如果当前 Action 暴露了大小写完全相同的参数，双横线形式优先按 API 业务参数解析；没有同名冲突时按系统参数解析。
 
@@ -381,7 +383,7 @@ credentials not configured, please run 've login' or 've configure set', or set 
 region not set, please set it via profile, --region flag, or VOLCENGINE_REGION environment variable
 ```
 
-对外系统参数（双横线）：`--profile`、`--region`、`--endpoint`、`--lang`、`--force`、`--version`、`--method`、`--output`、`--query`。
+常规可见系统参数（双横线）：`--profile`、`--region`、`--endpoint`、`--lang`、`--user-agent`、`--force`、`--version`、`--method`、`--output`、`--query`。隐藏的确认参数见[安全策略](3-Configuration-zh.md#安全策略safety-policy)。
 双横线保留控制参数：`--header`、`--body`（见上文「双横线保留控制参数」）。
 
 ## 过滤与输出格式

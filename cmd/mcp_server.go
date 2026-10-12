@@ -9,6 +9,7 @@ import (
 	"github.com/ThinkInAIXYZ/go-mcp/protocol"
 	"github.com/ThinkInAIXYZ/go-mcp/server"
 	"github.com/volcengine/volcengine-cli/internal/docs"
+	"github.com/volcengine/volcengine-cli/internal/safety"
 )
 
 type mcpToolHandler = server.ToolHandlerFunc
@@ -26,7 +27,35 @@ func (r mcpServerRegistrar) RegisterTool(tool *protocol.Tool, handler mcpToolHan
 }
 
 type mcpAPIInvoker interface {
-	CallAPI(context.Context, string, string, string, map[string]interface{}) (map[string]interface{}, error)
+	CallAPI(context.Context, string, string, string, map[string]interface{}, bool) (map[string]interface{}, error)
+}
+
+func mcpCallAPIInputSchema(approvalDescription string) json.RawMessage {
+	type property struct {
+		Type                 string `json:"type"`
+		Description          string `json:"description,omitempty"`
+		Pattern              string `json:"pattern,omitempty"`
+		AdditionalProperties bool   `json:"additionalProperties,omitempty"`
+	}
+	schema := struct {
+		Type       string              `json:"type"`
+		Properties map[string]property `json:"properties"`
+		Required   []string            `json:"required"`
+	}{
+		Type: "object",
+		Properties: map[string]property{
+			"service":    {Type: "string"},
+			"api":        {Type: "string"},
+			"region":     {Type: "string", Description: "Override the region for this API call.", Pattern: "^[A-Za-z0-9][A-Za-z0-9-]{0,127}$"},
+			"parameters": {Type: "object", AdditionalProperties: true},
+			"yes":        {Type: "boolean", Description: approvalDescription},
+		},
+		Required: []string{"service", "api"},
+	}
+	// This closed type contains only strings, booleans, maps and slices, so
+	// marshaling cannot fail. Descriptions are escaped by encoding/json.
+	data, _ := json.Marshal(schema)
+	return data
 }
 
 type mcpDocsModule interface {
@@ -73,7 +102,7 @@ func registerMCPTools(registrar mcpToolRegistrar, support *RootSupport, invoker 
 		return mcpJSONResult(result)
 	})
 
-	callAPITool := protocol.NewToolWithRawSchema("call_api", "Call any supported Volcano Engine API. Cloud IAM permissions determine whether the call is allowed.", json.RawMessage(`{"type":"object","properties":{"service":{"type":"string"},"api":{"type":"string"},"region":{"type":"string","description":"Override the region for this API call.","pattern":"^[A-Za-z0-9][A-Za-z0-9-]{0,127}$"},"parameters":{"type":"object","additionalProperties":true}},"required":["service","api"]}`))
+	callAPITool := protocol.NewToolWithRawSchema("call_api", "Call any supported Volcano Engine API. Cloud IAM permissions and the local safety policy determine whether the call is allowed.", mcpCallAPIInputSchema(safety.MCPApprovalDescription))
 	readOnly, destructive, idempotent, openWorld := false, true, false, true
 	callAPITool.Annotations = &protocol.ToolAnnotations{
 		ReadOnlyHint: &readOnly, DestructiveHint: &destructive, IdempotentHint: &idempotent, OpenWorldHint: &openWorld,
@@ -99,7 +128,11 @@ func registerMCPTools(registrar mcpToolRegistrar, support *RootSupport, invoker 
 		if err != nil {
 			return mcpErrorResult(err), nil
 		}
-		result, err := invoker.CallAPI(ctx, serviceName, api, region, parameters)
+		yes, err := mcpBoolArgument(request.Arguments, "yes")
+		if err != nil {
+			return mcpErrorResult(err), nil
+		}
+		result, err := invoker.CallAPI(ctx, serviceName, api, region, parameters, yes)
 		if err != nil {
 			return mcpErrorResult(err), nil
 		}
@@ -163,6 +196,18 @@ func registerMCPTools(registrar mcpToolRegistrar, support *RootSupport, invoker 
 		}
 		return mcpJSONResult(result)
 	})
+}
+
+func mcpBoolArgument(arguments map[string]interface{}, name string) (bool, error) {
+	value, exists := arguments[name]
+	if !exists || value == nil {
+		return false, nil
+	}
+	result, ok := value.(bool)
+	if !ok {
+		return false, fmt.Errorf("%s must be a boolean", name)
+	}
+	return result, nil
 }
 
 func mcpReadOnlyToolAnnotations() *protocol.ToolAnnotations {

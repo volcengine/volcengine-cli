@@ -147,6 +147,66 @@ ve configure delete --profile prod
 
 删除 profile 不会删除 SSO session，也不会删除 Console Login 的全局缓存目录。Console Login 缓存清理见 [认证与登录](2-Authentication-zh.md#console-logout)。
 
+## 安全策略（Safety Policy）
+
+安全策略是 `ve` 在客户端执行的 OpenAPI 操作防护，覆盖普通调用、`--force` 调用和 MCP `call_api`。它与火山引擎 IAM 互补，不能替代云端鉴权。`ve arkcli` 和 `ve tosutil` 属于参数原样透传的代理 CLI，不在拦截范围内。
+
+安全策略默认关闭，独立保存在 `~/.volcengine/safety-policy.json`，文件权限为 `0600`。可执行：
+
+```shell
+ve configure safety-policy enable
+ve configure safety-policy add --pattern '*:Delete*' --action deny
+ve configure safety-policy add --pattern '*:Update*' --action confirm
+ve configure safety-policy list
+```
+
+规则动作：
+
+- `allow`：显式允许命中的操作。通过 JSON 文件或 `VOLCENGINE_SAFETY_POLICY_RULES` 配置；`add` 命令有意只接受防护动作。
+- `deny`：在本地拒绝，不发送 API 请求。
+- `confirm`：发送请求前必须获得明确确认。
+
+规则格式为 `service:action`，匹配不区分大小写，支持 `*` 通配符，并采用第一条匹配优先（first-match-wins）。未命中任何规则时默认允许。同一服务的所有写法视为同一服务，包括带版本号的命令名、带下划线的兼容命令名和 SDK 服务名。例如 `cloudtrail:Delete*`、`cloudtrail20180101:Delete*` 与 `cloud_trail:Delete*` 等价，对 `ve cloudtrail`、`ve cloudtrail20180101` 和 MCP `call_api` 同时生效；`rds_mysql:*` 同样覆盖 `ve rdsmysql`、`ve rdsmysqlv2` 和 `ve rds_mysql_v2`。API 名称按原样匹配，不做其他写法转换。
+
+pattern 必须且只能包含一个冒号，service 和 action 均不能为空，内部不能包含空白字符；首尾空白会被忽略。例如 `sts:GetCallerIdentity`、`sts:*`、`*:GetCallerIdentity`、`*:*` 均合法；只写 API 名、只写服务名、用点或空格分隔，以及单独的 `*` 都会被拒绝。这里只校验格式，允许配置未收录服务及通过 `--force` 调用的新 API。
+
+管理规则时，`add` 和 `remove` 按完整 pattern 文本进行不区分大小写的比较。`add` 原位更新找到的第一条规则，保持其顺序；未找到时追加。`remove` 删除所有相同 pattern 的规则，未找到时仍返回成功。查找已保存的 pattern 时不展开通配符或服务别名。
+
+```json
+{
+  "enabled": true,
+  "rules": [
+    {"pattern": "ecs:Describe*", "action": "allow"},
+    {"pattern": "ecs:*", "action": "deny"}
+  ]
+}
+```
+
+交互式终端命中 `confirm` 时会提示输入 `yes`。Agent 每次先不带 `--yes` 调用，仅遇确认拦截（未发送 API 请求）才简要说明目标和影响，询问是否继续，然后结束当前轮次，等待用户的新回复。确认后由 Agent 内部添加 `--yes` 或 `-y`，按原参数重试一次，无需用户理解或操作此参数。重试后即丢弃批准，即使失败；下次操作重新从不带批准参数开始。这是 Agent 行为约束，不是 CLI 强制的一次性令牌。以下为获批后的重试示例：
+
+```shell
+ve ecs UpdateInstance --InstanceId i-xxxxx --yes
+```
+
+`--yes` 只能跳过 `confirm`，不能绕过 `deny`。MCP 客户端在重试 `call_api` 时传入 `yes: true`，详见 [MCP 服务](6-MCP-zh.md#安全策略)。
+
+环境变量优先级高于配置文件：
+
+| 变量 | 说明 |
+| --- | --- |
+| `VOLCENGINE_SAFETY_POLICY_ENABLED` | 覆盖 `enabled`（`true`/`false`，也接受 `1`/`0` 等 Go 布尔写法） |
+| `VOLCENGINE_SAFETY_POLICY_RULES` | 用逗号分隔的 `pattern=action` 完整替换文件规则 |
+| `VOLCENGINE_SAFETY_SKIP_CONFIRM` | 将当前进程的确认视为已批准（`1`、`true`、`yes` 或 `on`） |
+
+示例：
+
+```shell
+export VOLCENGINE_SAFETY_POLICY_ENABLED=true
+export VOLCENGINE_SAFETY_POLICY_RULES='ecs:Describe*=allow,*:Delete*=deny,*:Update*=confirm'
+```
+
+策略文件损坏或环境变量格式非法时采用 fail-closed：CLI 返回配置错误，不发送 API 请求。添加、保存、加载规则及解析环境变量时均校验 pattern 格式。如果已有策略文件包含错误 pattern，需要直接修正 `~/.volcengine/safety-policy.json` 后，再使用策略管理或 API 命令。
+
 ## 配置选择示例
 
 ### 多环境切换

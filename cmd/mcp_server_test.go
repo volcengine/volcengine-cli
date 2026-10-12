@@ -24,6 +24,7 @@ import (
 	"github.com/ThinkInAIXYZ/go-mcp/transport"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/volcengine/volcengine-cli/internal/docs"
+	"github.com/volcengine/volcengine-cli/internal/safety"
 )
 
 type recordingMCPRegistrar struct {
@@ -42,21 +43,22 @@ func (r *recordingMCPRegistrar) RegisterTool(tool *protocol.Tool, handler mcpToo
 
 type stubMCPInvoker struct{}
 
-func (stubMCPInvoker) CallAPI(context.Context, string, string, string, map[string]interface{}) (map[string]interface{}, error) {
+func (stubMCPInvoker) CallAPI(context.Context, string, string, string, map[string]interface{}, bool) (map[string]interface{}, error) {
 	return map[string]interface{}{}, nil
 }
 
 type recordedMCPCall struct {
 	metadata mcpRequestMetadata
 	region   string
+	yes      bool
 }
 
 type recordingMCPInvoker struct {
 	calls chan recordedMCPCall
 }
 
-func (i recordingMCPInvoker) CallAPI(ctx context.Context, _, _, region string, _ map[string]interface{}) (map[string]interface{}, error) {
-	i.calls <- recordedMCPCall{metadata: mcpRequestMetadataFromContext(ctx), region: region}
+func (i recordingMCPInvoker) CallAPI(ctx context.Context, _, _, region string, _ map[string]interface{}, yes bool) (map[string]interface{}, error) {
+	i.calls <- recordedMCPCall{metadata: mcpRequestMetadataFromContext(ctx), region: region, yes: yes}
 	return map[string]interface{}{"ok": true}, nil
 }
 
@@ -95,10 +97,69 @@ func TestMCPListToolsExposeEnumerationSchemas(t *testing.T) {
 	if _, ok := callSchema.Properties["region"]; !ok {
 		t.Fatalf("call_api schema does not expose region: %s", registrar.tools["call_api"].RawInputSchema)
 	}
+	if _, ok := callSchema.Properties["yes"]; !ok {
+		t.Fatalf("call_api schema does not expose yes: %s", registrar.tools["call_api"].RawInputSchema)
+	}
+	var approval struct {
+		Type        string `json:"type"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal(callSchema.Properties["yes"], &approval); err != nil {
+		t.Fatal(err)
+	}
+	if approval.Type != "boolean" || approval.Description != safety.MCPApprovalDescription {
+		t.Fatalf("yes schema does not use the shared approval description: %#v", approval)
+	}
 	for _, required := range callSchema.Required {
-		if required == "region" {
-			t.Fatalf("call_api region must be optional: %s", registrar.tools["call_api"].RawInputSchema)
+		if required == "region" || required == "yes" {
+			t.Fatalf("call_api region and yes must be optional: %s", registrar.tools["call_api"].RawInputSchema)
 		}
+	}
+}
+
+func TestMCPCallAPISchemaEscapesDescription(t *testing.T) {
+	want := "Ask \"continue?\"\nKeep path C:\\example unchanged."
+	var schema struct {
+		Properties map[string]struct {
+			Description string `json:"description"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(mcpCallAPIInputSchema(want), &schema); err != nil {
+		t.Fatal(err)
+	}
+	if got := schema.Properties["yes"].Description; got != want {
+		t.Fatalf("description round-trip = %q, want %q", got, want)
+	}
+}
+
+func TestMCPCallAPIForwardsExplicitSafetyApproval(t *testing.T) {
+	calls := make(chan recordedMCPCall, 1)
+	registrar := &recordingMCPRegistrar{}
+	registerMCPTools(registrar, rootSupport, recordingMCPInvoker{calls: calls}, &fakeDocsModule{})
+
+	result, err := registrar.handlers["call_api"](context.Background(), &protocol.CallToolRequest{Arguments: map[string]interface{}{
+		"service": "sts", "api": "GetCallerIdentity", "yes": true,
+	}})
+	if err != nil || result.IsError {
+		t.Fatalf("call_api result = %#v, error = %v", result, err)
+	}
+	if call := <-calls; !call.yes {
+		t.Fatal("call_api did not forward explicit safety approval")
+	}
+}
+
+func TestMCPCallAPIRejectsNonBooleanSafetyApproval(t *testing.T) {
+	registrar := &recordingMCPRegistrar{}
+	registerMCPTools(registrar, rootSupport, stubMCPInvoker{}, &fakeDocsModule{})
+	result, err := registrar.handlers["call_api"](context.Background(), &protocol.CallToolRequest{Arguments: map[string]interface{}{
+		"service": "sts", "api": "GetCallerIdentity", "yes": "true",
+	}})
+	if err != nil || !result.IsError {
+		t.Fatalf("call_api result = %#v, error = %v", result, err)
+	}
+	text, ok := result.Content[0].(*protocol.TextContent)
+	if !ok || !strings.Contains(text.Text, "yes must be a boolean") {
+		t.Fatalf("call_api error content = %#v", result.Content)
 	}
 }
 

@@ -8,8 +8,11 @@ const customUserAgentFlagName = "user-agent"
 
 // Flag prefix contract (normative — do not relax without updating docs/4-Usage*.md):
 //
-//  1. Double dash `--name` is the ONLY public form of a system flag. Help,
-//     completion, docs, error messages and examples must use `--name`.
+//  1. Double dash `--name` is the canonical public form of a system flag. The
+//     only shorthand is `-y` for `--yes`, matching confirmation conventions.
+//     Help, completion, docs, error messages and examples otherwise use `--name`.
+//     Safety approval flags are accepted but omitted from help and completion;
+//     a confirmation-required error explains their use after fresh approval.
 //  2. Triple dash `---name` is NOT a public form. It exists solely as a
 //     conflict escape: when the current action publishes an API parameter whose
 //     name matches a system flag exactly (case-sensitive), `--name` is routed to
@@ -44,12 +47,14 @@ type systemFlagDef struct {
 	name string
 	// public marks the flag as a double-dash system flag (publicSystemFlags).
 	public bool
+	// hidden omits a supported flag from help, completion, and discovery errors.
+	hidden bool
 	// legacyEscape marks ---name as a parser-accepted conflict escape
 	// (allowedLegacyFixedFlags). lang is preprocess-only and has no parser legacy form.
 	legacyEscape bool
 	// preprocess marks flags that resolveSystemFlags may strip before cobra/parser
-	// (profile/region/endpoint/lang). force/version/method stay in-place for Parser
-	// so root `ve --version` and presence-only --force keep working.
+	// (profile/region/endpoint/lang). force/yes/version/method stay in-place for Parser
+	// so root `ve --version` and presence-only switches keep working.
 	preprocess bool
 	// presenceOnly: flag appears without consuming the next token when routed as system.
 	presenceOnly bool
@@ -65,6 +70,7 @@ var systemFlagDefs = []systemFlagDef{
 	{name: "version", public: true, legacyEscape: true, preprocess: false},
 	{name: "method", public: true, legacyEscape: true, preprocess: false},
 	{name: "force", public: true, legacyEscape: true, preprocess: false, presenceOnly: true},
+	{name: "yes", public: true, hidden: true, legacyEscape: true, preprocess: false, presenceOnly: true},
 	{name: "output", public: true, legacyEscape: true, preprocess: false},
 	{name: "query", public: true, legacyEscape: true, preprocess: false},
 }
@@ -74,6 +80,8 @@ type systemFlagRegistry struct {
 	legacyEscapes    map[string]struct{}
 	preprocessable   map[string]struct{}
 	presenceOnly     map[string]struct{}
+	publicNames      []string
+	visibleNames     []string
 	supportedMessage string
 }
 
@@ -89,11 +97,15 @@ func newSystemFlagRegistry(defs []systemFlagDef) *systemFlagRegistry {
 		presenceOnly:   make(map[string]struct{}),
 	}
 
-	publicNames := make([]string, 0, len(defs))
+	supportedNames := make([]string, 0, len(defs))
 	for _, d := range defs {
 		if d.public {
 			registry.public[d.name] = struct{}{}
-			publicNames = append(publicNames, "--"+d.name)
+			registry.publicNames = append(registry.publicNames, d.name)
+			if !d.hidden {
+				registry.visibleNames = append(registry.visibleNames, d.name)
+				supportedNames = append(supportedNames, "--"+d.name)
+			}
 		}
 		if d.legacyEscape {
 			registry.legacyEscapes[d.name] = struct{}{}
@@ -105,7 +117,7 @@ func newSystemFlagRegistry(defs []systemFlagDef) *systemFlagRegistry {
 			registry.presenceOnly[d.name] = struct{}{}
 		}
 	}
-	registry.supportedMessage = strings.Join(publicNames, ", ")
+	registry.supportedMessage = strings.Join(supportedNames, ", ")
 	return registry
 }
 
@@ -117,6 +129,12 @@ func isPresenceOnlyFixedFlag(name string) bool {
 // isSystemPresenceOnlyToken reports whether arg is a presence-only system flag
 // in the current action context (no value token should be consumed).
 func isSystemPresenceOnlyToken(arg string, actionParameters map[string]struct{}) bool {
+	if arg == "-y" {
+		return true
+	}
+	if strings.Contains(arg, "=") {
+		return false
+	}
 	name, legacy := flagNameFromToken(arg)
 	if name == "" || !isPresenceOnlyFixedFlag(name) {
 		return false
@@ -128,15 +146,14 @@ func isSystemPresenceOnlyToken(arg string, actionParameters map[string]struct{})
 	return !conflict
 }
 
-// publicSystemFlagNames returns public system flag bare names in help order.
+// publicSystemFlagNames returns accepted system flag names, including hidden
+// flags, in definition order. Callers receive a copy of the registry slice.
 func publicSystemFlagNames() []string {
-	out := make([]string, 0, len(systemFlagDefs))
-	for _, d := range systemFlagDefs {
-		if d.public {
-			out = append(out, d.name)
-		}
-	}
-	return out
+	return append([]string(nil), systemFlags.publicNames...)
+}
+
+func visibleSystemFlagNames() []string {
+	return append([]string(nil), systemFlags.visibleNames...)
 }
 
 // localizedSystemFlagsHelp returns public double-dash system flag help plus

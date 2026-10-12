@@ -112,7 +112,7 @@ ve sts GetCallerIdentity
 2. [认证与登录](docs/2-Authentication-zh.md)：AK/SK、默认凭证链、OIDC、ECS 实例角色、SSO、Console Login。
 3. [配置管理](docs/3-Configuration-zh.md)：profile 查看、列表、切换、修改、删除。
 4. [使用指南](docs/4-Usage-zh.md)：原生 API 调用、系统参数、JSON body、数组和嵌套参数，以及 `--query` 过滤和 `--output` 输出格式。
-5. [高级用法](docs/5-Advanced-zh.md)：自动补全、彩色输出、debug 日志、`--force` 强制泛化调用、常见问题。
+5. [高级用法](docs/5-Advanced-zh.md)：自动补全、彩色输出、debug 日志、`--force` 强制泛化调用、常见问题。安全策略配置见[配置管理](docs/3-Configuration-zh.md#安全策略safety-policy)。
 6. [MCP 服务](docs/6-MCP-zh.md)：stdio、SSE、Streamable HTTP、OAuth、Header 凭证与 Region。
 7. [Proxy-CLI](docs/7-ProxyCLI-zh.md)：产品调用、按需加载、安装升级与官方文档。
 

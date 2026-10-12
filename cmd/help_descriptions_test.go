@@ -5,11 +5,27 @@ import (
 	"fmt"
 	"io/ioutil"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
 	"testing"
 )
+
+var safetyApprovalHelpFlagPattern = regexp.MustCompile(`(?m)^\s*(?:--yes|-y)(?:[\s,=]|$)`)
+
+func TestSafetyApprovalHelpFlagPattern(t *testing.T) {
+	for _, text := range []string{"  --yes, -y  Confirm", "  --yes bool", "  -y, --yes", "--yes=true"} {
+		if !safetyApprovalHelpFlagPattern.MatchString(text) {
+			t.Errorf("missed approval flag declaration %q", text)
+		}
+	}
+	for _, text := range []string{"Billing: pay-as-you-go", "  Example: acl-yyyyy", "  --year string", "  --Id string  Example: i-ybmike5l"} {
+		if safetyApprovalHelpFlagPattern.MatchString(text) {
+			t.Errorf("metadata mistaken for approval flag %q", text)
+		}
+	}
+}
 
 func TestRootHelpIncludesFixedFlags(t *testing.T) {
 	registerRootSystemFlags()
@@ -27,6 +43,42 @@ func TestRootHelpIncludesFixedFlags(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("root help missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestSafetyApprovalIsHiddenFromAPIHelp(t *testing.T) {
+	for _, language := range []Language{LanguageEnglish, LanguageSimplifiedChinese} {
+		t.Run(string(language), func(t *testing.T) {
+			restore := setLanguageForTest(language)
+			defer restore()
+			for _, detail := range []bool{false, true} {
+				action, _, err := rootCmd.Find([]string{"iam", "DeleteApiKey"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				previousOut := action.OutOrStdout()
+				previousErr := action.ErrOrStderr()
+				var output bytes.Buffer
+				action.SetOut(&output)
+				action.SetErr(&output)
+				args := []string{"--help"}
+				if detail {
+					args = append(args, "--detail")
+				}
+				err = action.RunE(action, args)
+				action.SetOut(previousOut)
+				action.SetErr(previousErr)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if match := safetyApprovalHelpFlagPattern.FindString(output.String()); match != "" {
+					t.Errorf("detail=%v help exposes approval flag %q", detail, match)
+				}
+				if flag := action.Flags().Lookup("yes"); flag == nil || !flag.Hidden {
+					t.Error("approval flag must remain parseable but hidden from completion")
+				}
+			}
+		})
 	}
 }
 

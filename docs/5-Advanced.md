@@ -347,11 +347,13 @@ Debug is not a CLI system flag. Use `VOLCENGINE_CLI_DEBUG`:
 VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity
 ```
 
-Public system flags:
+Visible system flags:
 
 ```text
---profile, --region, --endpoint, --lang, --force, --version, --method, --output, --query
+--profile, --region, --endpoint, --lang, --user-agent, --force, --version, --method, --output, --query
 ```
+
+Safety approval flags remain accepted but hidden; see [Safety Policy](3-Configuration.md#safety-policy) for approved retries.
 
 Reserved double-dash controls:
 

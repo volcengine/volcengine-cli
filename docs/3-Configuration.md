@@ -147,6 +147,66 @@ ve configure delete --profile prod
 
 Deleting a profile does not delete SSO sessions or the global Console Login cache directory. Console Login cache cleanup is covered in [Authentication](2-Authentication.md#console-logout).
 
+## Safety Policy
+
+The safety policy is a local client-side guard for OpenAPI operations issued by `ve`, including normal calls, `--force` calls, and MCP `call_api`. It complements Volcengine IAM and does not replace cloud-side authorization. Delegated `ve arkcli` and `ve tosutil` commands are not intercepted because their arguments are forwarded unchanged.
+
+The policy is disabled by default and stored separately in `~/.volcengine/safety-policy.json` with `0600` permissions. Enable it and add rules with:
+
+```shell
+ve configure safety-policy enable
+ve configure safety-policy add --pattern '*:Delete*' --action deny
+ve configure safety-policy add --pattern '*:Update*' --action confirm
+ve configure safety-policy list
+```
+
+Actions:
+
+- `allow`: explicitly allow a matching operation. Configure it in the JSON file or through `VOLCENGINE_SAFETY_POLICY_RULES`; the `add` command intentionally accepts only protective actions.
+- `deny`: reject the operation locally without sending an API request.
+- `confirm`: require explicit approval before sending the request.
+
+Rules use `service:action`, are matched case-insensitively, support `*`, and use first-match-wins order. An unmatched operation is allowed. Every spelling of a service is treated as the same service, including versioned commands, underscore-compatible commands, and the SDK service name. For example, `cloudtrail:Delete*`, `cloudtrail20180101:Delete*`, and `cloud_trail:Delete*` are equivalent and apply to `ve cloudtrail`, `ve cloudtrail20180101`, and MCP `call_api`; `rds_mysql:*` likewise covers `ve rdsmysql`, `ve rdsmysqlv2`, and `ve rds_mysql_v2`. API names are matched as written, with no other spelling conversion.
+
+Patterns must contain exactly one colon, with a non-empty service and action and no internal whitespace. Surrounding whitespace is ignored. For example, use `sts:GetCallerIdentity`, `sts:*`, `*:GetCallerIdentity`, or `*:*`; API-only names, service-only names, dot/space separators, and a lone `*` are rejected. Validation checks syntax only, so rules may cover unlisted services and future APIs used with `--force`.
+
+For rule management, `add` and `remove` compare the complete pattern text case-insensitively. `add` updates the first matching pattern in place, preserving its position; otherwise, it appends a rule. `remove` deletes all matching patterns and still succeeds if none exist. Wildcards and service aliases are not expanded when locating stored patterns.
+
+```json
+{
+  "enabled": true,
+  "rules": [
+    {"pattern": "ecs:Describe*", "action": "allow"},
+    {"pattern": "ecs:*", "action": "deny"}
+  ]
+}
+```
+
+In an interactive terminal, a `confirm` match prompts for `yes`. Agents must start each operation without `--yes`. Only after a confirmation error (no API request sent), briefly explain the target and impact, ask to continue, then end the turn and wait for a new user reply. After approval, internally add `--yes` or `-y` for one unchanged retry; do not ask the user to handle the flag. Discard approval after that attempt, even on failure. The next operation starts without approval again. This is agent guidance, not a single-use token enforced by the CLI. Example of the approved retry:
+
+```shell
+ve ecs UpdateInstance --InstanceId i-xxxxx --yes
+```
+
+`--yes` skips only `confirm`; it never bypasses `deny`. MCP clients use `yes: true` on the repeated `call_api` request. See [MCP Server](6-MCP.md#safety-policy).
+
+Environment overrides have higher priority than the file:
+
+| Variable | Description |
+| --- | --- |
+| `VOLCENGINE_SAFETY_POLICY_ENABLED` | Override `enabled` (`true`/`false`, also Go boolean forms such as `1`/`0`) |
+| `VOLCENGINE_SAFETY_POLICY_RULES` | Replace the file rules with comma-separated `pattern=action` entries |
+| `VOLCENGINE_SAFETY_SKIP_CONFIRM` | Treat confirmation as approved for this process (`1`, `true`, `yes`, or `on`) |
+
+Examples:
+
+```shell
+export VOLCENGINE_SAFETY_POLICY_ENABLED=true
+export VOLCENGINE_SAFETY_POLICY_RULES='ecs:Describe*=allow,*:Delete*=deny,*:Update*=confirm'
+```
+
+Invalid policy files and invalid environment overrides fail closed: the CLI reports the configuration error and does not send the API request. Pattern syntax is validated when adding, saving, or loading rules and when parsing environment overrides. If an existing policy file contains malformed patterns, correct them directly in `~/.volcengine/safety-policy.json` before using policy management or API commands again.
+
 ## Selection Examples
 
 ### Switch Between Environments

@@ -25,8 +25,8 @@ type systemFlagsResolution struct {
 // flags stay in place for Parser to resolve against the action's metadata.
 //
 // Only registry preprocessable flags (profile/region/endpoint/lang) are stripped
-// here. force/version/method remain in-place for Parser so root `ve --version`
-// (CLI version) and presence-only --force keep working.
+// here. force/yes/version/method remain in-place for Parser so root `ve --version`
+// (CLI version) and presence-only switches keep working.
 func resolveSystemFlags(args []string) (systemFlagsResolution, error) {
 	return resolveSystemFlagsWithRegistry(args, systemFlags)
 }
@@ -129,7 +129,9 @@ func parseSystemFlagToken(arg string) (name string, legacy, equals, ok bool) {
 
 func parseSystemFlagTokenWithRegistry(arg string, registry *systemFlagRegistry) (name string, legacy, equals, ok bool) {
 	trimmed := ""
-	if strings.HasPrefix(arg, "---") {
+	if arg == "-y" {
+		trimmed = "yes"
+	} else if strings.HasPrefix(arg, "---") {
 		trimmed = arg[3:]
 		legacy = true
 	} else if strings.HasPrefix(arg, "--") {
@@ -159,7 +161,7 @@ func shouldExtractSystemFlagWithRegistry(name string, legacy bool, state command
 		return false
 	}
 	if _, ok := registry.preprocessable[name]; !ok {
-		// force/version/method: position-checked as system flags but parsed later.
+		// force/yes/version/method: position-checked as system flags but parsed later.
 		return false
 	}
 	switch state {

@@ -4,6 +4,7 @@ go 1.18
 
 require (
 	github.com/ThinkInAIXYZ/go-mcp v0.2.29
+	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/google/uuid v1.6.0
 	github.com/jmespath/go-jmespath v0.4.0
@@ -17,7 +18,6 @@ require (
 )
 
 require (
-	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/orcaman/concurrent-map/v2 v2.0.1 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect

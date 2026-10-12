@@ -9,7 +9,7 @@
 - `list_services`：列出 CLI 支持的全部服务及其 service code。
 - `list_apis`：传入 service code，列出该服务支持的全部 API。
 - `get_api_parameters`：查询请求参数、类型、必填项和示例。
-- `call_api`：调用 CLI 支持的任意 API。MCP 服务不维护 API 白名单，最终由请求使用的火山引擎 IAM 凭证进行权限判断。
+- `call_api`：调用 CLI 支持的任意 API。火山引擎 IAM 对云凭证进行权限判断；本地 CLI 安全策略会在解析凭证和发送请求之前执行检查。
 - `search_docs`：搜索公开的火山引擎文档，可按 service code 过滤，并返回标题、URL 和正文摘要。该工具无需云账号凭证。
 - `fetch_docs`：读取 `search_docs` 返回的火山引擎文档 URL，支持通过 Unicode 字符索引分段读取正文。该工具无需云账号凭证。
 
@@ -88,6 +88,23 @@ MCP API 调用按以下顺序解析 Region：
 5. `cn-beijing`。
 
 与普通 CLI API 命令不同，MCP 调用在没有任何 Region 配置时使用 `cn-beijing`，不会报错。
+
+<a id="安全策略"></a>
+
+## 安全策略
+
+每次 `call_api` 都会重新加载并检查 `~/.volcengine/safety-policy.json` 及其环境变量覆盖。命中 `deny` 时返回 Tool 错误，不发送云端请求；命中 `confirm` 时同样返回 Tool 错误，要求 Agent 说明操作并征求用户确认。用户明确同意后，使用 `yes: true` 重试同一个 Tool 调用：
+
+```json
+{
+  "service": "ecs",
+  "api": "UpdateInstance",
+  "parameters": {"InstanceId": "i-xxxxx"},
+  "yes": true
+}
+```
+
+`yes` 为非必填参数，默认 `false`，只能跳过 `confirm`，不能绕过 `deny`。每次新操作先不传此参数，仅遇确认拦截才简要说明目标和影响，询问是否继续，然后结束当前轮次并等待用户的新回复。确认后由 Agent 内部传入 `yes: true`，按原参数重试一次，无需用户理解或操作此参数。重试后即丢弃批准，即使失败。仅限一次是 Agent 行为约束，不是布尔参数强制保证。详见[配置管理：安全策略](3-Configuration-zh.md#安全策略safety-policy)。
 
 ## OAuth Resource Server
 

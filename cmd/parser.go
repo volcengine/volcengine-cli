@@ -37,7 +37,7 @@ func (p *Parser) ReadArgs(ctx *Context) ([]string, error) {
 		args []string
 		err  error
 	)
-	if len(p.args)%2 == 0 && p.hasFlagSyntaxAtPairStarts() {
+	if p.hasPairedFlagSyntax() {
 		args, err = p.readPairedArgs(ctx)
 	} else {
 		args, err = p.readLegacyArgs(ctx)
@@ -55,26 +55,34 @@ func (p *Parser) ReadArgs(ctx *Context) ([]string, error) {
 	return args, nil
 }
 
-func (p *Parser) hasFlagSyntaxAtPairStarts() bool {
-	for i := 0; i < len(p.args); i += 2 {
+// hasPairedFlagSyntax recognizes flag/value pairs interleaved with system
+// switches. Values remain opaque, including PEM text and flag-like strings.
+func (p *Parser) hasPairedFlagSyntax() bool {
+	for i := 0; i < len(p.args); {
 		a := p.args[i]
-		if !strings.HasPrefix(a, "--") {
-			return false
-		}
-		// Presence-only system --force / ---force must not pair-consume the next token.
-		if isSystemPresenceOnlyToken(a, p.actionParameters) {
+		if !strings.HasPrefix(a, "--") && a != "-y" {
 			return false
 		}
 		name, _ := flagNameFromToken(a)
 		if name == "" {
 			return false
 		}
+		if isSystemPresenceOnlyToken(a, p.actionParameters) {
+			i++
+			continue
+		}
+		if i+1 >= len(p.args) {
+			return false
+		}
+		i += 2
 	}
 	return true
 }
 
 func flagNameFromToken(arg string) (name string, legacy bool) {
-	if strings.HasPrefix(arg, "---") {
+	if arg == "-y" {
+		return "yes", false
+	} else if strings.HasPrefix(arg, "---") {
 		name = arg[3:]
 		legacy = true
 	} else if strings.HasPrefix(arg, "--") {
@@ -91,8 +99,7 @@ func flagNameFromToken(arg string) (name string, legacy bool) {
 func (p *Parser) readPairedArgs(ctx *Context) ([]string, error) {
 	for p.currentIndex < len(p.args) {
 		name := p.args[p.currentIndex]
-		value := p.args[p.currentIndex+1]
-		p.currentIndex += 2
+		p.currentIndex++
 
 		flag, positional, err := p.parseArg(name, ctx)
 		if err != nil {
@@ -101,10 +108,15 @@ func (p *Parser) readPairedArgs(ctx *Context) ([]string, error) {
 		if flag == nil {
 			return nil, fmt.Errorf("%q is not a valid flag", positional)
 		}
+		if ctx.fixedFlags.GetByName(flag.Name) == flag && isPresenceOnlyFixedFlag(flag.Name) {
+			flag.SetValue("true")
+			continue
+		}
 
 		// Explicit empty string is a valid API value (shell: --Name "").
-		// Missing values are not represented as "" here; they fail earlier as unpaired flags.
-		flag.SetValue(value)
+		// hasPairedFlagSyntax has already checked that this value exists.
+		flag.SetValue(p.args[p.currentIndex])
+		p.currentIndex++
 		p.currentFlag = nil
 	}
 	return nil, nil
@@ -164,7 +176,7 @@ func (p *Parser) readArg(ctx *Context) (arg string, flag *Flag, more bool, err e
 			arg = value
 		}
 	} else { //解析flag
-		// presence-only 语义适用于作为系统参数的 force（--force 无冲突或 ---force）。
+		// presence-only 语义适用于 force / yes 等纯开关系统参数。
 		isFixedFlag := ctx != nil && ctx.fixedFlags != nil && ctx.fixedFlags.GetByName(flag.Name) == flag
 		if isFixedFlag && isPresenceOnlyFixedFlag(flag.Name) {
 			// 纯开关固定参数：出现即启用，不消费后续 token。
@@ -188,7 +200,12 @@ func (p *Parser) currentFlagValueError(ctx *Context) error {
 }
 
 func (p *Parser) parseArg(arg string, ctx *Context) (flag *Flag, value string, err error) {
-	if strings.HasPrefix(arg, "---") {
+	if arg == "-y" {
+		flag, err = ctx.fixedFlags.AddByName("yes")
+		if flag != nil {
+			flag.prefix = "-y"
+		}
+	} else if strings.HasPrefix(arg, "---") {
 		// Triple-dash aliases force system-flag routing (conflict escape).
 		name := arg[3:]
 		if name == "" {
