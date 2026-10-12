@@ -14,6 +14,10 @@ import (
 // ConfirmationNeededMessage is shared by the default and localized CLI/MCP errors.
 const ConfirmationNeededMessage = "safety policy requires confirmation for: %s %s\ncurrent environment is non-interactive.\nSTOP: Briefly explain the target and impact, ask to continue, then end this turn and wait for a NEW user reply.\nOnly after approval, internally %s ONCE with unchanged arguments; do not ask the user to handle this flag.\nDiscard approval after that attempt, even on failure. Start every new operation without --yes/yes=true; explain and ask only if blocked. Never reuse earlier approvals or weaken policy."
 
+// MCPApprovalDescription describes the same approval flow for tool discovery,
+// before a confirmation error exists. It is guidance, not a one-use token.
+const MCPApprovalDescription = "Omit on every new operation. Ask only after a block; wait for a new user reply approving it, then use internally for ONE unchanged retry. Discard approval even on failure. Do not ask the user to handle this flag. Cannot bypass deny."
+
 type Messages struct {
 	Denied              string
 	ConfirmationNeeded  string

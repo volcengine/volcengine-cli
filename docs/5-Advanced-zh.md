@@ -347,11 +347,13 @@ debug 不是 CLI 系统参数，当前只通过 `VOLCENGINE_CLI_DEBUG` 环境变
 VOLCENGINE_CLI_DEBUG=true ve sts GetCallerIdentity
 ```
 
-对外系统参数：
+常规可见系统参数：
 
 ```text
---profile, --region, --endpoint, --lang, --force, --yes, --version, --method, --output, --query
+--profile, --region, --endpoint, --lang, --user-agent, --force, --version, --method, --output, --query
 ```
+
+安全确认参数仍可解析但默认隐藏，获批重试流程见[安全策略](3-Configuration-zh.md#安全策略safety-policy)。
 
 双横线保留控制参数：
 

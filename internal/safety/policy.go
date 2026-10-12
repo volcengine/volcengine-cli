@@ -18,7 +18,6 @@ const (
 	ActionAllow   Action = "allow"
 	ActionDeny    Action = "deny"
 	ActionConfirm Action = "confirm"
-	ActionForbid  Action = "forbid"
 )
 
 const (
@@ -40,7 +39,10 @@ type Policy struct {
 
 type CommandInfo struct {
 	Product string
-	Action  string
+	// ProductAliases are other spellings of the same service. A rule written
+	// with any of them applies to Product.
+	ProductAliases []string
+	Action         string
 }
 
 type CheckResult struct {
@@ -58,16 +60,13 @@ func (p *Policy) Check(command CommandInfo) CheckResult {
 		return CheckResult{Action: ActionAllow}
 	}
 
-	identifier := strings.ToLower(strings.TrimSpace(command.Product)) + ":" + strings.TrimSpace(command.Action)
+	identifiers := commandIdentifiers(command)
 	for i := range p.Rules {
 		rule := &p.Rules[i]
-		if !matchPattern(rule.Pattern, identifier) {
+		if !matchAnyIdentifier(rule.Pattern, identifiers) {
 			continue
 		}
 		action := rule.Action
-		if action == ActionForbid {
-			action = ActionConfirm
-		}
 		if !validRuntimeAction(action) {
 			// An invalid in-memory policy must never weaken protection.
 			action = ActionDeny
@@ -75,6 +74,24 @@ func (p *Policy) Check(command CommandInfo) CheckResult {
 		return CheckResult{Action: action, Matched: true, Rule: rule}
 	}
 	return CheckResult{Action: ActionAllow}
+}
+
+func commandIdentifiers(command CommandInfo) []string {
+	action := strings.TrimSpace(command.Action)
+	identifiers := make([]string, 0, 1+len(command.ProductAliases))
+	for _, product := range append([]string{command.Product}, command.ProductAliases...) {
+		identifiers = append(identifiers, strings.ToLower(strings.TrimSpace(product))+":"+action)
+	}
+	return identifiers
+}
+
+func matchAnyIdentifier(pattern string, identifiers []string) bool {
+	for _, identifier := range identifiers {
+		if matchPattern(pattern, identifier) {
+			return true
+		}
+	}
+	return false
 }
 
 func validRuntimeAction(action Action) bool {
@@ -225,7 +242,7 @@ func normalizeAction(action Action) Action {
 }
 
 func validConfiguredAction(action Action) bool {
-	return action == ActionAllow || action == ActionDeny || action == ActionConfirm || action == ActionForbid
+	return validRuntimeAction(action)
 }
 
 func SavePolicy(configDir string, policy *Policy) error {

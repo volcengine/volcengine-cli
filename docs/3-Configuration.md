@@ -165,9 +165,10 @@ Actions:
 - `allow`: explicitly allow a matching operation. Configure it in the JSON file or through `VOLCENGINE_SAFETY_POLICY_RULES`; the `add` command intentionally accepts only protective actions.
 - `deny`: reject the operation locally without sending an API request.
 - `confirm`: require explicit approval before sending the request.
-- `forbid`: alias for `confirm`.
 
-Rules use `service:action`, are matched case-insensitively, support `*`, and use first-match-wins order. An unmatched operation is allowed. Rules match the command spelling rather than expanding aliases, so specific aliases must be covered separately.
+Rules use `service:action`, are matched case-insensitively, support `*`, and use first-match-wins order. An unmatched operation is allowed. Every spelling of a service is treated as the same service, including versioned commands, underscore-compatible commands, and the SDK service name. For example, `cloudtrail:Delete*`, `cloudtrail20180101:Delete*`, and `cloud_trail:Delete*` are equivalent and apply to `ve cloudtrail`, `ve cloudtrail20180101`, and MCP `call_api`; `rds_mysql:*` likewise covers `ve rdsmysql`, `ve rdsmysqlv2`, and `ve rds_mysql_v2`. API names are matched as written, with no other spelling conversion.
+
+For rule management, `add` and `remove` compare the complete pattern text case-insensitively. `add` updates the first matching pattern in place, preserving its position; otherwise, it appends a rule. `remove` deletes all matching patterns and still succeeds if none exist. Wildcards and service aliases are not expanded when locating stored patterns.
 
 ```json
 {

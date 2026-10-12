@@ -134,3 +134,11 @@ func TestConfirmationNoticeRequiresFreshSingleUseApproval(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPApprovalDescriptionRequiresFreshSingleUseApproval(t *testing.T) {
+	for _, phrase := range []string{"Omit on every new operation", "only after a block", "new user reply", "ONE unchanged retry", "internally", "even on failure", "Do not ask the user to handle this flag", "Cannot bypass deny"} {
+		if !strings.Contains(MCPApprovalDescription, phrase) {
+			t.Errorf("MCP guidance missing %q", phrase)
+		}
+	}
+}

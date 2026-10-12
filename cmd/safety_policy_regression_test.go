@@ -189,41 +189,117 @@ func TestSafetyRuleUpdateAndRemoval(t *testing.T) {
 	}
 }
 
-func TestSafetyServiceSpellingAcrossInvocationRoutes(t *testing.T) {
+func TestSafetyServiceAliasesShareRulesAcrossInvocationRoutes(t *testing.T) {
 	dir := reviewSafetyEnvironment(t)
 	withIsolatedInvocationFlags(t)
 	previousHook := executeInvocationHook
 	t.Cleanup(func() {
 		executeInvocationHook = previousHook
 	})
-	for _, args := range [][]string{
-		{"rds_mysql", "AssociateAllowList"},
-		{"rds_mysql", "AssociateAllowList", "--force"},
-		{"rds_mysql", "ReviewUnlistedAction", "--force"},
-		{"rdsmysql", "AssociateAllowList"},
-		{"rdsmysql", "AssociateAllowList", "--force"},
-		{"rdsmysql", "ReviewUnlistedAction", "--force"},
+	for _, service := range []struct{ canonical, alias, action string }{
+		{"rdsmysql", "rds_mysql", "AssociateAllowList"},
+		{"rdsmysqlv2", "rds_mysql_v2", "DeleteDBInstance"},
 	} {
-		for _, ruleService := range []string{"rds_mysql", "rdsmysql"} {
-			if err := safety.SavePolicy(dir, &safety.Policy{Enabled: true, Rules: []safety.Rule{{Pattern: ruleService + ":*", Action: safety.ActionDeny}}}); err != nil {
-				t.Fatal(err)
-			}
-			calls := 0
-			executeInvocationHook = func(_ *Context, p invocationParams, _ func() (invocationInput, error)) error {
-				calls++
-				if p.serviceName != "rdsmysql" {
-					t.Errorf("SDK service = %q, want canonical rdsmysql", p.serviceName)
+		for _, entered := range []string{service.canonical, service.alias} {
+			for _, tail := range [][]string{
+				{service.action},
+				{service.action, "--force"},
+				{"ReviewUnlistedAction", "--force"},
+			} {
+				args := append([]string{entered}, tail...)
+				for _, ruleService := range []string{service.canonical, service.alias, "ecs"} {
+					if err := safety.SavePolicy(dir, &safety.Policy{Enabled: true, Rules: []safety.Rule{{Pattern: ruleService + ":*", Action: safety.ActionDeny}}}); err != nil {
+						t.Fatal(err)
+					}
+					calls := 0
+					executeInvocationHook = func(_ *Context, p invocationParams, _ func() (invocationInput, error)) error {
+						calls++
+						if p.serviceName != service.canonical {
+							t.Errorf("SDK service = %q, want canonical %s", p.serviceName, service.canonical)
+						}
+						return nil
+					}
+					err := reviewRunAPICommand(t, args...)
+					if ruleService == "ecs" {
+						if err != nil || calls != 1 {
+							t.Errorf("rule=%s args=%v: error=%v calls=%d; want unrelated rule to allow", ruleService, args, err, calls)
+						}
+					} else if err == nil || !strings.Contains(err.Error(), "blocked by safety policy") || calls != 0 {
+						t.Errorf("rule=%s args=%v: error=%v calls=%d; want denial for every service spelling", ruleService, args, err, calls)
+					}
 				}
-				return nil
 			}
-			err := reviewRunAPICommand(t, args...)
-			if ruleService == args[0] {
-				if err == nil || !strings.Contains(err.Error(), "blocked by safety policy") || calls != 0 {
-					t.Errorf("rule=%s args=%v: error=%v calls=%d; want denial", ruleService, args, err, calls)
+		}
+	}
+}
+
+func TestSafetyVersionedServicesShareRules(t *testing.T) {
+	dir := reviewSafetyEnvironment(t)
+	withIsolatedInvocationFlags(t)
+	previousHook := executeInvocationHook
+	t.Cleanup(func() {
+		executeInvocationHook = previousHook
+	})
+	for _, service := range []struct {
+		entered []string
+		rules   []string
+		action  string
+	}{
+		{[]string{"cloudtrail", "cloudtrail20180101"}, []string{"cloudtrail", "cloudtrail20180101", "cloud_trail"}, "DeleteTrail"},
+		{[]string{"vod20250101", "vod20260101"}, []string{"vod", "vod20250101", "vod20260101"}, "ReviewUnlistedAction"},
+	} {
+		for _, entered := range service.entered {
+			for _, ruleService := range append(service.rules, "ecs") {
+				if err := safety.SavePolicy(dir, &safety.Policy{Enabled: true, Rules: []safety.Rule{{Pattern: ruleService + ":*", Action: safety.ActionDeny}}}); err != nil {
+					t.Fatal(err)
 				}
-			} else if err != nil || calls != 1 {
-				t.Errorf("rule=%s args=%v: error=%v calls=%d; aliases must not expand", ruleService, args, err, calls)
+				calls := 0
+				executeInvocationHook = func(_ *Context, p invocationParams, _ func() (invocationInput, error)) error {
+					calls++
+					return nil
+				}
+				args := []string{entered, service.action, "--force", "--version", "2018-01-01"}
+				err := reviewRunAPICommand(t, args...)
+				if ruleService == "ecs" {
+					if err != nil || calls != 1 {
+						t.Errorf("rule=%s args=%v: error=%v calls=%d; want unrelated rule to allow", ruleService, args, err, calls)
+					}
+				} else if err == nil || !strings.Contains(err.Error(), "blocked by safety policy") || calls != 0 {
+					t.Errorf("rule=%s args=%v: error=%v calls=%d; want denial for every version of the service", ruleService, args, err, calls)
+				}
 			}
+		}
+	}
+}
+
+func TestSafetyServiceAliasRulesProtectMCPCalls(t *testing.T) {
+	dir := reviewSafetyEnvironment(t)
+	var requests int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ResponseMetadata":{"RequestId":"review-local"},"Result":{}}`))
+	}))
+	defer server.Close()
+	for _, name := range []string{"VOLCENGINE_ACCESS_KEY", "VOLCENGINE_SECRET_KEY", "VOLCENGINE_SESSION_TOKEN", "VOLCENGINE_PROFILE", "VOLCSTACK_PROFILE", "VOLCENGINE_ENDPOINT_RESOLVER"} {
+		t.Cleanup(unsetenvForTest(t, name))
+	}
+	t.Setenv("VOLCENGINE_DISABLE_DEFAULT_CREDENTIALS", "true")
+	t.Setenv("VOLCENGINE_ENDPOINT", server.URL)
+	invoker, err := newVolcengineMCPInvoker(&Configure{Profiles: map[string]*Profile{}}, "", "cn-beijing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	callContext := context.WithValue(context.Background(), mcpRequestMetadataContextKey{}, mcpRequestMetadata{
+		Credentials: &mcpCredentials{AccessKeyID: "fake-ak", SecretAccessKey: "fake-sk"},
+	})
+	for _, ruleService := range []string{"rdsmysqlv2", "rds_mysql_v2", "rdsmysql", "rds_mysql"} {
+		if err := safety.SavePolicy(dir, &safety.Policy{Enabled: true, Rules: []safety.Rule{{Pattern: ruleService + ":Delete*", Action: safety.ActionDeny}}}); err != nil {
+			t.Fatal(err)
+		}
+		_, err := invoker.CallAPI(callContext, "rdsmysqlv2", "DeleteDBInstance", "", map[string]interface{}{}, true)
+		if err == nil || !strings.Contains(err.Error(), "blocked by safety policy") || atomic.LoadInt32(&requests) != 0 {
+			t.Fatalf("rule=%s: err=%v, HTTP requests=%d; want denial before HTTP", ruleService, err, atomic.LoadInt32(&requests))
 		}
 	}
 }

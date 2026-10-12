@@ -74,7 +74,6 @@ func runServiceCmd(cmd *cobra.Command, svc string, validActions []string, args [
 			break
 		}
 	}
-	ctx.invokedService = cmd.Name()
 	return dispatchServiceAction(ctx, svc, action, known)
 }
 

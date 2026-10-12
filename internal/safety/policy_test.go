@@ -38,6 +38,30 @@ func TestPolicyCheckDoesNotExpandCommandSpellings(t *testing.T) {
 	}
 }
 
+func TestPolicyCheckMatchesProductAliases(t *testing.T) {
+	command := CommandInfo{Product: "rdsmysqlv2", ProductAliases: []string{"rds_mysql_v2"}, Action: "DeleteDBInstance"}
+	for _, pattern := range []string{"rdsmysqlv2:Delete*", "RDS_MYSQL_V2:Delete*"} {
+		policy := &Policy{Enabled: true, Rules: []Rule{{Pattern: pattern, Action: ActionDeny}}}
+		result := policy.Check(command)
+		if !result.Matched || result.Action != ActionDeny || result.Rule.Pattern != pattern {
+			t.Fatalf("pattern %q result = %#v, want deny", pattern, result)
+		}
+	}
+
+	policy := &Policy{Enabled: true, Rules: []Rule{
+		{Pattern: "rds_mysql_v2:Describe*", Action: ActionAllow},
+		{Pattern: "rds_mysql:*", Action: ActionDeny},
+		{Pattern: "*:*", Action: ActionConfirm},
+	}}
+	if result := policy.Check(command); result.Action != ActionConfirm || result.Rule.Pattern != "*:*" {
+		t.Fatalf("result = %#v, want aliases of other services to be skipped", result)
+	}
+	describe := CommandInfo{Product: "rdsmysqlv2", ProductAliases: []string{"rds_mysql_v2"}, Action: "DescribeDBInstances"}
+	if result := policy.Check(describe); result.Action != ActionAllow {
+		t.Fatalf("result = %#v, want first alias rule to win", result)
+	}
+}
+
 func TestPolicyCheckDefaultsToAllow(t *testing.T) {
 	for _, policy := range []*Policy{
 		nil,
@@ -51,14 +75,17 @@ func TestPolicyCheckDefaultsToAllow(t *testing.T) {
 	}
 }
 
-func TestForbidIsConfirmationAlias(t *testing.T) {
+func TestInvalidRuleActionFailsClosed(t *testing.T) {
 	policy := &Policy{
 		Enabled: true,
-		Rules:   []Rule{{Pattern: "ecs:Update*", Action: ActionForbid}},
+		Rules:   []Rule{{Pattern: "ecs:Update*", Action: Action("unknown")}},
+	}
+	if err := SavePolicy(t.TempDir(), policy); err == nil {
+		t.Error("SavePolicy must reject an invalid action")
 	}
 	result := policy.Check(CommandInfo{Product: "ecs", Action: "UpdateInstance"})
-	if !result.Matched || result.Action != ActionConfirm {
-		t.Fatalf("forbid result = %#v, want confirmation", result)
+	if !result.Matched || result.Action != ActionDeny {
+		t.Fatalf("invalid in-memory action result = %#v, want deny", result)
 	}
 }
 
@@ -190,9 +217,11 @@ func TestLoadEffectivePolicyRejectsInvalidEnvironment(t *testing.T) {
 	})
 
 	t.Run("rules", func(t *testing.T) {
-		t.Setenv(EnvPolicyRules, "*:Delete*=dney")
-		if _, err := LoadEffectivePolicy(t.TempDir()); err == nil {
-			t.Fatal("invalid rules override unexpectedly succeeded")
+		for _, action := range []string{"dney"} {
+			t.Setenv(EnvPolicyRules, "*:Delete*="+action)
+			if _, err := LoadEffectivePolicy(t.TempDir()); err == nil {
+				t.Errorf("invalid rules action %q unexpectedly succeeded", action)
+			}
 		}
 	})
 }

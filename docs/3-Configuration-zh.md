@@ -165,9 +165,10 @@ ve configure safety-policy list
 - `allow`：显式允许命中的操作。通过 JSON 文件或 `VOLCENGINE_SAFETY_POLICY_RULES` 配置；`add` 命令有意只接受防护动作。
 - `deny`：在本地拒绝，不发送 API 请求。
 - `confirm`：发送请求前必须获得明确确认。
-- `forbid`：`confirm` 的别名。
 
-规则格式为 `service:action`，匹配不区分大小写，支持 `*` 通配符，并采用第一条匹配优先（first-match-wins）。未命中任何规则时默认允许。规则按命令写法匹配，不会自动展开别名，因此具体别名需要分别覆盖。
+规则格式为 `service:action`，匹配不区分大小写，支持 `*` 通配符，并采用第一条匹配优先（first-match-wins）。未命中任何规则时默认允许。同一服务的所有写法视为同一服务，包括带版本号的命令名、带下划线的兼容命令名和 SDK 服务名。例如 `cloudtrail:Delete*`、`cloudtrail20180101:Delete*` 与 `cloud_trail:Delete*` 等价，对 `ve cloudtrail`、`ve cloudtrail20180101` 和 MCP `call_api` 同时生效；`rds_mysql:*` 同样覆盖 `ve rdsmysql`、`ve rdsmysqlv2` 和 `ve rds_mysql_v2`。API 名称按原样匹配，不做其他写法转换。
+
+管理规则时，`add` 和 `remove` 按完整 pattern 文本进行不区分大小写的比较。`add` 原位更新找到的第一条规则，保持其顺序；未找到时追加。`remove` 删除所有相同 pattern 的规则，未找到时仍返回成功。查找已保存的 pattern 时不展开通配符或服务别名。
 
 ```json
 {

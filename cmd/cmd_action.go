@@ -47,7 +47,6 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 				if err := parseInvocationFlags(args, publicParameters); err != nil {
 					return err
 				}
-				ctx.invokedService = cmd.Parent().Name()
 				return dispatchServiceAction(ctx, serviceName, cmd.Name(), true)
 			},
 		}
@@ -138,7 +137,7 @@ func registerActionSystemFlags(actionCmd *cobra.Command, actionParameters map[st
 		if _, conflict := actionParameters[name]; conflict {
 			continue
 		}
-		if isPresenceOnlyFixedFlag(name) {
+		if def.presenceOnly {
 			if name == "yes" {
 				actionCmd.Flags().BoolP(name, "y", false, "")
 			} else {

@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +21,39 @@ func runSafetyPolicyCommandForTest(t *testing.T, args ...string) (string, error)
 	command.SetArgs(args)
 	err := command.Execute()
 	return output.String(), err
+}
+
+func TestSafetyServiceAliases(t *testing.T) {
+	for service, want := range map[string]string{
+		"rdsmysql":           "rds_mysql,rds_mysql_v2,rdsmysqlv2",
+		"rds_mysql":          "rds_mysql_v2,rdsmysql,rdsmysqlv2",
+		"rdsmysqlv2":         "rds_mysql,rds_mysql_v2,rdsmysql",
+		"RDS_MYSQL_V2":       "rds_mysql,rdsmysql,rdsmysqlv2",
+		"ml_platform":        "mlplatform,mlplatform20240701",
+		"cloudtrail20180101": "cloud_trail,cloudtrail",
+		"cloud_trail":        "cloudtrail,cloudtrail20180101",
+		"vod":                "vod20250101,vod20260101",
+		"ecs":                "",
+		"foo_bar":            "",
+		"foo20250101":        "",
+	} {
+		if got := strings.Join(safetyServiceAliases(service), ","); got != want {
+			t.Errorf("safetyServiceAliases(%q) = %q, want %q", service, got, want)
+		}
+	}
+}
+
+func TestSafetyServiceSpellingsBelongToOneService(t *testing.T) {
+	for command, sdkService := range serviceMapping {
+		if owner, ok := serviceMapping[sdkService]; ok && owner != sdkService {
+			t.Errorf("SDK service %q of command %q is also the command of SDK service %q", sdkService, command, owner)
+		}
+	}
+	for _, name := range compatible_support_cmd {
+		if _, ok := serviceMapping[strings.ReplaceAll(name, "_", "")]; !ok {
+			t.Errorf("compatible command %q has no canonical service", name)
+		}
+	}
 }
 
 func TestConfigureSafetyPolicyLifecycle(t *testing.T) {
@@ -99,13 +133,15 @@ func TestConfigureSafetyPolicyShowDefaultUsesEmptyRulesArray(t *testing.T) {
 	}
 }
 
-func TestConfigureSafetyPolicyRejectsAllowFromAdd(t *testing.T) {
+func TestConfigureSafetyPolicyAddRejectsUnsupportedActions(t *testing.T) {
 	_, cleanup := withTestConfigDir(t)
 	defer cleanup()
 
-	_, err := runSafetyPolicyCommandForTest(t, "add", "--pattern", "ecs:Describe*", "--action", "allow")
-	if err == nil || !strings.Contains(err.Error(), "deny, confirm, or forbid") {
-		t.Fatalf("add allow error = %v", err)
+	for _, action := range []string{"allow"} {
+		_, err := runSafetyPolicyCommandForTest(t, "add", "--pattern", "ecs:Describe*", "--action", action)
+		if err == nil || !strings.Contains(err.Error(), "deny or confirm") {
+			t.Errorf("add %q error = %v", action, err)
+		}
 	}
 }
 
@@ -212,8 +248,7 @@ func TestSafetyPolicyDenialIsLocalized(t *testing.T) {
 }
 
 func TestExecuteInvocationRequiresThenAcceptsExplicitApproval(t *testing.T) {
-	dir, cleanup := withTestConfigDir(t)
-	defer cleanup()
+	dir := reviewSafetyEnvironment(t)
 	if err := safety.SavePolicy(dir, &safety.Policy{
 		Enabled: true,
 		Rules:   []safety.Rule{{Pattern: "ecs:Update*", Action: safety.ActionConfirm}},
@@ -319,8 +354,7 @@ func TestShortSafetyApprovalFlagMustFollowAction(t *testing.T) {
 }
 
 func TestSafetyConfirmationNoticeRequiresFreshApprovalInBothLanguages(t *testing.T) {
-	dir, cleanup := withTestConfigDir(t)
-	defer cleanup()
+	dir := reviewSafetyEnvironment(t)
 	if err := safety.SavePolicy(dir, &safety.Policy{Enabled: true, Rules: []safety.Rule{{Pattern: "sts:*", Action: safety.ActionConfirm}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +362,9 @@ func TestSafetyConfirmationNoticeRequiresFreshApprovalInBothLanguages(t *testing
 		language Language
 		want     []string
 	}{
-		{LanguageEnglish, []string{"STOP:", "end this turn and wait", "NEW user reply", "Only after approval", "internally", "ONCE", "even on failure", "Start every new operation without --yes/yes=true", "explain and ask only if blocked", "Never reuse earlier approvals"}},
+		// English semantics are covered in internal/safety; template equality is
+		// checked below. Keep the translated behavior independently asserted.
+		{LanguageEnglish, []string{"current environment is non-interactive."}},
 		{LanguageSimplifiedChinese, []string{"停止", "简要说明", "结束当前轮次并等待", "用户的新回复", "仅在确认后", "内部", "仅重试一次", "无需向用户解释此参数", "即使失败", "每次新操作先不带 --yes/yes=true", "仅遇拦截才解释并询问", "不得复用历史批准"}},
 	} {
 		t.Run(string(tc.language), func(t *testing.T) {
@@ -344,5 +380,22 @@ func TestSafetyConfirmationNoticeRequiresFreshApprovalInBothLanguages(t *testing
 				}
 			}
 		})
+	}
+}
+
+func TestSafetyConfirmationTemplateMatchesDefault(t *testing.T) {
+	dir := reviewSafetyEnvironment(t)
+	if err := safety.SavePolicy(dir, &safety.Policy{Enabled: true, Rules: []safety.Rule{{Pattern: "sts:*", Action: safety.ActionConfirm}}}); err != nil {
+		t.Fatal(err)
+	}
+	restore := setLanguageForTest(LanguageEnglish)
+	defer restore()
+	err := enforceSafetyPolicy("sts", "GetCallerIdentity", false, false, "retry")
+	want := fmt.Sprintf(safety.ConfirmationNeededMessage, "sts", "GetCallerIdentity", "retry")
+	if err == nil || err.Error() != want {
+		t.Fatalf("localized source template differs from safety default: %v", err)
+	}
+	if _, ok := combinedTranslationCatalog(t)[safety.ConfirmationNeededMessage]; !ok {
+		t.Fatal("shared confirmation template has no Chinese translation")
 	}
 }

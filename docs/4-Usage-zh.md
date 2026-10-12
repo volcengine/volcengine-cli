@@ -9,7 +9,7 @@
 ```shell
 ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
                       [--profile name] [--region region] [--endpoint endpoint] [--lang language] [--user-agent value]
-                      [--version api-version] [--method GET|POST] [--force] [--yes]
+                      [--version api-version] [--method GET|POST] [--force]
                       [--output json|table|table-num|text|yaml|off] [--query jmespath]
 ```
 
@@ -18,7 +18,7 @@ ve <service> <action> [--Param value ...] [--header Name=Value ...] [--body json
 参数分几类：
 
 - **API 业务参数**：双横线 `--Param value`，进入请求体/查询参数（保留名 `body` / `header` 除外）
-- **对外系统参数**（放在 Action 后）：`--profile` / `--region` / `--endpoint` / `--lang` / `--user-agent` / `--version` / `--method` / `--force` / `--yes` / `--output` / `--query`
+- **常规可见系统参数**（放在 Action 后）：`--profile` / `--region` / `--endpoint` / `--lang` / `--user-agent` / `--version` / `--method` / `--force` / `--output` / `--query`
 - **双横线保留控制参数**：`--header`（HTTP 头）和 `--body`（JSON 请求体）；这些控制参数自身**不是**业务参数
 
 API 调用中的系统参数统一使用双横线并放在 Action 后。若当前 Action 暴露了大小写完全相同的业务参数，双横线优先按 API 参数解析。
@@ -139,7 +139,7 @@ ve rds_mysql ListDBInstanceIPLists --InstanceId mysql-xxxxxx --GroupName default
 
 ## CLI 系统参数
 
-系统参数对外统一使用双横线：
+常规可见系统参数统一使用双横线：
 
 | 参数 | 作用 |
 | --- | --- |
@@ -150,10 +150,11 @@ ve rds_mysql ListDBInstanceIPLists --InstanceId mysql-xxxxxx --GroupName default
 | `--user-agent` | 为本次调用在默认 HTTP `User-Agent` 后追加自定义标识 |
 | `--version` | 指定本次调用的 **API 版本**；未指定时使用内置元数据中的 service 版本（与根命令 `ve -v` / `ve --version` / `ve version` 的 CLI 二进制版本无关） |
 | `--force` | 跳过 service/action 元数据校验，强制调用未收录或新发布的接口；**未收录 service** 须提供 `--version` 与固定 endpoint（`--endpoint` 或非 standard 下的 profile/`VOLCENGINE_ENDPOINT`）；已收录 service 可回落元数据。纯开关：只写 `--force`，不要写 `--force true` |
-| `--yes`、`-y` | 确认本次调用中命中安全策略 `confirm` 规则的操作；不能绕过 `deny` |
 | `--method` | 指定 HTTP 方法（`GET`/`POST`）；正常路径与 `--force` 路径规则一致：显式值优先，否则用 action 元数据，均无则默认 `GET` |
 | `--output` | 设置 API 响应输出格式：`json`（默认）、`table`、`table-num`、`text`、`yaml`、`off` |
 | `--query` | JMESPath 表达式，在格式化前过滤/投影完整响应 JSON（含 `ResponseMetadata` 与 `Result`） |
+
+安全确认参数（`--yes`，别名 `-y`）仍可解析，但不在常规帮助和补全中展示。仅用于[安全策略](3-Configuration-zh.md#安全策略safety-policy)规定的获批重试，不能绕过 `deny`。
 
 Action 后如果当前 Action 暴露了大小写完全相同的参数，双横线形式优先按 API 业务参数解析；没有同名冲突时按系统参数解析。
 
@@ -400,7 +401,7 @@ credentials not configured, please run 've login' or 've configure set', or set 
 region not set, please set it via profile, --region flag, or VOLCENGINE_REGION environment variable
 ```
 
-对外系统参数（双横线）：`--profile`、`--region`、`--endpoint`、`--lang`、`--force`、`--yes`、`--version`、`--method`、`--output`、`--query`（`--yes` 也接受 `-y`）。
+常规可见系统参数（双横线）：`--profile`、`--region`、`--endpoint`、`--lang`、`--user-agent`、`--force`、`--version`、`--method`、`--output`、`--query`。隐藏的确认参数见[安全策略](3-Configuration-zh.md#安全策略safety-policy)。
 双横线保留控制参数：`--header`、`--body`（见上文「双横线保留控制参数」）。
 
 ## 过滤与输出格式

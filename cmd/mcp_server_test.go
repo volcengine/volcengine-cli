@@ -21,6 +21,7 @@ import (
 	"github.com/ThinkInAIXYZ/go-mcp/protocol"
 	"github.com/ThinkInAIXYZ/go-mcp/transport"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/volcengine/volcengine-cli/internal/safety"
 )
 
 type recordingMCPRegistrar struct {
@@ -96,15 +97,35 @@ func TestMCPListToolsExposeEnumerationSchemas(t *testing.T) {
 	if _, ok := callSchema.Properties["yes"]; !ok {
 		t.Fatalf("call_api schema does not expose yes: %s", registrar.tools["call_api"].RawInputSchema)
 	}
-	for _, phrase := range []string{"Omit on every new operation", "only after a block", "new user reply", "ONE unchanged retry", "internally", "even on failure", "Cannot bypass deny"} {
-		if !strings.Contains(string(callSchema.Properties["yes"]), phrase) {
-			t.Errorf("yes schema missing approval instruction %q", phrase)
-		}
+	var approval struct {
+		Type        string `json:"type"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal(callSchema.Properties["yes"], &approval); err != nil {
+		t.Fatal(err)
+	}
+	if approval.Type != "boolean" || approval.Description != safety.MCPApprovalDescription {
+		t.Fatalf("yes schema does not use the shared approval description: %#v", approval)
 	}
 	for _, required := range callSchema.Required {
 		if required == "region" || required == "yes" {
 			t.Fatalf("call_api region and yes must be optional: %s", registrar.tools["call_api"].RawInputSchema)
 		}
+	}
+}
+
+func TestMCPCallAPISchemaEscapesDescription(t *testing.T) {
+	want := "Ask \"continue?\"\nKeep path C:\\example unchanged."
+	var schema struct {
+		Properties map[string]struct {
+			Description string `json:"description"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(mcpCallAPIInputSchema(want), &schema); err != nil {
+		t.Fatal(err)
+	}
+	if got := schema.Properties["yes"].Description; got != want {
+		t.Fatalf("description round-trip = %q, want %q", got, want)
 	}
 }
 

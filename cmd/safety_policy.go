@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -21,7 +22,7 @@ func newConfigureSafetyPolicyCommand() *cobra.Command {
 		Use:   "safety-policy",
 		Short: tr("Manage safety policy and human-in-the-loop rules"),
 		Long: tr(`Configure safety policy to deny or require confirmation for destructive operations.
-Rules match command spelling case-insensitively, with * as a wildcard; aliases are not expanded.
+Rules match service:action case-insensitively, with * as a wildcard; all spellings of a service, including versioned and underscore commands, share rules.
 The first matching rule wins; unmatched commands are allowed.`),
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
@@ -94,15 +95,15 @@ func newSafetyPolicyAddCommand() *cobra.Command {
 			if pattern == "" {
 				return trErrorf("--pattern is required for add")
 			}
-			if action != safety.ActionDeny && action != safety.ActionConfirm && action != safety.ActionForbid {
-				return trErrorf("action must be deny, confirm, or forbid")
+			if action != safety.ActionDeny && action != safety.ActionConfirm {
+				return trErrorf("action must be deny or confirm")
 			}
 			dir, policy, err := loadStoredSafetyPolicy()
 			if err != nil {
 				return err
 			}
 			for i := range policy.Rules {
-				if policy.Rules[i].Pattern == pattern {
+				if strings.EqualFold(policy.Rules[i].Pattern, pattern) {
 					policy.Rules[i].Action = action
 					return safety.SavePolicy(dir, policy)
 				}
@@ -112,7 +113,7 @@ func newSafetyPolicyAddCommand() *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&pattern, "pattern", "", tr("Case-insensitive service:action pattern with * wildcard"))
-	command.Flags().StringVar(&actionValue, "action", "", tr("Rule action: deny, confirm, or forbid"))
+	command.Flags().StringVar(&actionValue, "action", "", tr("Rule action: deny or confirm"))
 	return command
 }
 
@@ -133,7 +134,7 @@ func newSafetyPolicyRemoveCommand() *cobra.Command {
 			}
 			rules := make([]safety.Rule, 0, len(policy.Rules))
 			for _, rule := range policy.Rules {
-				if rule.Pattern != pattern {
+				if !strings.EqualFold(rule.Pattern, pattern) {
 					rules = append(rules, rule)
 				}
 			}
@@ -141,7 +142,7 @@ func newSafetyPolicyRemoveCommand() *cobra.Command {
 			return safety.SavePolicy(dir, policy)
 		},
 	}
-	command.Flags().StringVar(&pattern, "pattern", "", tr("Exact rule pattern to remove"))
+	command.Flags().StringVar(&pattern, "pattern", "", tr("Rule pattern to remove (case-insensitive)"))
 	return command
 }
 
@@ -236,12 +237,14 @@ func enforceSafetyPolicy(product, action string, skipConfirm, interactive bool, 
 		safetyPolicyOutput,
 		interactive,
 		policy,
-		safety.CommandInfo{Product: product, Action: action},
+		safety.CommandInfo{Product: product, ProductAliases: safetyServiceAliases(product), Action: action},
 		skipConfirm || safety.SkipConfirmFromEnvironment(),
 		retryInstruction,
 		safety.Messages{
-			Denied:              tr("operation blocked by safety policy: %s %s (rule: %s)"),
-			ConfirmationNeeded:  tr(safety.ConfirmationNeededMessage),
+			Denied: tr("operation blocked by safety policy: %s %s (rule: %s)"),
+			// Keep this literal for the static i18n catalog scanner. A regression
+			// test checks it against safety.ConfirmationNeededMessage.
+			ConfirmationNeeded:  tr("safety policy requires confirmation for: %s %s\ncurrent environment is non-interactive.\nSTOP: Briefly explain the target and impact, ask to continue, then end this turn and wait for a NEW user reply.\nOnly after approval, internally %s ONCE with unchanged arguments; do not ask the user to handle this flag.\nDiscard approval after that attempt, even on failure. Start every new operation without --yes/yes=true; explain and ask only if blocked. Never reuse earlier approvals or weaken policy."),
 			Prompt:              tr("Safety policy requires confirmation for: %s %s\nType 'yes' to proceed, anything else to cancel: "),
 			InputUnavailable:    tr("operation cancelled: confirmation input is unavailable"),
 			ConfirmationReadErr: tr("operation cancelled: reading confirmation: %v"),
@@ -250,10 +253,53 @@ func enforceSafetyPolicy(product, action string, skipConfirm, interactive bool, 
 	)
 }
 
-func enforceCLISafetyPolicy(callContext *Context, product, action string) error {
-	if callContext != nil && callContext.invokedService != "" {
-		product = callContext.invokedService
+// safetyServiceAliases returns the other spellings of the same SDK service:
+// its versioned commands, underscore-compatible commands and the SDK service
+// name itself, so CLI and MCP calls share the same rules.
+func safetyServiceAliases(service string) []string {
+	service = strings.ToLower(strings.TrimSpace(service))
+	sdkService := safetySDKService(service)
+	if sdkService == "" {
+		return nil
 	}
+	spellings := map[string]struct{}{sdkService: {}}
+	for command, owner := range serviceMapping {
+		if owner == sdkService {
+			spellings[command] = struct{}{}
+		}
+	}
+	for _, name := range compatible_support_cmd {
+		if safetySDKService(name) == sdkService {
+			spellings[name] = struct{}{}
+		}
+	}
+	delete(spellings, service)
+	aliases := make([]string, 0, len(spellings))
+	for spelling := range spellings {
+		aliases = append(aliases, spelling)
+	}
+	sort.Strings(aliases)
+	return aliases
+}
+
+func safetySDKService(service string) string {
+	if sdkService, ok := serviceMapping[service]; ok {
+		return sdkService
+	}
+	for _, name := range compatible_support_cmd {
+		if name == service {
+			return serviceMapping[strings.ReplaceAll(name, "_", "")]
+		}
+	}
+	for _, sdkService := range serviceMapping {
+		if sdkService == service {
+			return sdkService
+		}
+	}
+	return ""
+}
+
+func enforceCLISafetyPolicy(callContext *Context, product, action string) error {
 	return enforceSafetyPolicy(
 		product,
 		action,

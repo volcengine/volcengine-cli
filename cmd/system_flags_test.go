@@ -403,6 +403,22 @@ func TestSystemFlagsAreExposedToCompletionWithoutLegacyAliases(t *testing.T) {
 		t.Fatalf("GenBashCompletion returned error: %v", err)
 	}
 	completion := output.String()
+	// Inspect an API action's own block: management commands have independent
+	// --yes flags, so a global substring ban would reject valid completions.
+	start := strings.Index(completion, "_ve_sts_GetCallerIdentity()\n{")
+	if start < 0 {
+		t.Fatal("generated bash completion has no sts action block")
+	}
+	end := strings.Index(completion[start:], "\n}\n")
+	if end < 0 {
+		t.Fatal("unterminated sts action completion block")
+	}
+	block := completion[start : start+end]
+	for _, forbidden := range []string{`"--yes`, `"-y"`} {
+		if strings.Contains(block, forbidden) {
+			t.Errorf("API completion exposes approval flag %s", forbidden)
+		}
+	}
 	// Derive both lists from systemFlagDefs so a newly added system flag is
 	// checked automatically: --name must be completable, ---name must not leak.
 	for _, name := range visibleSystemFlagNames() {
@@ -430,6 +446,65 @@ func TestRegisterActionSystemFlagsSkipsExactAPIConflicts(t *testing.T) {
 	}
 	if cmd.Flags().Lookup("version") == nil {
 		t.Fatal("non-conflicting system version should be registered")
+	}
+}
+
+func TestActionCompletionHidesSafetyApproval(t *testing.T) {
+	for _, repeat := range []bool{false, true} {
+		root := &cobra.Command{Use: "ve"}
+		action := &cobra.Command{Use: "DemoAction", Run: func(*cobra.Command, []string) {}}
+		registerActionSystemFlags(action, nil)
+		if repeat {
+			registerActionSystemFlags(action, nil)
+		}
+		root.AddCommand(action)
+		var output bytes.Buffer
+		if err := root.GenBashCompletion(&output); err != nil {
+			t.Fatal(err)
+		}
+		for _, forbidden := range []string{`"--yes`, `"-y"`} {
+			if strings.Contains(output.String(), forbidden) {
+				t.Errorf("repeat=%v exposes %s in completion", repeat, forbidden)
+			}
+		}
+		if !strings.Contains(output.String(), "--region") {
+			t.Fatal("completion control did not expose a visible flag")
+		}
+	}
+}
+
+func TestActionSystemFlagsPreserveBusinessYes(t *testing.T) {
+	action := &cobra.Command{Use: "DemoAction"}
+	action.Flags().String("yes", "", "Business parameter")
+	registerActionSystemFlags(action, map[string]struct{}{"yes": {}})
+	flag := action.Flags().Lookup("yes")
+	if flag.Hidden || flag.Value.Type() != "string" || flag.Shorthand != "" {
+		t.Fatalf("business parameter was replaced or hidden: %#v", flag)
+	}
+}
+
+func TestSystemFlagRegistrySeparatesAcceptedAndVisibleNames(t *testing.T) {
+	registry := newSystemFlagRegistry([]systemFlagDef{
+		{name: "region", public: true},
+		{name: "yes", public: true, hidden: true, presenceOnly: true},
+		{name: "private", hidden: false},
+		{name: "force", public: true, presenceOnly: true},
+	})
+	if !reflect.DeepEqual(registry.publicNames, []string{"region", "yes", "force"}) ||
+		!reflect.DeepEqual(registry.visibleNames, []string{"region", "force"}) ||
+		registry.supportedMessage != "--region, --force" {
+		t.Fatalf("inconsistent flag visibility: %#v", registry)
+	}
+	if _, ok := registry.public["yes"]; !ok {
+		t.Fatal("hidden yes must remain accepted")
+	}
+	for _, getNames := range []func() []string{publicSystemFlagNames, visibleSystemFlagNames} {
+		names := getNames()
+		want := names[0]
+		names[0] = "changed"
+		if getNames()[0] != want {
+			t.Fatal("caller changed the registry's name slice")
+		}
 	}
 }
 

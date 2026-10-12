@@ -5,11 +5,27 @@ import (
 	"fmt"
 	"io/ioutil"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
 	"testing"
 )
+
+var safetyApprovalHelpFlagPattern = regexp.MustCompile(`(?m)^\s*(?:--yes|-y)(?:[\s,=]|$)`)
+
+func TestSafetyApprovalHelpFlagPattern(t *testing.T) {
+	for _, text := range []string{"  --yes, -y  Confirm", "  --yes bool", "  -y, --yes", "--yes=true"} {
+		if !safetyApprovalHelpFlagPattern.MatchString(text) {
+			t.Errorf("missed approval flag declaration %q", text)
+		}
+	}
+	for _, text := range []string{"Billing: pay-as-you-go", "  Example: acl-yyyyy", "  --year string", "  --Id string  Example: i-ybmike5l"} {
+		if safetyApprovalHelpFlagPattern.MatchString(text) {
+			t.Errorf("metadata mistaken for approval flag %q", text)
+		}
+	}
+}
 
 func TestRootHelpIncludesFixedFlags(t *testing.T) {
 	registerRootSystemFlags()
@@ -55,10 +71,8 @@ func TestSafetyApprovalIsHiddenFromAPIHelp(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				for _, forbidden := range []string{"--yes", "-y"} {
-					if strings.Contains(output.String(), forbidden) {
-						t.Errorf("detail=%v help exposes %q", detail, forbidden)
-					}
+				if match := safetyApprovalHelpFlagPattern.FindString(output.String()); match != "" {
+					t.Errorf("detail=%v help exposes approval flag %q", detail, match)
 				}
 				if flag := action.Flags().Lookup("yes"); flag == nil || !flag.Hidden {
 					t.Error("approval flag must remain parseable but hidden from completion")

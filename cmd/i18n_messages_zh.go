@@ -3,21 +3,21 @@ package cmd
 var simplifiedChineseCommandMessages = map[string]string{
 	"Manage safety policy and human-in-the-loop rules": "管理安全策略和人工确认规则",
 	`Configure safety policy to deny or require confirmation for destructive operations.
-Rules match command spelling case-insensitively, with * as a wildcard; aliases are not expanded.
+Rules match service:action case-insensitively, with * as a wildcard; all spellings of a service, including versioned and underscore commands, share rules.
 The first matching rule wins; unmatched commands are allowed.`: `配置安全策略，用于拒绝破坏性操作或要求人工确认。
-规则按命令写法匹配，不区分大小写，支持 * 通配符；不会展开别名。
+规则按 service:action 匹配，不区分大小写，支持 * 通配符；同一服务的所有写法（含带版本号和带下划线的命令名）共用规则。
 第一条匹配的规则生效；未匹配的命令允许执行。`,
 	"Display the effective safety policy":                     "显示当前生效的安全策略",
 	"Enable the safety policy":                                "启用安全策略",
 	"Disable the safety policy":                               "禁用安全策略",
 	"Add or update a safety policy rule":                      "添加或更新安全策略规则",
 	"--pattern is required for add":                           "add 必须指定 --pattern",
-	"action must be deny, confirm, or forbid":                 "action 必须是 deny、confirm 或 forbid",
+	"action must be deny or confirm":                          "action 必须是 deny 或 confirm",
 	"Case-insensitive service:action pattern with * wildcard": "不区分大小写的 service:action 匹配模式，支持 * 通配符",
-	"Rule action: deny, confirm, or forbid":                   "规则动作：deny、confirm 或 forbid",
+	"Rule action: deny or confirm":                            "规则动作：deny 或 confirm",
 	"Remove a safety policy rule by pattern":                  "按匹配模式删除安全策略规则",
 	"--pattern is required for remove":                        "remove 必须指定 --pattern",
-	"Exact rule pattern to remove":                            "要删除的完整规则匹配模式",
+	"Rule pattern to remove (case-insensitive)":               "要删除的完整规则匹配模式（不区分大小写）",
 	"List all effective safety policy rules":                  "列出当前生效的全部安全策略规则",
 	"disabled":                                                "已禁用",
 	"enabled":                                                 "已启用",
@@ -25,8 +25,7 @@ The first matching rule wins; unmatched commands are allowed.`: `配置安全策
 	"Config file":                                             "配置文件",
 	"No rules configured.":                                    "未配置规则。",
 	"Rules:":                                                  "规则：",
-	"Confirm a safety-policy protected operation for this invocation.": "确认本次调用中受安全策略保护的操作。",
-	"operation blocked by safety policy: %s %s (rule: %s)":             "操作被安全策略拒绝：%s %s（规则：%s）",
+	"operation blocked by safety policy: %s %s (rule: %s)":    "操作被安全策略拒绝：%s %s（规则：%s）",
 	"safety policy requires confirmation for: %s %s\ncurrent environment is non-interactive.\nSTOP: Briefly explain the target and impact, ask to continue, then end this turn and wait for a NEW user reply.\nOnly after approval, internally %s ONCE with unchanged arguments; do not ask the user to handle this flag.\nDiscard approval after that attempt, even on failure. Start every new operation without --yes/yes=true; explain and ask only if blocked. Never reuse earlier approvals or weaken policy.": "安全策略要求确认以下操作：%s %s\n当前为非交互环境。\n停止：简要说明目标和影响，询问是否继续，结束当前轮次并等待用户的新回复。\n仅在确认后，由 Agent 内部按原参数%s，仅重试一次；无需向用户解释此参数。\n重试后即丢弃批准，即使失败。每次新操作先不带 --yes/yes=true，仅遇拦截才解释并询问。不得复用历史批准或放宽策略。",
 	"Safety policy requires confirmation for: %s %s\nType 'yes' to proceed, anything else to cancel: ": "安全策略要求确认以下操作：%s %s\n输入 'yes' 继续，其他任意输入取消：",
 	"operation cancelled: confirmation input is unavailable":                                           "操作已取消：无法读取确认输入",

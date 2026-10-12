@@ -7,9 +7,6 @@ type Context struct {
 	dynamicFlags *FlagSet
 	config       *Configure
 	debugLogger  *DebugLogger
-	// invokedService preserves CLI spelling for safety rules; SDK routing uses
-	// the canonical service name independently.
-	invokedService string
 }
 
 func NewContext() *Context {

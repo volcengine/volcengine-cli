@@ -80,6 +80,8 @@ type systemFlagRegistry struct {
 	legacyEscapes    map[string]struct{}
 	preprocessable   map[string]struct{}
 	presenceOnly     map[string]struct{}
+	publicNames      []string
+	visibleNames     []string
 	supportedMessage string
 }
 
@@ -95,12 +97,14 @@ func newSystemFlagRegistry(defs []systemFlagDef) *systemFlagRegistry {
 		presenceOnly:   make(map[string]struct{}),
 	}
 
-	publicNames := make([]string, 0, len(defs))
+	supportedNames := make([]string, 0, len(defs))
 	for _, d := range defs {
 		if d.public {
 			registry.public[d.name] = struct{}{}
+			registry.publicNames = append(registry.publicNames, d.name)
 			if !d.hidden {
-				publicNames = append(publicNames, "--"+d.name)
+				registry.visibleNames = append(registry.visibleNames, d.name)
+				supportedNames = append(supportedNames, "--"+d.name)
 			}
 		}
 		if d.legacyEscape {
@@ -113,7 +117,7 @@ func newSystemFlagRegistry(defs []systemFlagDef) *systemFlagRegistry {
 			registry.presenceOnly[d.name] = struct{}{}
 		}
 	}
-	registry.supportedMessage = strings.Join(publicNames, ", ")
+	registry.supportedMessage = strings.Join(supportedNames, ", ")
 	return registry
 }
 
@@ -125,6 +129,12 @@ func isPresenceOnlyFixedFlag(name string) bool {
 // isSystemPresenceOnlyToken reports whether arg is a presence-only system flag
 // in the current action context (no value token should be consumed).
 func isSystemPresenceOnlyToken(arg string, actionParameters map[string]struct{}) bool {
+	if arg == "-y" {
+		return true
+	}
+	if strings.Contains(arg, "=") {
+		return false
+	}
 	name, legacy := flagNameFromToken(arg)
 	if name == "" || !isPresenceOnlyFixedFlag(name) {
 		return false
@@ -136,25 +146,14 @@ func isSystemPresenceOnlyToken(arg string, actionParameters map[string]struct{})
 	return !conflict
 }
 
-// publicSystemFlagNames returns public system flag bare names in help order.
+// publicSystemFlagNames returns accepted system flag names, including hidden
+// flags, in definition order. Callers receive a copy of the registry slice.
 func publicSystemFlagNames() []string {
-	out := make([]string, 0, len(systemFlagDefs))
-	for _, d := range systemFlagDefs {
-		if d.public {
-			out = append(out, d.name)
-		}
-	}
-	return out
+	return append([]string(nil), systemFlags.publicNames...)
 }
 
 func visibleSystemFlagNames() []string {
-	var names []string
-	for _, d := range systemFlagDefs {
-		if d.public && !d.hidden {
-			names = append(names, d.name)
-		}
-	}
-	return names
+	return append([]string(nil), systemFlags.visibleNames...)
 }
 
 // localizedSystemFlagsHelp returns public double-dash system flag help plus
