@@ -119,4 +119,4 @@ TOS查看帮助使用 `help`；Milvus、Viking和VeOps查看版本使用 `versio
 
 ---
 
-[← MCP 服务](6-MCP-zh.md) | [返回项目概览](../README.MD)
+[← MCP 服务](6-MCP-zh.md) | [返回项目概览](../README.md)

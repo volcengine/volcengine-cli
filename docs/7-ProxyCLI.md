@@ -119,4 +119,4 @@ TOS uses `help` for help; Milvus, Viking, and VeOps use `version` for version in
 
 ---
 
-[← MCP Server](6-MCP.md) | [Back to project overview](../README.EN.MD)
+[← MCP Server](6-MCP.md) | [Back to project overview](../README.EN.md)
