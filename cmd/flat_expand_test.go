@@ -129,16 +129,33 @@ func TestExpandFlatToJSONChildMetas(t *testing.T) {
 	}
 }
 
-func TestExpandFlatToJSONPreservesDottedKeyWhenMetadataPathDoesNotExist(t *testing.T) {
+// Dotted keys absent from metadata (e.g. --force calls) still follow the path
+// rules: they expand into nested JSON and their indices are validated.
+func TestExpandFlatToJSONExpandsDottedKeyWithoutMetadata(t *testing.T) {
 	got, err := expandFlatToJSON(map[string]string{
-		"Limit.q": "1",
-	}, testReqMeta())
+		"Ports.1":    "80",
+		"Ports.2":    "443",
+		"Tags.1.Key": "k",
+	}, nil)
 	if err != nil {
 		t.Fatalf("expandFlatToJSON returned error: %v", err)
 	}
-	want := map[string]interface{}{"Limit.q": "1"}
+	want := map[string]interface{}{
+		"Ports": []interface{}{"80", "443"},
+		"Tags":  []interface{}{map[string]interface{}{"Key": "k"}},
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expandFlatToJSON()\n got = %#v\nwant = %#v", got, want)
+	}
+
+	for _, flat := range []map[string]string{
+		{"Ports.0": "80"},
+		{"Ports.-1": "80"},
+		{"Ports.1": "80", "Ports.3": "443"},
+	} {
+		if _, err := expandFlatToJSON(flat, nil); err == nil {
+			t.Fatalf("expandFlatToJSON(%v) expected an invalid index error", flat)
+		}
 	}
 }
 
@@ -154,6 +171,7 @@ func TestExpandFlatToJSONErrors(t *testing.T) {
 		{name: "negative index", flat: map[string]string{"ResourceNames.-1": "a"}},
 		{name: "plus-signed index", flat: map[string]string{"ResourceNames.+1": "a"}},
 		{name: "leaf vs branch conflict", flat: map[string]string{"Filters": "x", "Filters.1.Key": "y"}},
+		{name: "object/array mix", flat: map[string]string{"Filters.1.Key": "a", "Filters.Other": "b"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
