@@ -100,10 +100,14 @@ func LoadConfig() *Configure {
 	}
 	_ = os.Chmod(configFileDir, 0700)
 
+	// Reading must not create the file: read-only commands such as --help load
+	// the config on startup, and an empty config.json fails to parse later.
 	configFilePath := filepath.Join(configFileDir, ConfigFile)
-	file, err := os.OpenFile(configFilePath, os.O_CREATE|os.O_RDWR, 0600)
+	file, err := os.Open(configFilePath)
 	if err != nil {
-		fmt.Println(err)
+		if !os.IsNotExist(err) {
+			fmt.Println(err)
+		}
 		return nil
 	}
 	defer file.Close()
@@ -139,6 +143,21 @@ func setRuntimeConfig(cfg *Configure) {
 		ctx.config = cfg
 	}
 	config = cfg
+}
+
+// setEnableColor persists the color preference, initializing the config when
+// no config file exists yet (e.g. a fresh install).
+func setEnableColor(enabled bool) error {
+	cfg := runtimeConfig()
+	if cfg == nil {
+		cfg = &Configure{Profiles: make(map[string]*Profile)}
+	}
+	cfg.EnableColor = enabled
+	if err := WriteConfigToFile(cfg); err != nil {
+		return err
+	}
+	setRuntimeConfig(cfg)
+	return nil
 }
 
 // WriteConfigToFile store config

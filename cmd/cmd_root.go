@@ -75,16 +75,14 @@ func initRootCmd() {
 		},
 	}, &cobra.Command{
 		Use: "enable-color",
-		Run: func(cmd *cobra.Command, args []string) {
-			config.EnableColor = true
-			WriteConfigToFile(config)
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return setEnableColor(true)
 		},
 		Hidden: true,
 	}, &cobra.Command{
 		Use: "disable-color",
-		Run: func(cmd *cobra.Command, args []string) {
-			config.EnableColor = false
-			WriteConfigToFile(config)
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return setEnableColor(false)
 		},
 		Hidden: true,
 	})
