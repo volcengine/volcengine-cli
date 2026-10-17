@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 )
@@ -93,7 +94,7 @@ func TestExpandFlatToJSON(t *testing.T) {
 		{
 			name: "whole-JSON object value",
 			flat: map[string]string{"Config": `{"a":1}`},
-			want: map[string]interface{}{"Config": map[string]interface{}{"a": float64(1)}},
+			want: map[string]interface{}{"Config": map[string]interface{}{"a": json.Number("1")}},
 		},
 	}
 
@@ -156,6 +157,29 @@ func TestExpandFlatToJSONExpandsDottedKeyWithoutMetadata(t *testing.T) {
 		if _, err := expandFlatToJSON(flat, nil); err == nil {
 			t.Fatalf("expandFlatToJSON(%v) expected an invalid index error", flat)
 		}
+	}
+}
+
+// Whole composite values keep large integers and high-precision decimals exactly.
+func TestExpandFlatToJSONCompositeKeepsNumberPrecision(t *testing.T) {
+	got, err := expandFlatToJSON(map[string]string{
+		"Config":        `{"Id":9007199254740993,"Ratio":0.12345678901234567890}`,
+		"ResourceNames": `[9007199254740993]`,
+	}, testReqMeta())
+	if err != nil {
+		t.Fatalf("expandFlatToJSON returned error: %v", err)
+	}
+	body, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	want := `{"Config":{"Id":9007199254740993,"Ratio":0.12345678901234567890},"ResourceNames":[9007199254740993]}`
+	if string(body) != want {
+		t.Fatalf("body = %s, want %s", body, want)
+	}
+
+	if _, err := expandFlatToJSON(map[string]string{"Config": `{"a":1} {"b":2}`}, testReqMeta()); err == nil {
+		t.Fatal("expected an error for trailing JSON after the composite value")
 	}
 }
 
