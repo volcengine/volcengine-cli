@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -353,6 +355,48 @@ func isSensitiveDebugKey(key string) bool {
 		}
 	}
 	return false
+}
+
+// sensitiveQueryParamPattern 匹配错误文本中 URL query 的 key=value 片段。
+// SDK 传输错误会带上完整请求 URL，例如 `Get "https://host/?Action=X&SessionToken=..."`。
+var sensitiveQueryParamPattern = regexp.MustCompile(`([?&])([^=&\s"'#]+)=([^&\s"'#]*)`)
+
+// redactSensitiveText 脱敏错误文本中 URL query 携带的敏感参数值。
+// key 先做 URL 解码再按 isSensitiveDebugKey 判断，因此大小写、编码和重复参数都会被统一替换。
+func redactSensitiveText(text string) string {
+	return sensitiveQueryParamPattern.ReplaceAllStringFunc(text, func(pair string) string {
+		m := sensitiveQueryParamPattern.FindStringSubmatch(pair)
+		key := m[2]
+		if unescaped, err := url.QueryUnescape(key); err == nil {
+			key = unescaped
+		}
+		if !isSensitiveDebugKey(key) {
+			return pair
+		}
+		return m[1] + m[2] + "=" + maskedDebugValue
+	})
+}
+
+// redactedError 只替换对外展示的错误文本，并通过 Unwrap 保留原始错误链。
+type redactedError struct {
+	err error
+	msg string
+}
+
+func (e *redactedError) Error() string { return e.msg }
+
+func (e *redactedError) Unwrap() error { return e.err }
+
+// redactSensitiveError 返回脱敏后的错误；文本中没有敏感值时原样返回，保持错误类型不变。
+func redactSensitiveError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := redactSensitiveText(err.Error())
+	if msg == err.Error() {
+		return err
+	}
+	return &redactedError{err: err, msg: msg}
 }
 
 // debugLoggerFromContext 从 Context 中取出可用的 debug logger。

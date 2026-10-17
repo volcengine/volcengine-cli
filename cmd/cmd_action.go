@@ -394,7 +394,7 @@ func debugLogSdkEnd(logger *DebugLogger, start time.Time, callErr error) {
 	}
 	duration := time.Since(start)
 	if callErr != nil {
-		logger.Printf("sdk_call_error duration_ms=%d error=%s", duration/time.Millisecond, callErr.Error())
+		logger.Printf("sdk_call_error duration_ms=%d error=%s", duration/time.Millisecond, redactSensitiveText(callErr.Error()))
 		return
 	}
 	logger.Printf("sdk_call_success duration_ms=%d", duration/time.Millisecond)
@@ -404,7 +404,7 @@ func debugLogError(logger *DebugLogger, stage string, stageErr error) {
 	if !logger.Enabled() || stageErr == nil {
 		return
 	}
-	logger.Printf("%s error=%s", stage, stageErr.Error())
+	logger.Printf("%s error=%s", stage, redactSensitiveText(stageErr.Error()))
 }
 
 func formatActionError(err error) error {
@@ -414,7 +414,7 @@ func formatActionError(err error) error {
 	if strings.Contains(err.Error(), "NoCredentialProviders") || strings.Contains(err.Error(), "no valid providers in chain") {
 		return fmt.Errorf("credentials not configured, please run 've login' or 've configure set', or set VOLCENGINE_ACCESS_KEY and VOLCENGINE_SECRET_KEY environment variables")
 	}
-	return err
+	return redactSensitiveError(err)
 }
 
 // isStringParam reports whether the named parameter should be treated as a

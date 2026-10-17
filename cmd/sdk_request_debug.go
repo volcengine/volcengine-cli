@@ -93,7 +93,7 @@ func debugRequestError(r *request.Request) string {
 	}
 	// SDK 的 RequestFailure 文案可能包含换行和缩进；压成单行可以避免 debug log
 	// 被一条错误拆成多行，后续按 request_id 检索时更稳定。
-	return strings.Join(strings.Fields(r.Error.Error()), " ")
+	return redactSensitiveText(strings.Join(strings.Fields(r.Error.Error()), " "))
 }
 
 // debugRequestID 尽可能从 SDK Request 的不同位置提取 request id。
