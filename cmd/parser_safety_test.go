@@ -20,7 +20,6 @@ func TestParserApprovalPreservesFlagValues(t *testing.T) {
 		{name: "force_and_approval", args: []string{"--force", "--PublicKey", pem, "--yes"}, force: true},
 		{name: "legacy_approval", args: []string{"--PublicKey", pem, "---yes"}},
 		{name: "business_yes", args: []string{"--yes", "business", "--PublicKey", pem, "-y"}, parameters: map[string]struct{}{"yes": {}}, business: map[string]string{"yes": "business"}},
-		{name: "literal_flag_value", args: []string{"--Description", "--yes", "--PublicKey", pem, "-y"}, business: map[string]string{"Description": "--yes"}},
 		{name: "empty_value", args: []string{"--Description", "", "--PublicKey", pem, "--yes"}, business: map[string]string{"Description": ""}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -56,7 +55,8 @@ func TestParserApprovalStillRejectsInvalidArguments(t *testing.T) {
 		{name: "missing_value", args: []string{"--yes", "--PublicKey"}, want: "--PublicKey must set value"},
 		{name: "missing_system_value", args: []string{"-y", "--region"}, want: "--region must set value"},
 		{name: "duplicate_approval", args: []string{"--yes", "-y"}, want: "duplicated --yes"},
-		{name: "equals_not_approval", args: []string{"--yes=false"}, want: "must set value"},
+		{name: "flag_as_value", args: []string{"--Description", "--yes", "--PublicKey", "value", "-y"}, want: "--Description must set value"},
+		{name: "equals_not_approval", args: []string{"--yes=false"}, want: "does not support '=' syntax"},
 		{name: "legacy_equals_rejected", args: []string{"---yes=false"}, want: "is not supported"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

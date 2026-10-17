@@ -382,10 +382,9 @@ func TestParserAcceptsPEMValuesStartingWithHyphens(t *testing.T) {
 	}
 }
 
-func TestParserTreatsNextTokenAsValueRegardlessOfLeadingHyphens(t *testing.T) {
+func TestParserTreatsHyphenPrefixedNonFlagTokensAsValues(t *testing.T) {
 	parser := NewParser([]string{
 		"--SingleHyphen", "-value",
-		"--DoubleHyphen", "--value",
 		"--TripleHyphen", "---value",
 		"--FourHyphens", "----value",
 		"--FiveHyphens", "-----value",
@@ -400,7 +399,6 @@ func TestParserTreatsNextTokenAsValueRegardlessOfLeadingHyphens(t *testing.T) {
 
 	for name, want := range map[string]string{
 		"SingleHyphen": "-value",
-		"DoubleHyphen": "--value",
 		"TripleHyphen": "---value",
 		"FourHyphens":  "----value",
 		"FiveHyphens":  "-----value",
@@ -540,60 +538,89 @@ func TestParserContinuesToRejectEqualsSyntax(t *testing.T) {
 
 	_, err := parser.ReadArgs(NewContext())
 	if err == nil {
-		t.Fatal("expected missing value error, got nil")
+		t.Fatal("expected equals syntax error, got nil")
 	}
-	if !strings.Contains(err.Error(), "--Description=value must set value.") {
-		t.Fatalf("error = %q, want missing value error", err.Error())
+	if !strings.Contains(err.Error(), "--Description does not support '=' syntax") {
+		t.Fatalf("error = %q, want equals syntax error", err.Error())
 	}
 }
 
-func TestParserTreatsEqualsAsLiteralFlagNameInPairedMode(t *testing.T) {
+// PARSER-EQUALS: --Param=value is not split or kept as a literal flag name.
+func TestParserRejectsEqualsSyntaxInPairedMode(t *testing.T) {
 	tests := []struct {
-		name      string
-		args      []string
-		wantName  string
-		wantValue string
+		name    string
+		args    []string
+		wantErr string
 	}{
 		{
-			name:      "two equals-style tokens",
-			args:      []string{"--A=1", "--B=2"},
-			wantName:  "A=1",
-			wantValue: "--B=2",
+			name:    "two equals-style tokens",
+			args:    []string{"--A=1", "--B=2"},
+			wantErr: "--A does not support '=' syntax",
 		},
 		{
-			name:      "equals-style name with plain value",
-			args:      []string{"--A=1", "value"},
-			wantName:  "A=1",
-			wantValue: "value",
+			name:    "equals-style name with plain value",
+			args:    []string{"--A=1", "value"},
+			wantErr: "--A does not support '=' syntax",
+		},
+		{
+			name:    "system flag before force",
+			args:    []string{"--region=cn-beijing", "--force"},
+			wantErr: "--region does not support '=' syntax",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := NewContext()
-			if _, err := NewParser(tt.args).ReadArgs(ctx); err != nil {
-				t.Fatalf("ReadArgs returned error: %v", err)
+			_, err := NewParser(tt.args).ReadArgs(NewContext())
+			if err == nil {
+				t.Fatal("expected error, got nil")
 			}
-			flag := ctx.dynamicFlags.GetByName(tt.wantName)
-			if flag == nil || flag.GetValue() != tt.wantValue {
-				t.Fatalf("dynamic flag %q = %#v, want value %q", tt.wantName, flag, tt.wantValue)
-			}
-			if splitFlag := ctx.dynamicFlags.GetByName("A"); splitFlag != nil {
-				t.Fatalf("unexpected split dynamic flag \"A\": %#v", splitFlag)
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %q, want to contain %q", err.Error(), tt.wantErr)
 			}
 		})
 	}
 }
 
-func TestParserAllowsEqualsSyntaxInPairedValuePosition(t *testing.T) {
-	ctx := NewContext()
-	if _, err := NewParser([]string{"--Description", "--A=1"}).ReadArgs(ctx); err != nil {
-		t.Fatalf("ReadArgs returned error: %v", err)
+// PARSER-FLAG-AS-VALUE: a flag in value position reports the previous flag as missing a value.
+func TestParserRejectsFlagInPairedValuePosition(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name:    "dynamic flag before dynamic flag",
+			args:    []string{"--Name", "--Other"},
+			wantErr: "--Name must set value.",
+		},
+		{
+			name:    "dynamic flag before equals-style token",
+			args:    []string{"--Description", "--A=1"},
+			wantErr: "--Description must set value.",
+		},
+		{
+			name:    "dynamic flag before fixed flag",
+			args:    []string{"--Name", "---region", "cn-beijing", "--Other"},
+			wantErr: "--Name must set value.",
+		},
+		{
+			name:    "fixed flag before dynamic flag",
+			args:    []string{"---profile", "--Foo"},
+			wantErr: "---profile must set value.",
+		},
 	}
 
-	flag := ctx.dynamicFlags.GetByName("Description")
-	if flag == nil || flag.GetValue() != "--A=1" {
-		t.Fatalf("dynamic flag \"Description\" = %#v, want value %q", flag, "--A=1")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewParser(tt.args).ReadArgs(NewContext())
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %q, want to contain %q", err.Error(), tt.wantErr)
+			}
+		})
 	}
 }
 

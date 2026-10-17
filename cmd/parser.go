@@ -96,6 +96,20 @@ func flagNameFromToken(arg string) (name string, legacy bool) {
 	return name, legacy
 }
 
+// isFlagSyntaxToken reports whether a value-position token is another flag.
+// Other hyphen-prefixed text such as PEM "-----BEGIN" or "---value" stays a value.
+func isFlagSyntaxToken(arg string) bool {
+	name, legacy := flagNameFromToken(arg)
+	if name == "" || strings.HasPrefix(name, "-") {
+		return false
+	}
+	if legacy {
+		_, ok := systemFlags.legacyEscapes[name]
+		return ok
+	}
+	return true
+}
+
 func (p *Parser) readPairedArgs(ctx *Context) ([]string, error) {
 	for p.currentIndex < len(p.args) {
 		name := p.args[p.currentIndex]
@@ -115,6 +129,10 @@ func (p *Parser) readPairedArgs(ctx *Context) ([]string, error) {
 
 		// Explicit empty string is a valid API value (shell: --Name "").
 		// hasPairedFlagSyntax has already checked that this value exists.
+		if isFlagSyntaxToken(p.args[p.currentIndex]) {
+			p.currentFlag = flag
+			return nil, p.currentFlagValueError(ctx)
+		}
 		flag.SetValue(p.args[p.currentIndex])
 		p.currentIndex++
 		p.currentFlag = nil
@@ -225,8 +243,8 @@ func (p *Parser) parseArg(arg string, ctx *Context) (flag *Flag, value string, e
 			err = fmt.Errorf("-- is not support command")
 		} else {
 			name := arg[2:]
-			if strings.HasPrefix(name, customUserAgentFlagName+"=") {
-				err = fmt.Errorf("--user-agent does not support '=' syntax; use '--user-agent <value>'")
+			if j := strings.IndexByte(name, '='); j >= 0 {
+				err = fmt.Errorf("--%s does not support '=' syntax; use '--%s <value>'", name[:j], name[:j])
 				return
 			}
 			_, isSystemFlag := systemFlags.public[name]
