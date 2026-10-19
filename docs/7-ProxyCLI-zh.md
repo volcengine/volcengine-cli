@@ -109,6 +109,7 @@ Agent可使用 `ve proxycli list --output json` 读取产品ID、原生命令和
 | 可观测与排障 VeOps | veops-cli | `ve veops-cli version` | [官方文档](https://docs.volcengine.com/docs/86845/2563136) |
 | 国际化翻译 Starling | starling | `ve starling --help` | [官方文档](https://docs.volcengine.com/docs/4640/2122756) |
 | OpenViking | ov | `ve ov --version` | [官方文档](https://docs.volcengine.com/docs/84313/2533512) |
+| 内容分发网络 CDN（内测） | cdncli | `ve cdncli -V` | [官方文档](https://docs.volcengine.com/docs/Informationdeliverynetwork/Productdynamics) |
 
 TOS查看帮助使用 `help`；Milvus、Viking和VeOps查看版本使用 `version`。OpenViking首次使用先执行 `ve ov language zh-CN`，再查看帮助。Starling当前提供amd64程序，平台支持以产品文档及当前VE构建为准。
 

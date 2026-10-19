@@ -48,7 +48,7 @@ func catalogBytes(t *testing.T, s *Snapshot) []byte {
 
 func TestCatalogMigrationAndInventory(t *testing.T) {
 	s := EmbeddedSnapshot()
-	if len(s.Catalog().Tools) != 24 {
+	if len(s.Catalog().Tools) != 25 {
 		t.Fatal("expected 24 inventory entries")
 	}
 	old, err := parseManifest(embeddedFallbackManifest)

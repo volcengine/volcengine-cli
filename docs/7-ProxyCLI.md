@@ -109,6 +109,7 @@ Each product CLI covers its own specialized scenarios. Consult its official docu
 | Observability and troubleshooting: VeOps | veops-cli | `ve veops-cli version` | [Official documentation](https://docs.volcengine.com/docs/86845/2563136) |
 | Localization: Starling | starling | `ve starling --help` | [Official documentation](https://docs.volcengine.com/docs/4640/2122756) |
 | OpenViking | ov | `ve ov --version` | [Official documentation](https://docs.volcengine.com/docs/84313/2533512) |
+| Content Delivery Network CDN (beta) | cdncli | `ve cdncli -V` | [Official documentation](https://docs.volcengine.com/docs/Informationdeliverynetwork/Productdynamics) |
 
 TOS uses `help` for help; Milvus, Viking, and VeOps use `version` for version information. On first use of OpenViking, run `ve ov language en` before requesting help. Starling currently provides amd64 binaries; platform support depends on the product and your VE build.
 
