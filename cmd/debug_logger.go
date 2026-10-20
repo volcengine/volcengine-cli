@@ -359,7 +359,8 @@ func isSensitiveDebugKey(key string) bool {
 
 // sensitiveQueryParamPattern 匹配错误文本中 URL query 的 key=value 片段。
 // SDK 传输错误会带上完整请求 URL，例如 `Get "https://host/?Action=X&SessionToken=..."`。
-var sensitiveQueryParamPattern = regexp.MustCompile(`([?&])([^=&\s"'#]+)=([^&\s"'#]*)`)
+// Treat apostrophes as query data, preferring to over-redact any outer single quotes.
+var sensitiveQueryParamPattern = regexp.MustCompile(`([?&])([^=&\s"#]+)=([^&\s"#]*)`)
 
 // redactSensitiveText 脱敏错误文本中 URL query 携带的敏感参数值。
 // key 先做 URL 解码再按 isSensitiveDebugKey 判断，因此大小写、编码和重复参数都会被统一替换。
