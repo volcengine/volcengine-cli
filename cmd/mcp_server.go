@@ -8,6 +8,7 @@ import (
 
 	"github.com/ThinkInAIXYZ/go-mcp/protocol"
 	"github.com/ThinkInAIXYZ/go-mcp/server"
+	"github.com/volcengine/volcengine-cli/internal/apisearch"
 	"github.com/volcengine/volcengine-cli/internal/docs"
 	"github.com/volcengine/volcengine-cli/internal/safety"
 )
@@ -63,14 +64,72 @@ type mcpDocsModule interface {
 	Fetch(context.Context, docs.FetchOptions) (docs.FetchResult, error)
 }
 
-func registerMCPTools(registrar mcpToolRegistrar, support *RootSupport, invoker mcpAPIInvoker, docsModule mcpDocsModule) {
-	listServicesTool := protocol.NewToolWithRawSchema("list_services", "List every Volcano Engine service code supported by this CLI. Use the returned service code with list_apis; no search query is needed.", json.RawMessage(`{"type":"object","properties":{}}`))
+type mcpAPISearchModule interface {
+	Search(context.Context, apisearch.SearchOptions) (apisearch.SearchResult, error)
+}
+
+// mcpAPISearchItem is one search result with only the official identity,
+// FullContent and upstream score, to save tokens. Parameters come from
+// get_api_parameters.
+type mcpAPISearchItem struct {
+	Action      string  `json:"action"`
+	Service     string  `json:"service"`
+	Version     string  `json:"version"`
+	FullContent string  `json:"FullContent"`
+	Score       float64 `json:"score"`
+}
+
+type mcpAPISearchResult struct {
+	Total      int                `json:"Total"`
+	NextOffset *int               `json:"NextOffset,omitempty"`
+	APIs       []mcpAPISearchItem `json:"APIs"`
+}
+
+const mcpDiscoveryFallbackHint = "fall back to list_services and list_apis"
+
+func newMCPAPISearchResult(result apisearch.SearchResult) mcpAPISearchResult {
+	compact := mcpAPISearchResult{Total: result.Total, NextOffset: result.NextOffset, APIs: make([]mcpAPISearchItem, 0, len(result.APIs))}
+	for _, record := range result.APIs {
+		compact.APIs = append(compact.APIs, mcpAPISearchItem{Action: record.Action, Service: record.ServiceCode, Version: record.Version, FullContent: record.FullContent, Score: record.Score})
+	}
+	return compact
+}
+
+// registerMCPTools registers the MCP tools. scriptRunner is nil unless
+// trusted local script execution was explicitly enabled.
+func registerMCPTools(registrar mcpToolRegistrar, support *RootSupport, invoker mcpAPIInvoker, docsModule mcpDocsModule, searchModule mcpAPISearchModule, scriptRunner mcpScriptRunner) {
+	searchAPITool := protocol.NewToolWithRawSchema("search_api", "Start API discovery here. Searches the official public Volcano Engine API catalog (no credentials needed) and returns, per result, only action, service, version, FullContent and score as published by the catalog. Get the parameters this CLI sends with get_api_parameters; call_api uses the CLI's built-in version of the service. Use NextOffset as offset for more results. If the search fails or finds nothing useful, fall back to list_services and list_apis.", json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"Keywords or a natural-language task.","minLength":1,"maxLength":1000},"limit":{"type":"integer","description":"Page size.","minimum":1,"maximum":50,"default":10},"offset":{"type":"integer","description":"Number of records to skip; use NextOffset from the previous page.","minimum":0,"default":0}},"required":["query"],"additionalProperties":false}`))
+	searchAPITool.Annotations = mcpExternalReadOnlyToolAnnotations()
+	registrar.RegisterTool(searchAPITool, func(ctx context.Context, request *protocol.CallToolRequest) (*protocol.CallToolResult, error) {
+		if searchModule == nil {
+			return mcpErrorResult(fmt.Errorf("API search is not available")), nil
+		}
+		query, err := mcpStringArgument(request.Arguments, "query", true)
+		if err != nil {
+			return mcpErrorResult(err), nil
+		}
+		limit, err := mcpPositiveIntArgument(request.Arguments, "limit", apisearch.DefaultLimit)
+		if err != nil {
+			return mcpErrorResult(err), nil
+		}
+		offset, err := mcpNonNegativeIntArgument(request.Arguments, "offset", 0)
+		if err != nil {
+			return mcpErrorResult(err), nil
+		}
+		result, err := searchModule.Search(ctx, apisearch.SearchOptions{Query: query, Limit: limit, Offset: offset})
+		if err != nil {
+			return mcpErrorResult(fmt.Errorf("%w; %s", err, mcpDiscoveryFallbackHint)), nil
+		}
+		return mcpCompactJSONResult(newMCPAPISearchResult(result))
+	})
+
+	listServicesTool := protocol.NewToolWithRawSchema("list_services", "Fallback discovery when search_api fails or finds nothing useful: list every Volcano Engine service code supported by this CLI. Use the returned service code with list_apis.", json.RawMessage(`{"type":"object","properties":{}}`))
 	listServicesTool.Annotations = mcpReadOnlyToolAnnotations()
 	registrar.RegisterTool(listServicesTool, func(_ context.Context, _ *protocol.CallToolRequest) (*protocol.CallToolResult, error) {
 		return mcpJSONResult(listMCPServices(support))
 	})
 
-	listAPIsTool := protocol.NewToolWithRawSchema("list_apis", "List every supported API action for one Volcano Engine service code returned by list_services.", json.RawMessage(`{"type":"object","properties":{"service":{"type":"string"}},"required":["service"]}`))
+	listAPIsTool := protocol.NewToolWithRawSchema("list_apis", "Fallback discovery when search_api fails or finds nothing useful: list every supported API action for one Volcano Engine service code returned by list_services.", json.RawMessage(`{"type":"object","properties":{"service":{"type":"string"}},"required":["service"]}`))
 	listAPIsTool.Annotations = mcpReadOnlyToolAnnotations()
 	registrar.RegisterTool(listAPIsTool, func(_ context.Context, request *protocol.CallToolRequest) (*protocol.CallToolResult, error) {
 		serviceName, err := mcpStringArgument(request.Arguments, "service", true)
@@ -138,6 +197,10 @@ func registerMCPTools(registrar mcpToolRegistrar, support *RootSupport, invoker 
 		}
 		return mcpJSONResult(result)
 	})
+
+	if scriptRunner != nil {
+		registerMCPRunScriptTool(registrar, scriptRunner)
+	}
 
 	searchDocsTool := protocol.NewToolWithRawSchema("search_docs", "Search public Volcano Engine documentation and return matching titles, URLs, service codes, and text snippets.", json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"Text to search for.","minLength":1},"limit":{"type":"integer","description":"Maximum number of documents to return.","minimum":1,"default":10},"service_codes":{"type":"array","description":"Optional service codes used to filter results.","items":{"type":"string"}},"snippet_length":{"type":"integer","description":"Maximum number of Unicode characters per result snippet.","minimum":1,"default":600}},"required":["query"],"additionalProperties":false}`))
 	searchDocsTool.Annotations = mcpExternalReadOnlyToolAnnotations()
@@ -324,6 +387,15 @@ func mcpStringArrayArgument(arguments map[string]interface{}, name string) ([]st
 
 func mcpJSONResult(value interface{}) (*protocol.CallToolResult, error) {
 	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return &protocol.CallToolResult{Content: []protocol.Content{&protocol.TextContent{Type: "text", Text: string(data)}}}, nil
+}
+
+// mcpCompactJSONResult encodes without indentation to save tokens.
+func mcpCompactJSONResult(value interface{}) (*protocol.CallToolResult, error) {
+	data, err := json.Marshal(value)
 	if err != nil {
 		return nil, err
 	}

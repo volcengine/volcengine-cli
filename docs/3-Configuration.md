@@ -149,7 +149,7 @@ Deleting a profile does not delete SSO sessions or the global Console Login cach
 
 ## Safety Policy
 
-The safety policy is a local client-side guard for OpenAPI operations issued by `ve`, including normal calls, `--force` calls, and MCP `call_api`. It complements Volcengine IAM and does not replace cloud-side authorization. Delegated `ve arkcli` and `ve tosutil` commands are not intercepted because their arguments are forwarded unchanged.
+The safety policy is a local client-side guard for OpenAPI operations issued by `ve`, including normal calls, `--force` calls, MCP `call_api`, and every API call made by `run_script` or `ve script run`. It complements Volcengine IAM and does not replace cloud-side authorization. Delegated `ve arkcli` and `ve tosutil` commands are not intercepted because their arguments are forwarded unchanged.
 
 The policy is disabled by default and stored separately in `~/.volcengine/safety-policy.json` with `0600` permissions. Enable it and add rules with:
 
@@ -188,7 +188,7 @@ In an interactive terminal, a `confirm` match prompts for `yes`. Agents must sta
 ve ecs UpdateInstance --InstanceId i-xxxxx --yes
 ```
 
-`--yes` skips only `confirm`; it never bypasses `deny`. MCP clients use `yes: true` on the repeated `call_api` request. See [MCP Server](6-MCP.md#safety-policy).
+`--yes` skips only `confirm`; it never bypasses `deny`. MCP clients use `yes: true` on the repeated `call_api` request. Scripts cannot approve `confirm` operations and ignore `VOLCENGINE_SAFETY_SKIP_CONFIRM`; see [MCP Server](6-MCP.md#safety-policy) and [run_script](6-MCP.md#run_script).
 
 Environment overrides have higher priority than the file:
 

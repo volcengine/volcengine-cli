@@ -19,7 +19,7 @@ func TestMCPLiveProtocols(t *testing.T) {
 		if err != nil {
 			t.Fatalf("create live invoker: %v", err)
 		}
-		if err := runMCPStdio(invoker); err != nil {
+		if err := runMCPStdio(invoker, mcpToolDependencies{}); err != nil {
 			t.Fatalf("run live stdio server: %v", err)
 		}
 		return
@@ -61,7 +61,7 @@ func TestMCPLiveProtocols(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			serverDone := make(chan error, 1)
 			go func() {
-				serverDone <- runMCPHTTP(ctx, listener, baseURL, mcpCommandOptions{Transport: transportName}, invoker)
+				serverDone <- runMCPHTTP(ctx, listener, baseURL, mcpCommandOptions{Transport: transportName}, invoker, mcpToolDependencies{})
 			}()
 
 			var clientTransport transport.ClientTransport

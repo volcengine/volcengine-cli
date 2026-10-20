@@ -30,6 +30,7 @@ import (
 type recordingMCPRegistrar struct {
 	tools    map[string]*protocol.Tool
 	handlers map[string]mcpToolHandler
+	order    []string
 }
 
 func (r *recordingMCPRegistrar) RegisterTool(tool *protocol.Tool, handler mcpToolHandler) {
@@ -38,6 +39,7 @@ func (r *recordingMCPRegistrar) RegisterTool(tool *protocol.Tool, handler mcpToo
 		r.handlers = make(map[string]mcpToolHandler)
 	}
 	r.tools[tool.Name] = tool
+	r.order = append(r.order, tool.Name)
 	r.handlers[tool.Name] = handler
 }
 
@@ -64,19 +66,23 @@ func (i recordingMCPInvoker) CallAPI(ctx context.Context, _, _, region string, _
 
 func TestRegisterMCPTools(t *testing.T) {
 	registrar := &recordingMCPRegistrar{}
-	registerMCPTools(registrar, rootSupport, stubMCPInvoker{}, &fakeDocsModule{})
+	registerMCPTools(registrar, rootSupport, stubMCPInvoker{}, &fakeDocsModule{}, nil, nil)
 
-	want := []string{"list_services", "list_apis", "get_api_parameters", "call_api", "search_docs", "fetch_docs"}
+	want := []string{"list_services", "list_apis", "get_api_parameters", "search_api", "call_api", "search_docs", "fetch_docs"}
 	for _, name := range want {
 		if registrar.tools[name] == nil {
 			t.Fatalf("tool %q was not registered", name)
 		}
 	}
+	// run_script is only registered when trusted local execution is enabled.
+	if registrar.tools["run_script"] != nil || len(registrar.tools) != len(want) {
+		t.Fatalf("registered tools = %d, run_script = %v", len(registrar.tools), registrar.tools["run_script"] != nil)
+	}
 }
 
-func TestMCPListToolsExposeEnumerationSchemas(t *testing.T) {
+func TestMCPDiscoveryAndCallSchemas(t *testing.T) {
 	registrar := &recordingMCPRegistrar{}
-	registerMCPTools(registrar, rootSupport, stubMCPInvoker{}, &fakeDocsModule{})
+	registerMCPTools(registrar, rootSupport, stubMCPInvoker{}, &fakeDocsModule{}, nil, nil)
 
 	servicesSchema := string(registrar.tools["list_services"].RawInputSchema)
 	if strings.Contains(servicesSchema, "query") || strings.Contains(servicesSchema, "limit") {
@@ -85,6 +91,21 @@ func TestMCPListToolsExposeEnumerationSchemas(t *testing.T) {
 	apisSchema := string(registrar.tools["list_apis"].RawInputSchema)
 	if !strings.Contains(apisSchema, `"service"`) || strings.Contains(apisSchema, "query") || strings.Contains(apisSchema, "limit") {
 		t.Fatalf("list_apis schema is not service-only: %s", apisSchema)
+	}
+
+	var searchSchema struct {
+		Properties           map[string]json.RawMessage `json:"properties"`
+		Required             []string                   `json:"required"`
+		AdditionalProperties bool                       `json:"additionalProperties"`
+	}
+	if err := json.Unmarshal(registrar.tools["search_api"].RawInputSchema, &searchSchema); err != nil {
+		t.Fatalf("decode search_api schema: %v", err)
+	}
+	if fmt.Sprint(searchSchema.Required) != "[query]" || searchSchema.AdditionalProperties || searchSchema.Properties["limit"] == nil || searchSchema.Properties["offset"] == nil || len(searchSchema.Properties) != 3 {
+		t.Fatalf("search_api schema = %s", registrar.tools["search_api"].RawInputSchema)
+	}
+	if annotations := registrar.tools["search_api"].Annotations; annotations == nil || !*annotations.ReadOnlyHint || !*annotations.OpenWorldHint {
+		t.Fatalf("search_api annotations = %#v", annotations)
 	}
 
 	var callSchema struct {
@@ -135,7 +156,7 @@ func TestMCPCallAPISchemaEscapesDescription(t *testing.T) {
 func TestMCPCallAPIForwardsExplicitSafetyApproval(t *testing.T) {
 	calls := make(chan recordedMCPCall, 1)
 	registrar := &recordingMCPRegistrar{}
-	registerMCPTools(registrar, rootSupport, recordingMCPInvoker{calls: calls}, &fakeDocsModule{})
+	registerMCPTools(registrar, rootSupport, recordingMCPInvoker{calls: calls}, &fakeDocsModule{}, nil, nil)
 
 	result, err := registrar.handlers["call_api"](context.Background(), &protocol.CallToolRequest{Arguments: map[string]interface{}{
 		"service": "sts", "api": "GetCallerIdentity", "yes": true,
@@ -150,7 +171,7 @@ func TestMCPCallAPIForwardsExplicitSafetyApproval(t *testing.T) {
 
 func TestMCPCallAPIRejectsNonBooleanSafetyApproval(t *testing.T) {
 	registrar := &recordingMCPRegistrar{}
-	registerMCPTools(registrar, rootSupport, stubMCPInvoker{}, &fakeDocsModule{})
+	registerMCPTools(registrar, rootSupport, stubMCPInvoker{}, &fakeDocsModule{}, nil, nil)
 	result, err := registrar.handlers["call_api"](context.Background(), &protocol.CallToolRequest{Arguments: map[string]interface{}{
 		"service": "sts", "api": "GetCallerIdentity", "yes": "true",
 	}})
@@ -166,7 +187,7 @@ func TestMCPCallAPIRejectsNonBooleanSafetyApproval(t *testing.T) {
 func TestMCPCallAPIRegionIsOptionalAndValidated(t *testing.T) {
 	calls := make(chan recordedMCPCall, 2)
 	registrar := &recordingMCPRegistrar{}
-	registerMCPTools(registrar, rootSupport, recordingMCPInvoker{calls: calls}, &fakeDocsModule{})
+	registerMCPTools(registrar, rootSupport, recordingMCPInvoker{calls: calls}, &fakeDocsModule{}, nil, nil)
 	handler := registrar.handlers["call_api"]
 
 	for _, test := range []struct {
@@ -202,7 +223,7 @@ func TestMCPSearchDocsDefaultsSchemaAndAnnotations(t *testing.T) {
 		Documents: []docs.SearchDocument{{Title: "TOS quick start", URL: "https://www.volcengine.com/docs/6349/74830"}},
 	}}
 	registrar := &recordingMCPRegistrar{}
-	registerMCPTools(registrar, rootSupport, stubMCPInvoker{}, docsModule)
+	registerMCPTools(registrar, rootSupport, stubMCPInvoker{}, docsModule, nil, nil)
 
 	tool := registrar.tools["search_docs"]
 	if tool == nil {
@@ -252,7 +273,7 @@ func TestMCPSearchDocsDefaultsSchemaAndAnnotations(t *testing.T) {
 func TestMCPSearchDocsForwardsOptionsAndReturnsToolErrors(t *testing.T) {
 	docsModule := &fakeDocsModule{}
 	registrar := &recordingMCPRegistrar{}
-	registerMCPTools(registrar, rootSupport, stubMCPInvoker{}, docsModule)
+	registerMCPTools(registrar, rootSupport, stubMCPInvoker{}, docsModule, nil, nil)
 	handler := registrar.handlers["search_docs"]
 
 	result, err := handler(context.Background(), &protocol.CallToolRequest{Arguments: map[string]interface{}{
@@ -312,7 +333,7 @@ func TestMCPFetchDocsDefaultsSchemaAndAnnotations(t *testing.T) {
 		HasContent:          true,
 	}}
 	registrar := &recordingMCPRegistrar{}
-	registerMCPTools(registrar, rootSupport, stubMCPInvoker{}, docsModule)
+	registerMCPTools(registrar, rootSupport, stubMCPInvoker{}, docsModule, nil, nil)
 
 	tool := registrar.tools["fetch_docs"]
 	if tool == nil {
@@ -361,7 +382,7 @@ func TestMCPFetchDocsDefaultsSchemaAndAnnotations(t *testing.T) {
 func TestMCPFetchDocsForwardsOptionsAndReturnsToolErrors(t *testing.T) {
 	docsModule := &fakeDocsModule{}
 	registrar := &recordingMCPRegistrar{}
-	registerMCPTools(registrar, rootSupport, stubMCPInvoker{}, docsModule)
+	registerMCPTools(registrar, rootSupport, stubMCPInvoker{}, docsModule, nil, nil)
 	handler := registrar.handlers["fetch_docs"]
 
 	result, err := handler(context.Background(), &protocol.CallToolRequest{Arguments: map[string]interface{}{
@@ -411,7 +432,7 @@ func TestMCPFetchDocsForwardsOptionsAndReturnsToolErrors(t *testing.T) {
 
 func TestMCPStdioProtocol(t *testing.T) {
 	if os.Getenv("VOLCENGINE_MCP_STDIO_HELPER") == "1" {
-		if err := runMCPStdio(stubMCPInvoker{}); err != nil {
+		if err := runMCPStdio(stubMCPInvoker{}, mcpToolDependencies{}); err != nil {
 			t.Fatalf("runMCPStdio() error = %v", err)
 		}
 		return
@@ -486,7 +507,7 @@ func testMCPHTTPOAuthProtocol(t *testing.T, transportName string) {
 		serverDone <- runMCPHTTP(ctx, listener, baseURL, mcpCommandOptions{
 			Transport: transportName, OAuth: true,
 			OAuthIssuer: issuer, OAuthAudience: "volcengine-mcp", OAuthScopes: []string{"mcp:use"},
-		}, stubMCPInvoker{})
+		}, stubMCPInvoker{}, mcpToolDependencies{})
 	}()
 
 	endpoint := "/mcp"
@@ -567,7 +588,7 @@ func testMCPHTTPProtocol(t *testing.T, transportName string) {
 	serverDone := make(chan error, 1)
 	calls := make(chan recordedMCPCall, 1)
 	go func() {
-		serverDone <- runMCPHTTP(ctx, listener, baseURL, mcpCommandOptions{Transport: transportName}, recordingMCPInvoker{calls: calls})
+		serverDone <- runMCPHTTP(ctx, listener, baseURL, mcpCommandOptions{Transport: transportName}, recordingMCPInvoker{calls: calls}, mcpToolDependencies{})
 	}()
 
 	headers := map[string]string{mcpCredentialsHeader: testMCPCredentialHeader()}
@@ -630,7 +651,7 @@ func assertMCPClientTools(t *testing.T, client *mcpclient.Client) {
 		names = append(names, tool.Name)
 	}
 	sort.Strings(names)
-	want := []string{"call_api", "fetch_docs", "get_api_parameters", "list_apis", "list_services", "search_docs"}
+	want := []string{"call_api", "fetch_docs", "get_api_parameters", "list_apis", "list_services", "search_api", "search_docs"}
 	if fmt.Sprint(names) != fmt.Sprint(want) {
 		t.Fatalf("tools = %v, want %v", names, want)
 	}

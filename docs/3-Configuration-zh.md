@@ -149,7 +149,7 @@ ve configure delete --profile prod
 
 ## 安全策略（Safety Policy）
 
-安全策略是 `ve` 在客户端执行的 OpenAPI 操作防护，覆盖普通调用、`--force` 调用和 MCP `call_api`。它与火山引擎 IAM 互补，不能替代云端鉴权。`ve arkcli` 和 `ve tosutil` 属于参数原样透传的代理 CLI，不在拦截范围内。
+安全策略是 `ve` 在客户端执行的 OpenAPI 操作防护，覆盖普通调用、`--force` 调用、MCP `call_api`，以及 `run_script` 或 `ve script run` 发起的每个 API 调用。它与火山引擎 IAM 互补，不能替代云端鉴权。`ve arkcli` 和 `ve tosutil` 属于参数原样透传的代理 CLI，不在拦截范围内。
 
 安全策略默认关闭，独立保存在 `~/.volcengine/safety-policy.json`，文件权限为 `0600`。可执行：
 
@@ -188,7 +188,7 @@ pattern 必须且只能包含一个冒号，service 和 action 均不能为空�
 ve ecs UpdateInstance --InstanceId i-xxxxx --yes
 ```
 
-`--yes` 只能跳过 `confirm`，不能绕过 `deny`。MCP 客户端在重试 `call_api` 时传入 `yes: true`，详见 [MCP 服务](6-MCP-zh.md#安全策略)。
+`--yes` 只能跳过 `confirm`，不能绕过 `deny`。MCP 客户端在重试 `call_api` 时传入 `yes: true`，详见 [MCP 服务](6-MCP-zh.md#安全策略)。脚本无法批准 `confirm` 操作，也不遵循 `VOLCENGINE_SAFETY_SKIP_CONFIRM`，详见 [run_script](6-MCP-zh.md#run_script)。
 
 环境变量优先级高于配置文件：
 

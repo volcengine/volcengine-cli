@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 	"github.com/ThinkInAIXYZ/go-mcp/server"
 	"github.com/ThinkInAIXYZ/go-mcp/transport"
 	"github.com/spf13/cobra"
+	"github.com/volcengine/volcengine-cli/internal/apisearch"
 	"github.com/volcengine/volcengine-cli/internal/docs"
 )
 
@@ -38,6 +40,9 @@ type mcpCommandOptions struct {
 	OAuthIssuer   string
 	OAuthAudience string
 	OAuthScopes   []string
+	// EnableRunScript registers run_script: trusted local Python execution.
+	EnableRunScript bool
+	ScriptPython    string
 }
 
 func init() {
@@ -83,6 +88,16 @@ func newMCPCommand() *cobra.Command {
 			if !command.Flags().Changed("oauth-scopes") {
 				options.OAuthScopes = splitMCPScopes(os.Getenv("VOLCENGINE_MCP_OAUTH_SCOPES"))
 			}
+			if !command.Flags().Changed("enable-run-script") {
+				enabled, err := environmentBool("VOLCENGINE_MCP_ENABLE_RUN_SCRIPT", false)
+				if err != nil {
+					return err
+				}
+				options.EnableRunScript = enabled
+			}
+			if !command.Flags().Changed("script-python") {
+				options.ScriptPython = strings.TrimSpace(os.Getenv(scriptPythonEnvironment))
+			}
 
 			transportName, err := resolveMCPTransport(options.Transport, command.Flags().Changed("transport") || options.Transport != "", options.OAuth)
 			if err != nil {
@@ -102,6 +117,8 @@ func newMCPCommand() *cobra.Command {
 	command.Flags().StringVar(&options.OAuthIssuer, "oauth-issuer", "", tr("OAuth authorization server issuer"))
 	command.Flags().StringVar(&options.OAuthAudience, "oauth-audience", "", tr("Required access token audience"))
 	command.Flags().StringSliceVar(&options.OAuthScopes, "oauth-scopes", nil, tr("Required OAuth scopes"))
+	command.Flags().BoolVar(&options.EnableRunScript, "enable-run-script", false, tr("Enable run_script: trusted local Python execution with your OS privileges (stdio only, not a sandbox)"))
+	command.Flags().StringVar(&options.ScriptPython, "script-python", "", tr("Absolute path of the CPython 3.9+ interpreter for run_script"))
 	command.SetUsageTemplate(mcpUsageTemplate())
 	return command
 }
@@ -115,13 +132,23 @@ func mcpUsageTemplate() string {
 `
 }
 
+// mcpToolDependencies are optional tool backends.
+type mcpToolDependencies struct {
+	search       mcpAPISearchModule
+	scriptRunner mcpScriptRunner
+}
+
 func runMCP(parent context.Context, options mcpCommandOptions) error {
 	invoker, err := newReloadingVolcengineMCPInvoker(runtimeConfig(), options.Profile, options.Region)
 	if err != nil {
 		return err
 	}
+	dependencies, err := newMCPToolDependencies(parent, options, invoker)
+	if err != nil {
+		return err
+	}
 	if options.Transport == mcpTransportStdio {
-		return runMCPStdio(invoker)
+		return runMCPStdio(invoker, dependencies)
 	}
 	if options.Port < 0 || options.Port > 65535 {
 		return fmt.Errorf("MCP port must be between 0 and 65535")
@@ -148,19 +175,40 @@ func runMCP(parent context.Context, options mcpCommandOptions) error {
 
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return runMCPHTTP(ctx, listener, baseURL, options, invoker)
+	return runMCPHTTP(ctx, listener, baseURL, options, invoker, dependencies)
 }
 
-func runMCPStdio(invoker mcpAPIInvoker) error {
+func newMCPToolDependencies(ctx context.Context, options mcpCommandOptions, invoker *volcengineMCPInvoker) (mcpToolDependencies, error) {
+	dependencies := mcpToolDependencies{search: apisearch.New(clientUserAgent(os.LookupEnv))}
+	if !options.EnableRunScript {
+		return dependencies, nil
+	}
+	// Trust boundary: local run_script executes Python with this user's
+	// privileges. It is only offered to the local stdio client that started
+	// the server, never to network transports.
+	if options.Transport != mcpTransportStdio {
+		return mcpToolDependencies{}, errors.New(tr("--enable-run-script is only supported with the stdio transport; network transports would expose local code execution"))
+	}
+	// Select the interpreter once at startup and reuse it for every run;
+	// fail fast when none is usable. Nothing is downloaded.
+	interpreter, err := resolveScriptPython(ctx, options.ScriptPython)
+	if err != nil {
+		return mcpToolDependencies{}, err
+	}
+	dependencies.scriptRunner = &localScriptRunner{invoker: invoker, interpreter: interpreter}
+	return dependencies, nil
+}
+
+func runMCPStdio(invoker mcpAPIInvoker, dependencies mcpToolDependencies) error {
 	serverTransport := transport.NewStdioServerTransport(transport.WithStdioServerOptionLogger(quietMCPLogger{}))
-	mcpServer, err := newMCPServer(serverTransport, invoker)
+	mcpServer, err := newMCPServer(serverTransport, invoker, dependencies)
 	if err != nil {
 		return err
 	}
 	return mcpServer.Run()
 }
 
-func runMCPHTTP(ctx context.Context, listener net.Listener, baseURL string, options mcpCommandOptions, invoker mcpAPIInvoker) error {
+func runMCPHTTP(ctx context.Context, listener net.Listener, baseURL string, options mcpCommandOptions, invoker mcpAPIInvoker, dependencies mcpToolDependencies) error {
 	mux := http.NewServeMux()
 	var serverTransport transport.ServerTransport
 	endpoint := ""
@@ -199,7 +247,7 @@ func runMCPHTTP(ctx context.Context, listener net.Listener, baseURL string, opti
 		return fmt.Errorf("HTTP server cannot use transport %q", options.Transport)
 	}
 
-	mcpServer, err := newMCPServer(serverTransport, invoker)
+	mcpServer, err := newMCPServer(serverTransport, invoker, dependencies)
 	if err != nil {
 		return err
 	}
@@ -282,7 +330,7 @@ func runMCPHTTP(ctx context.Context, listener net.Listener, baseURL string, opti
 	return result
 }
 
-func newMCPServer(serverTransport transport.ServerTransport, invoker mcpAPIInvoker) (*server.Server, error) {
+func newMCPServer(serverTransport transport.ServerTransport, invoker mcpAPIInvoker, dependencies mcpToolDependencies) (*server.Server, error) {
 	mcpServer, err := server.NewServer(
 		serverTransport,
 		server.WithServerInfo(protocol.Implementation{Name: "volcengine-cli", Version: clientVersion}),
@@ -292,7 +340,7 @@ func newMCPServer(serverTransport transport.ServerTransport, invoker mcpAPIInvok
 	if err != nil {
 		return nil, err
 	}
-	registerMCPTools(mcpServerRegistrar{server: mcpServer}, rootSupport, invoker, docs.New(docsUserAgent(os.LookupEnv)))
+	registerMCPTools(mcpServerRegistrar{server: mcpServer}, rootSupport, invoker, docs.New(docsUserAgent(os.LookupEnv)), dependencies.search, dependencies.scriptRunner)
 	return mcpServer, nil
 }
 

@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -294,7 +295,11 @@ func newSimpleClient(ctx *Context, credentialOverride *credentials.Credentials) 
 		return nil, fmt.Errorf("region not set, please set it via profile, --region flag, or VOLCENGINE_REGION environment variable")
 	}
 
+	// Each client owns its http.Client: the SDK session writes the transport
+	// and proxy into it, so a shared http.DefaultClient races between
+	// concurrent API calls (MCP requests and run_script calls).
 	config := volcengine.NewConfig().
+		WithHTTPClient(&http.Client{}).
 		WithRegion(region).
 		WithCredentials(creds).
 		WithDisableSSL(disableSSl).
