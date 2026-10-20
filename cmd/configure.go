@@ -87,16 +87,36 @@ type SsoSession struct {
 
 // LoadConfig from CONFIG_FILE_DIR(default ~/.volcengine)
 func LoadConfig() *Configure {
+	cfg, _ := loadConfig()
+	return cfg
+}
+
+// Keep configuration values out of error text while preserving the cause.
+type configLoadError struct {
+	operation string
+	err       error
+}
+
+func (e *configLoadError) Error() string {
+	return "failed to " + e.operation + " configuration"
+}
+
+func (e *configLoadError) Unwrap() error {
+	return e.err
+}
+
+// loadConfig returns (nil, nil) only when the config file does not exist.
+func loadConfig() (*Configure, error) {
 	configFileMu.Lock()
 	defer configFileMu.Unlock()
 
 	configFileDir, err := configFileDirFunc()
 	if err != nil {
-		return nil
+		return nil, &configLoadError{operation: "locate", err: err}
 	}
 
 	if err := os.MkdirAll(configFileDir, 0700); err != nil {
-		return nil
+		return nil, &configLoadError{operation: "prepare directory for", err: err}
 	}
 	_ = os.Chmod(configFileDir, 0700)
 
@@ -105,26 +125,26 @@ func LoadConfig() *Configure {
 	configFilePath := filepath.Join(configFileDir, ConfigFile)
 	file, err := os.Open(configFilePath)
 	if err != nil {
-		if !os.IsNotExist(err) {
-			fmt.Println(err)
+		if os.IsNotExist(err) {
+			return nil, nil
 		}
-		return nil
+		return nil, &configLoadError{operation: "open", err: err}
 	}
 	defer file.Close()
 	_ = file.Chmod(0600)
 
 	fileContent, err := ioutil.ReadAll(file)
 	if err != nil {
-		return nil
+		return nil, &configLoadError{operation: "read", err: err}
 	}
 
 	cfg := &Configure{}
 	err = json.Unmarshal(fileContent, cfg)
 	if err != nil {
-		return nil
+		return nil, &configLoadError{operation: "parse", err: err}
 	}
 
-	return cfg
+	return cfg, nil
 }
 
 // runtimeConfig returns the in-memory config used by the current CLI process.
@@ -150,7 +170,14 @@ func setRuntimeConfig(cfg *Configure) {
 func setEnableColor(enabled bool) error {
 	cfg := runtimeConfig()
 	if cfg == nil {
-		cfg = &Configure{Profiles: make(map[string]*Profile)}
+		var err error
+		cfg, err = loadConfig()
+		if err != nil {
+			return err
+		}
+		if cfg == nil {
+			cfg = &Configure{Profiles: make(map[string]*Profile)}
+		}
 	}
 	cfg.EnableColor = enabled
 	if err := WriteConfigToFile(cfg); err != nil {
