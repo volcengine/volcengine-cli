@@ -9,7 +9,9 @@ var (
 
 func init() {
 	if !localOnlyInvocation(processLanguageResolution.args) {
-		config = LoadConfig()
+		var err error
+		config, err = loadConfig()
+		warnConfigLoadError(err)
 	}
 	ctx = NewContext()
 	ctx.SetConfig(config)
