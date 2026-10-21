@@ -134,7 +134,7 @@ ve mcp --enable-run-script
 ### Script contract
 
 - CPython 3.9 or newer, standard library only. Third-party packages and `pip` are not part of the contract; the ve-managed runtime is CPython 3.12.15. Top-level `await` is allowed.
-- `await call_api(service, api, parameters=None, region=None)` calls one API and returns the response object. Use the same service codes and actions as `call_api`; `parameters` is a dict.
+- `await call_api(service, api, parameters=None, region=None)` calls one API and returns the full response object; the API data is under `response["Result"]`, for example `response["Result"]["Vpcs"]`. Use the same service codes and actions as `call_api`; `parameters` is a dict.
 - Failures raise `APIError` with `.code`, `.status`, `.request_id` and `.seq`. `.status` is `rejected` (not sent), `failed` (the API returned an error) or `unknown` (the request may have reached the API, for example after a per-call timeout or cancellation).
 - `args` holds the tool's `args` input. Assign a JSON-serializable value to the global `result`. `print()` and stderr output are captured into `output` (64 KiB by default; truncation is flagged). Output cannot corrupt the protocol: the worker moves the protocol to private file descriptors and points stdout at the output stream.
 - Use `asyncio.gather` for concurrency. At most `max_concurrency` calls are in flight; extra calls wait.
@@ -205,7 +205,7 @@ If none is usable, the error lists why each local candidate was rejected. The `r
 
 ### Command line
 
-`ve script run --file script.py [--args '{"key":"value"}']` runs the same contract without MCP and prints the JSON report. It accepts `--profile`, `--region`, `--python`, `--max-calls`, `--max-concurrency`, `--timeout-seconds` and `--call-timeout-seconds`, and exits non-zero unless the status is `succeeded`. Because it executes local code, it requires `VOLCENGINE_SCRIPT_RUN_ENABLED=true` in the environment. A flag would not be enough: an agent that is only allowed to run `ve` commands could add a flag itself. Ctrl-C cancels the run like an MCP cancellation.
+`ve script run --file script.py [--args '{"key":"value"}' | --args-file args.json]` runs the same contract without MCP and prints the JSON report. It accepts `--profile`, `--region`, `--python`, `--max-calls`, `--max-concurrency`, `--timeout-seconds` and `--call-timeout-seconds`, and exits non-zero unless the status is `succeeded`. Because it executes local code, it requires `VOLCENGINE_SCRIPT_RUN_ENABLED=true` in the environment. A flag would not be enough: an agent that is only allowed to run `ve` commands could add a flag itself. Ctrl-C cancels the run like an MCP cancellation.
 
 ### Hosted execution contract
 
@@ -230,11 +230,11 @@ ve mcp --oauth \
   --base-url https://mcp.example.com
 ```
 
-For non-loopback OAuth deployments, the issuer and public base URL must use HTTPS. TLS may terminate at a reverse proxy. Protected Resource Metadata is served at the RFC 9728 well-known location derived from the MCP resource path: for the resource `https://mcp.example.com/mcp` the metadata lives at `https://mcp.example.com/.well-known/oauth-protected-resource/mcp`.
+For non-loopback OAuth deployments, the issuer and public base URL must use HTTPS (see [Plain HTTP for development](#plain-http-for-development)). TLS may terminate at a reverse proxy. Protected Resource Metadata is served at the RFC 9728 well-known location derived from the MCP resource path: for the resource `https://mcp.example.com/mcp` the metadata lives at `https://mcp.example.com/.well-known/oauth-protected-resource/mcp`.
 
 ### Connecting an authorization server
 
-`ve mcp` acts only as a resource server. It **does not issue tokens and provides neither client registration nor a token endpoint**. Bring your own authorization server (self-hosted or an existing IdP) that meets these requirements:
+By default `ve mcp` acts only as a resource server. It **does not issue tokens and provides neither client registration nor a token endpoint** (except in [OAuth proxy](#oauth-proxy-for-a-fixed-oauth-application) mode). Bring your own authorization server (self-hosted or an existing IdP) that meets these requirements:
 
 1. Publish Authorization Server Metadata. On startup the server tries `/.well-known/oauth-authorization-server` derived from `{issuer}`, then `{issuer}/.well-known/openid-configuration`; startup fails if neither responds. The metadata `issuer` must match `--oauth-issuer` exactly and must include `jwks_uri`.
 2. Publish a JWKS at `jwks_uri`. Only RSA and EC (P-256/P-384/P-521) signing keys are supported, and every JWK must carry a `kid`.
@@ -271,6 +271,61 @@ When authentication fails, the status code and `WWW-Authenticate` header identif
 
 Both responses carry `resource_metadata` so clients can discover the authorization server.
 
+### Authorization server metadata outside the issuer
+
+Some authorization servers serve their metadata on a different host than the token issuer and register clients dynamically, so each client's tokens carry a different audience. `https://ecs.mcp.volcbiz.com` is one: its metadata lives there, while its tokens are issued by `https://signin.volcengine.com`. Point `ve mcp` at the metadata host with `--oauth-authorization-server`:
+
+```shell
+ve mcp --transport streamable-http --oauth \
+  --oauth-authorization-server https://ecs.mcp.volcbiz.com \
+  --host 0.0.0.0 --port 8888 --base-url https://mcp.example.com
+```
+
+The server discovers the metadata from `--oauth-authorization-server` and lists it in Protected Resource Metadata, so MCP clients find its `registration_endpoint` and register themselves. `--oauth-issuer` defaults to the metadata `issuer` (if set, it must match). `--oauth-audience` is optional in this mode: without it the audience is not checked, because it differs per registered client. Signature, `iss`, `exp` and `--oauth-scopes` are still checked.
+
+### OAuth proxy for a fixed OAuth application
+
+OAuth applications with one fixed client, such as GitHub or a company SSO, offer neither dynamic client registration nor locally verifiable tokens. With `--oauth-upstream-*`, `ve mcp` acts as the authorization server MCP clients see and proxies the login to that application:
+
+```shell
+export VOLCENGINE_MCP_OAUTH_UPSTREAM_CLIENT_SECRET='replace-me'
+ve mcp --transport streamable-http --oauth \
+  --oauth-upstream-authorize-url https://github.com/login/oauth/authorize \
+  --oauth-upstream-token-url https://github.com/login/oauth/access_token \
+  --oauth-upstream-userinfo-url https://api.github.com/user \
+  --oauth-upstream-client-id <client-id> \
+  --oauth-upstream-scopes read:user \
+  --host 0.0.0.0 --port 8888 --base-url https://mcp.example.com
+```
+
+| Flag | Environment variable | Description |
+| --- | --- | --- |
+| `--oauth-upstream-authorize-url` | `VOLCENGINE_MCP_OAUTH_UPSTREAM_AUTHORIZE_URL` | Authorize URL of the upstream application (required) |
+| `--oauth-upstream-token-url` | `VOLCENGINE_MCP_OAUTH_UPSTREAM_TOKEN_URL` | Token URL of the upstream application (required) |
+| `--oauth-upstream-userinfo-url` | `VOLCENGINE_MCP_OAUTH_UPSTREAM_USERINFO_URL` | Userinfo URL that validates access tokens (required) |
+| `--oauth-upstream-client-id` | `VOLCENGINE_MCP_OAUTH_UPSTREAM_CLIENT_ID` | Client ID of the upstream application (required) |
+| - | `VOLCENGINE_MCP_OAUTH_UPSTREAM_CLIENT_SECRET` | Client secret; never passed as a flag |
+| `--oauth-upstream-client-secret-file` | `VOLCENGINE_MCP_OAUTH_UPSTREAM_CLIENT_SECRET_FILE` | File holding the client secret, instead of the variable above |
+| `--oauth-upstream-scopes` | `VOLCENGINE_MCP_OAUTH_UPSTREAM_SCOPES` | Scopes requested from the upstream application |
+| `--oauth-upstream-token-auth-method` | `VOLCENGINE_MCP_OAUTH_UPSTREAM_TOKEN_AUTH_METHOD` | `client_secret_post` (default) or `client_secret_basic` |
+| `--oauth-redirect-uris` | `VOLCENGINE_MCP_OAUTH_REDIRECT_URIS` | Client redirect URIs allowed besides loopback ones (exact match) |
+| - | `VOLCENGINE_MCP_OAUTH_STATE_KEY` | Base64 32-byte key that seals state and codes; set the same key on every instance behind a load balancer |
+
+Register `{base-url}/auth/oauth/callback` as the callback URL of the upstream application. The server publishes RFC 8414 metadata and these endpoints under the base URL:
+
+- `/auth/oauth/register`: dynamic client registration for public clients. Registration only checks the redirect URIs: loopback `http(s)` URIs are always allowed, others only when listed in `--oauth-redirect-uris`.
+- `/auth/oauth/authorize`: requires PKCE (`S256`), keeps the client's `state`, and redirects to the upstream with the proxy callback.
+- `/auth/oauth/callback`: receives the upstream code and returns a sealed code to the client.
+- `/auth/oauth/token`: checks the PKCE verifier and redirect URI, then exchanges the code (or a `refresh_token`) at the upstream with the client secret, and returns the upstream access token.
+
+State and codes are encrypted with the state key, so the proxy keeps no login state. Without `VOLCENGINE_MCP_OAUTH_STATE_KEY` each process uses a random key, which invalidates logins in progress on restart. An access token is accepted when the upstream userinfo endpoint accepts it; the answer is cached for 5 minutes, so a revoked token may keep working that long. The proxy cannot be combined with `--oauth-issuer`, `--oauth-authorization-server`, `--oauth-audience` or `--oauth-scopes`.
+
+### Plain HTTP for development
+
+OAuth requires an HTTPS `--base-url` unless it is loopback. For a development host without TLS, `--oauth-allow-insecure-base-url` (or `VOLCENGINE_MCP_OAUTH_ALLOW_INSECURE_BASE_URL=true`) accepts an `http://` base URL and prints a warning on startup. Access tokens then travel unencrypted; do not use it in production.
+
+Protected Resource Metadata and the OAuth proxy endpoints allow cross-origin requests without credentials, so browser-based MCP clients can discover and log in.
+
 Supported environment variables:
 
 ```text
@@ -282,6 +337,18 @@ VOLCENGINE_MCP_OAUTH
 VOLCENGINE_MCP_OAUTH_ISSUER
 VOLCENGINE_MCP_OAUTH_AUDIENCE
 VOLCENGINE_MCP_OAUTH_SCOPES
+VOLCENGINE_MCP_OAUTH_AUTHORIZATION_SERVER
+VOLCENGINE_MCP_OAUTH_UPSTREAM_AUTHORIZE_URL
+VOLCENGINE_MCP_OAUTH_UPSTREAM_TOKEN_URL
+VOLCENGINE_MCP_OAUTH_UPSTREAM_USERINFO_URL
+VOLCENGINE_MCP_OAUTH_UPSTREAM_CLIENT_ID
+VOLCENGINE_MCP_OAUTH_UPSTREAM_CLIENT_SECRET
+VOLCENGINE_MCP_OAUTH_UPSTREAM_CLIENT_SECRET_FILE
+VOLCENGINE_MCP_OAUTH_UPSTREAM_SCOPES
+VOLCENGINE_MCP_OAUTH_UPSTREAM_TOKEN_AUTH_METHOD
+VOLCENGINE_MCP_OAUTH_REDIRECT_URIS
+VOLCENGINE_MCP_OAUTH_STATE_KEY
+VOLCENGINE_MCP_OAUTH_ALLOW_INSECURE_BASE_URL
 VOLCENGINE_MCP_ENABLE_RUN_SCRIPT
 VOLCENGINE_SCRIPT_PYTHON
 VOLCENGINE_REGION

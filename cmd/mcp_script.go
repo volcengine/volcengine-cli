@@ -11,7 +11,7 @@ import (
 
 const mcpRunScriptDescription = `Run a Python script that orchestrates several Volcano Engine API calls with loops, branches, pagination, data processing and bounded asyncio concurrency. Use call_api for a single API call.
 Contract: CPython 3.9+ standard library only (no third-party packages). Top-level await is allowed.
-- await call_api(service, api, parameters=None, region=None) calls one API through this CLI and returns the response dict. Failures raise APIError with .code, .status (rejected = not sent, failed = API error, unknown = may have reached the API), .request_id and .seq.
+- await call_api(service, api, parameters=None, region=None) calls one API through this CLI and returns the full response dict; the API data is under response["Result"] (for example response["Result"]["Vpcs"]). Failures raise APIError with .code, .status (rejected = not sent, failed = API error, unknown = may have reached the API), .request_id and .seq.
 - The global args holds the "args" input. Assign a JSON-serializable value to the global result. print() output is captured.
 - Every call is checked against the local safety policy. deny and confirm rules reject that call with an APIError; this tool cannot approve protected operations. For a confirm rule, ask the user, then perform only that operation with call_api and yes=true.
 - Calls are bounded by max_calls (the first extra call is rejected; further calls stop the run), max_concurrency, call_timeout_seconds and timeout_seconds. The result includes a journal of every call, including partial successes and unknown outcomes after cancellation or timeout. Never rerun a partially executed script; continue from the journal.

@@ -38,6 +38,7 @@ func newScriptCommand() *cobra.Command {
 type scriptRunCommandOptions struct {
 	File               string
 	Args               string
+	ArgsFile           string
 	Profile            string
 	Region             string
 	Python             string
@@ -70,11 +71,26 @@ The JSON report, including the call journal, is written to stdout.`),
 				return err
 			}
 			args := json.RawMessage("null")
+			if options.Args != "" && options.ArgsFile != "" {
+				return errors.New(tr("--args and --args-file cannot be used together"))
+			}
 			if options.Args != "" {
 				if !json.Valid([]byte(options.Args)) {
 					return errors.New(tr("--args must be valid JSON"))
 				}
 				args = json.RawMessage(options.Args)
+			}
+			// --args-file avoids the per-argument size limit of the OS, as
+			// for args passed by the hosted sandbox launcher.
+			if options.ArgsFile != "" {
+				data, err := os.ReadFile(options.ArgsFile)
+				if err != nil {
+					return err
+				}
+				if !json.Valid(data) {
+					return errors.New(tr("--args-file must contain valid JSON"))
+				}
+				args = json.RawMessage(data)
 			}
 			limits, err := scriptLimitsFromArguments(map[string]interface{}{
 				"max_calls": options.MaxCalls, "max_concurrency": options.MaxConcurrency,
@@ -111,6 +127,7 @@ The JSON report, including the call journal, is written to stdout.`),
 	}
 	command.Flags().StringVar(&options.File, "file", "", tr("Python script file, or - to read standard input"))
 	command.Flags().StringVar(&options.Args, "args", "", tr("JSON value exposed to the script as args"))
+	command.Flags().StringVar(&options.ArgsFile, "args-file", "", tr("File holding the JSON value exposed to the script as args"))
 	command.Flags().StringVar(&options.Profile, "profile", "", tr("Use a configured profile"))
 	command.Flags().StringVar(&options.Region, "region", "", tr("Set the fallback region"))
 	command.Flags().StringVar(&options.Python, "python", "", tr("Absolute path of the CPython 3.9+ interpreter for run_script"))

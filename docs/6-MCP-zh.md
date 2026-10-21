@@ -134,7 +134,7 @@ ve mcp --enable-run-script
 ### 脚本约定
 
 - CPython 3.9 及以上版本，仅限标准库。第三方包和 `pip` 不属于约定范围；CLI 管理的 Python 运行时为 CPython 3.12.15。支持顶层 `await`。
-- `await call_api(service, api, parameters=None, region=None)` 调用一个 API 并返回响应对象。service code 和 action 与 `call_api` 相同，`parameters` 为 dict。
+- `await call_api(service, api, parameters=None, region=None)` 调用一个 API 并返回完整响应对象；API 数据位于 `response["Result"]` 下，例如 `response["Result"]["Vpcs"]`。service code 和 action 与 `call_api` 相同，`parameters` 为 dict。
 - 失败时抛出 `APIError`，包含 `.code`、`.status`、`.request_id` 和 `.seq`。`.status` 为 `rejected`（未发送）、`failed`（API 返回错误）或 `unknown`（请求可能已到达 API，例如单次调用超时或取消后）。
 - 全局变量 `args` 为 Tool 的 `args` 输入。将可 JSON 序列化的值赋给全局变量 `result`。`print()` 和 stderr 输出会被收集到 `output`（默认 64 KiB，截断时会标记）。输出不会破坏协议：worker 会把协议迁移到私有文件描述符，并把 stdout 指向输出流。
 - 使用 `asyncio.gather` 实现并发。同时进行中的调用最多为 `max_concurrency` 个，超出的调用会排队等待。
@@ -205,7 +205,7 @@ result = {"instances": len(instances), "types": len(details)}
 
 ### 命令行
 
-`ve script run --file script.py [--args '{"key":"value"}']` 在不经过 MCP 的情况下按相同约定运行脚本，并输出 JSON 报告。支持 `--profile`、`--region`、`--python`、`--max-calls`、`--max-concurrency`、`--timeout-seconds` 和 `--call-timeout-seconds`；状态不是 `succeeded` 时以非零码退出。由于它会执行本地代码，环境中必须设置 `VOLCENGINE_SCRIPT_RUN_ENABLED=true`。只用命令行参数不够：仅被允许执行 `ve` 命令的 Agent 可以自行添加参数。Ctrl-C 会像 MCP 取消一样取消运行。
+`ve script run --file script.py [--args '{"key":"value"}' | --args-file args.json]` 在不经过 MCP 的情况下按相同约定运行脚本，并输出 JSON 报告。支持 `--profile`、`--region`、`--python`、`--max-calls`、`--max-concurrency`、`--timeout-seconds` 和 `--call-timeout-seconds`；状态不是 `succeeded` 时以非零码退出。由于它会执行本地代码，环境中必须设置 `VOLCENGINE_SCRIPT_RUN_ENABLED=true`。只用命令行参数不够：仅被允许执行 `ve` 命令的 Agent 可以自行添加参数。Ctrl-C 会像 MCP 取消一样取消运行。
 
 ### 托管执行约定
 
@@ -230,11 +230,11 @@ ve mcp --oauth \
   --base-url https://mcp.example.com
 ```
 
-非回环地址部署 OAuth 时，issuer 和公开 base URL 必须使用 HTTPS；TLS 可以由反向代理终止。Protected Resource Metadata 按 RFC 9728 使用由 MCP Resource 路径派生的 well-known 地址：Resource 为 `https://mcp.example.com/mcp` 时，元数据地址是 `https://mcp.example.com/.well-known/oauth-protected-resource/mcp`。
+非回环地址部署 OAuth 时，issuer 和公开 base URL 必须使用 HTTPS（开发环境见[开发环境使用 HTTP](#开发环境使用-http)）；TLS 可以由反向代理终止。Protected Resource Metadata 按 RFC 9728 使用由 MCP Resource 路径派生的 well-known 地址：Resource 为 `https://mcp.example.com/mcp` 时，元数据地址是 `https://mcp.example.com/.well-known/oauth-protected-resource/mcp`。
 
 ### 接入授权服务器
 
-`ve mcp` 只承担 Resource Server 的职责，**不签发 Token，也不提供客户端注册和 Token Endpoint**。授权服务器需要自行准备（自建，或使用已有 IdP），并满足以下要求：
+默认情况下 `ve mcp` 只承担 Resource Server 的职责，**不签发 Token，也不提供客户端注册和 Token Endpoint**（[OAuth 代理](#固定-oauth-应用的-oauth-代理)模式除外）。授权服务器需要自行准备（自建，或使用已有 IdP），并满足以下要求：
 
 1. 暴露 Authorization Server Metadata。启动时会依次尝试 `{issuer}` 派生的 `/.well-known/oauth-authorization-server` 和 `{issuer}/.well-known/openid-configuration`，两者都取不到即启动失败。元数据中的 `issuer` 必须与 `--oauth-issuer` 完全一致，且必须包含 `jwks_uri`。
 2. 通过 `jwks_uri` 暴露 JWKS。仅支持 RSA 与 EC（P-256/P-384/P-521）签名密钥，且每个 JWK 必须带 `kid`。
@@ -271,6 +271,61 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 两种响应都会带上 `resource_metadata`，客户端可据此发现授权服务器地址。
 
+### 授权服务器元数据不在 issuer 下
+
+有些授权服务器的元数据和 Token 签发方（issuer）不在同一个域名，并且支持动态客户端注册，因此每个客户端拿到的 Token audience 都不同。`https://ecs.mcp.volcbiz.com` 就是这种情况：元数据在这个域名下，而 Token 由 `https://signin.volcengine.com` 签发。使用 `--oauth-authorization-server` 指定元数据所在的地址：
+
+```shell
+ve mcp --transport streamable-http --oauth \
+  --oauth-authorization-server https://ecs.mcp.volcbiz.com \
+  --host 0.0.0.0 --port 8888 --base-url https://mcp.example.com
+```
+
+服务从 `--oauth-authorization-server` 发现元数据，并把它写入 Protected Resource Metadata，MCP 客户端据此找到 `registration_endpoint` 并自行注册。`--oauth-issuer` 默认取元数据中的 `issuer`（如果配置了，则必须与之一致）。该模式下 `--oauth-audience` 可选：不配置时不校验 audience，因为它随注册的客户端变化。签名、`iss`、`exp` 和 `--oauth-scopes` 仍会校验。
+
+### 固定 OAuth 应用的 OAuth 代理
+
+GitHub 或企业 SSO 这类只有一个固定客户端的 OAuth 应用，既不支持动态客户端注册，签发的 Token 也无法在本地验签。配置 `--oauth-upstream-*` 后，`ve mcp` 作为 MCP 客户端看到的授权服务器，把登录代理到该应用：
+
+```shell
+export VOLCENGINE_MCP_OAUTH_UPSTREAM_CLIENT_SECRET='replace-me'
+ve mcp --transport streamable-http --oauth \
+  --oauth-upstream-authorize-url https://github.com/login/oauth/authorize \
+  --oauth-upstream-token-url https://github.com/login/oauth/access_token \
+  --oauth-upstream-userinfo-url https://api.github.com/user \
+  --oauth-upstream-client-id <client-id> \
+  --oauth-upstream-scopes read:user \
+  --host 0.0.0.0 --port 8888 --base-url https://mcp.example.com
+```
+
+| 参数 | 环境变量 | 说明 |
+| --- | --- | --- |
+| `--oauth-upstream-authorize-url` | `VOLCENGINE_MCP_OAUTH_UPSTREAM_AUTHORIZE_URL` | 上游应用的授权地址（必填） |
+| `--oauth-upstream-token-url` | `VOLCENGINE_MCP_OAUTH_UPSTREAM_TOKEN_URL` | 上游应用的 Token 地址（必填） |
+| `--oauth-upstream-userinfo-url` | `VOLCENGINE_MCP_OAUTH_UPSTREAM_USERINFO_URL` | 用于校验 Access Token 的 Userinfo 地址（必填） |
+| `--oauth-upstream-client-id` | `VOLCENGINE_MCP_OAUTH_UPSTREAM_CLIENT_ID` | 上游应用的 Client ID（必填） |
+| - | `VOLCENGINE_MCP_OAUTH_UPSTREAM_CLIENT_SECRET` | Client Secret；不支持通过命令行参数传入 |
+| `--oauth-upstream-client-secret-file` | `VOLCENGINE_MCP_OAUTH_UPSTREAM_CLIENT_SECRET_FILE` | 保存 Client Secret 的文件，替代上面的环境变量 |
+| `--oauth-upstream-scopes` | `VOLCENGINE_MCP_OAUTH_UPSTREAM_SCOPES` | 向上游应用申请的 scope |
+| `--oauth-upstream-token-auth-method` | `VOLCENGINE_MCP_OAUTH_UPSTREAM_TOKEN_AUTH_METHOD` | `client_secret_post`（默认）或 `client_secret_basic` |
+| `--oauth-redirect-uris` | `VOLCENGINE_MCP_OAUTH_REDIRECT_URIS` | 除回环地址外允许的客户端回调地址（精确匹配） |
+| - | `VOLCENGINE_MCP_OAUTH_STATE_KEY` | 加密 state 和授权码的密钥（Base64 编码的 32 字节）；负载均衡后的所有实例需配置同一个密钥 |
+
+在上游应用中登记 `{base-url}/auth/oauth/callback` 作为回调地址。服务在 base URL 下提供 RFC 8414 元数据和以下端点：
+
+- `/auth/oauth/register`：Public Client 动态注册。注册只校验回调地址：回环地址的 `http(s)` 回调始终允许，其他地址需在 `--oauth-redirect-uris` 中列出。
+- `/auth/oauth/authorize`：要求 PKCE（`S256`），保留客户端的 `state`，并带着代理的回调地址跳转到上游。
+- `/auth/oauth/callback`：接收上游授权码，向客户端返回加密后的授权码。
+- `/auth/oauth/token`：校验 PKCE verifier 和回调地址后，使用 Client Secret 向上游换取 Token（或刷新 `refresh_token`），返回上游的 Access Token。
+
+state 和授权码都用密钥加密，代理不保存登录状态。未设置 `VOLCENGINE_MCP_OAUTH_STATE_KEY` 时每个进程使用随机密钥，重启后进行中的登录会失效。上游 Userinfo 接口接受的 Access Token 即视为有效；结果缓存 5 分钟，因此 Token 被吊销后最多仍可使用这么久。代理模式不能与 `--oauth-issuer`、`--oauth-authorization-server`、`--oauth-audience` 或 `--oauth-scopes` 同时使用。
+
+### 开发环境使用 HTTP
+
+OAuth 要求 `--base-url` 使用 HTTPS（回环地址除外）。没有 TLS 的开发机可以使用 `--oauth-allow-insecure-base-url`（或 `VOLCENGINE_MCP_OAUTH_ALLOW_INSECURE_BASE_URL=true`）接受 `http://` 的 base URL，启动时会打印警告。此时 Access Token 以明文传输，不要在生产环境使用。
+
+Protected Resource Metadata 和 OAuth 代理端点允许不带凭证的跨域请求，便于浏览器中的 MCP 客户端发现授权服务器并完成登录。
+
 支持的环境变量：
 
 ```text
@@ -282,6 +337,18 @@ VOLCENGINE_MCP_OAUTH
 VOLCENGINE_MCP_OAUTH_ISSUER
 VOLCENGINE_MCP_OAUTH_AUDIENCE
 VOLCENGINE_MCP_OAUTH_SCOPES
+VOLCENGINE_MCP_OAUTH_AUTHORIZATION_SERVER
+VOLCENGINE_MCP_OAUTH_UPSTREAM_AUTHORIZE_URL
+VOLCENGINE_MCP_OAUTH_UPSTREAM_TOKEN_URL
+VOLCENGINE_MCP_OAUTH_UPSTREAM_USERINFO_URL
+VOLCENGINE_MCP_OAUTH_UPSTREAM_CLIENT_ID
+VOLCENGINE_MCP_OAUTH_UPSTREAM_CLIENT_SECRET
+VOLCENGINE_MCP_OAUTH_UPSTREAM_CLIENT_SECRET_FILE
+VOLCENGINE_MCP_OAUTH_UPSTREAM_SCOPES
+VOLCENGINE_MCP_OAUTH_UPSTREAM_TOKEN_AUTH_METHOD
+VOLCENGINE_MCP_OAUTH_REDIRECT_URIS
+VOLCENGINE_MCP_OAUTH_STATE_KEY
+VOLCENGINE_MCP_OAUTH_ALLOW_INSECURE_BASE_URL
 VOLCENGINE_MCP_ENABLE_RUN_SCRIPT
 VOLCENGINE_SCRIPT_PYTHON
 VOLCENGINE_REGION

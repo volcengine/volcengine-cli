@@ -14,6 +14,7 @@ require (
 	github.com/spf13/cobra v1.6.1
 	github.com/volcengine/volcengine-go-sdk v1.2.46
 	golang.org/x/net v0.17.0
+	golang.org/x/sys v0.13.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -26,6 +27,5 @@ require (
 	github.com/tidwall/pretty v1.2.0 // indirect
 	github.com/volcengine/volc-sdk-golang v1.0.23 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
-	golang.org/x/sys v0.13.0 // indirect
 	gopkg.in/yaml.v2 v2.2.8 // indirect
 )
