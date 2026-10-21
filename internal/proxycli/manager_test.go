@@ -354,33 +354,33 @@ func TestEmbeddedFallbackManifestIsValid(t *testing.T) {
 	}
 	wantArkAssets := map[string]ManifestAsset{
 		"darwin-amd64": {
-			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.39/arkcli-1.0.39-darwin-amd64",
-			SHA256: "a7de0eec2db721cd19035d99c2d891a8f228d02313fb4020e941c6ad8345e809", Size: 39361632,
+			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.41/arkcli-1.0.41-darwin-amd64",
+			SHA256: "d54a0bd6338fe4be89ea27ed8e237a10887695289541f72c962fd06779324f0e", Size: 39424352,
 		},
 		"darwin-arm64": {
-			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.39/arkcli-1.0.39-darwin-arm64",
-			SHA256: "2bcb5bb92bbaf2864d6badfa665a93f247397141b21fc0c6bfd3a70eed99cacd", Size: 36783234,
+			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.41/arkcli-1.0.41-darwin-arm64",
+			SHA256: "7f13b1ed48554d1727c5c5c4e9d43f8d580f240bf9d5a9700a12d165e2627e05", Size: 36850578,
 		},
 		"linux-amd64": {
-			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.39/arkcli-1.0.39-linux-amd64",
-			SHA256: "b15c597bf3ce02ffaceb17b9c8e28a2ffabee9daf21b60aa2c900c720ef28cb2", Size: 38617250,
+			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.41/arkcli-1.0.41-linux-amd64",
+			SHA256: "bdcfa6a970cd951de1beaf0c3b8810afdb297bed058e4539b6a01ae9966447c9", Size: 38670498,
 		},
 		"linux-arm64": {
-			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.39/arkcli-1.0.39-linux-arm64",
-			SHA256: "a881be103f9493ed0ea63039af6e6c60cff037975b0e158b11f6278a3face011", Size: 35782818,
+			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.41/arkcli-1.0.41-linux-arm64",
+			SHA256: "2cb06f606bd4d2f25a05a911e13999df92c2365fe1da70d1867d9cc211d4fd96", Size: 35913890,
 		},
 		"windows-amd64": {
-			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.39/arkcli-1.0.39-windows-amd64.exe",
-			SHA256: "320377827569c3ac0ee78d8c6eaa054bfba1cae73b86b7af60e9d2ffa9408b7e", Size: 40900488,
+			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.41/arkcli-1.0.41-windows-amd64.exe",
+			SHA256: "ec1660339813f8ff06fc40c5867ea896625edc11d02db37d4c5f2b01f9b36d2f", Size: 40958344,
 		},
 		"windows-arm64": {
-			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.39/arkcli-1.0.39-windows-arm64.exe",
-			SHA256: "396dc276d81432956b6861b03bfcce98ca2ccdc2ee3eb012a6fb5a6436170ae4", Size: 37403528,
+			URL:    "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.41/arkcli-1.0.41-windows-arm64.exe",
+			SHA256: "9d396073734e705170f5b4f8e8c02d9d053bbc1e3c26aea5ec9f81595a9b94e7", Size: 37457288,
 		},
 	}
 	ark := manifest.Tools[ToolArkCLI]
-	if ark.Version != "1.0.39" {
-		t.Fatalf("embedded arkcli fallback version = %q, want 1.0.39", ark.Version)
+	if ark.Version != "1.0.41" {
+		t.Fatalf("embedded arkcli fallback version = %q, want 1.0.41", ark.Version)
 	}
 	if len(ark.Platforms) != len(wantArkAssets) {
 		t.Fatalf("embedded arkcli fallback platforms = %d, want %d", len(ark.Platforms), len(wantArkAssets))

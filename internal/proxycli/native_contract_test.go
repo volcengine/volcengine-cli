@@ -39,7 +39,7 @@ func TestNativeInventoryAndThreeFieldAssets(t *testing.T) {
 			}
 		}
 	}
-	if ready != 17 || disabled != 8 {
+	if ready != 21 || disabled != 8 {
 		t.Fatalf("ready=%d disabled=%d", ready, disabled)
 	}
 }

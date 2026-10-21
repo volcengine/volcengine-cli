@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "catalog_revision": "official-latest-20261019",
+  "catalog_revision": "official-latest-20261020",
   "min_installer_protocol": 3,
   "tools": [
     {
@@ -66,34 +66,34 @@
       "source_url": "https://docs.volcengine.com/docs/82379/2536875",
       "platforms": {
         "darwin-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.39/arkcli-1.0.39-darwin-amd64",
-          "sha256": "a7de0eec2db721cd19035d99c2d891a8f228d02313fb4020e941c6ad8345e809",
-          "size": 39361632
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.41/arkcli-1.0.41-darwin-amd64",
+          "sha256": "d54a0bd6338fe4be89ea27ed8e237a10887695289541f72c962fd06779324f0e",
+          "size": 39424352
         },
         "darwin-arm64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.39/arkcli-1.0.39-darwin-arm64",
-          "sha256": "2bcb5bb92bbaf2864d6badfa665a93f247397141b21fc0c6bfd3a70eed99cacd",
-          "size": 36783234
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.41/arkcli-1.0.41-darwin-arm64",
+          "sha256": "7f13b1ed48554d1727c5c5c4e9d43f8d580f240bf9d5a9700a12d165e2627e05",
+          "size": 36850578
         },
         "linux-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.39/arkcli-1.0.39-linux-amd64",
-          "sha256": "b15c597bf3ce02ffaceb17b9c8e28a2ffabee9daf21b60aa2c900c720ef28cb2",
-          "size": 38617250
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.41/arkcli-1.0.41-linux-amd64",
+          "sha256": "bdcfa6a970cd951de1beaf0c3b8810afdb297bed058e4539b6a01ae9966447c9",
+          "size": 38670498
         },
         "linux-arm64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.39/arkcli-1.0.39-linux-arm64",
-          "sha256": "a881be103f9493ed0ea63039af6e6c60cff037975b0e158b11f6278a3face011",
-          "size": 35782818
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.41/arkcli-1.0.41-linux-arm64",
+          "sha256": "2cb06f606bd4d2f25a05a911e13999df92c2365fe1da70d1867d9cc211d4fd96",
+          "size": 35913890
         },
         "windows-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.39/arkcli-1.0.39-windows-amd64.exe",
-          "sha256": "320377827569c3ac0ee78d8c6eaa054bfba1cae73b86b7af60e9d2ffa9408b7e",
-          "size": 40900488
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.41/arkcli-1.0.41-windows-amd64.exe",
+          "sha256": "ec1660339813f8ff06fc40c5867ea896625edc11d02db37d4c5f2b01f9b36d2f",
+          "size": 40958344
         },
         "windows-arm64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.39/arkcli-1.0.39-windows-arm64.exe",
-          "sha256": "396dc276d81432956b6861b03bfcce98ca2ccdc2ee3eb012a6fb5a6436170ae4",
-          "size": 37403528
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/arkcli/v1.0.41/arkcli-1.0.41-windows-arm64.exe",
+          "sha256": "9d396073734e705170f5b4f8e8c02d9d053bbc1e3c26aea5ec9f81595a9b94e7",
+          "size": 37457288
         }
       },
       "skills": {
@@ -103,7 +103,7 @@
         ]
       },
       "path_policy": "prefer",
-      "release_version": "1.0.39",
+      "release_version": "1.0.41",
       "notes": []
     },
     {
@@ -940,7 +940,7 @@
       "aliases": [],
       "description": "OpenViking 官网托管服务命令行工具",
       "readiness": "ready",
-      "release_version": "0.4.23",
+      "release_version": "0.5.1",
       "executable": "ov",
       "launch": {
         "kind": "native"
@@ -948,29 +948,29 @@
       "source_url": "https://docs.volcengine.com/docs/84313/2533512",
       "platforms": {
         "linux-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/openviking-cli/v0.4.23/openviking-cli-0.4.23-linux-amd64.zip",
-          "sha256": "32691732e7158c16cad525490c0b0f3a0c38e764d1ea938ba3d8c7a544220632",
-          "size": 5576721
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/openviking-cli/v0.5.1/openviking-cli-0.5.1-linux-amd64.zip",
+          "sha256": "496fab68824726525158f06402884443dabb4e7df10df1e735e325115ae5dd95",
+          "size": 5602456
         },
         "windows-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/openviking-cli/v0.4.23/openviking-cli-0.4.23-windows-amd64.zip",
-          "sha256": "30dd5171dd61d78de679d735d926256cb84495ed934b72dd869d845e11da2171",
-          "size": 5686632
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/openviking-cli/v0.5.1/openviking-cli-0.5.1-windows-amd64.zip",
+          "sha256": "7d8ae587e1b3383dd6dfb538fb0c724180e10d8fa8715d914c32db2b4c1704ea",
+          "size": 5748841
         },
         "darwin-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/openviking-cli/v0.4.23/openviking-cli-0.4.23-darwin-amd64.zip",
-          "sha256": "6cd4169b7b7c66fa43fc492686c4ffd77064adb2ff527fb8138012f32604149f",
-          "size": 5309248
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/openviking-cli/v0.5.1/openviking-cli-0.5.1-darwin-amd64.zip",
+          "sha256": "3c682832205ab1a38305e7b5710b08a05948f865fff008e5e3ddb40abcd7f937",
+          "size": 5361130
         },
         "linux-arm64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/openviking-cli/v0.4.23/openviking-cli-0.4.23-linux-arm64.zip",
-          "sha256": "0f98b03190c95dbd661aa640275c30cc1445778bce9d35d3c29ab83f6d99f7a8",
-          "size": 5129301
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/openviking-cli/v0.5.1/openviking-cli-0.5.1-linux-arm64.zip",
+          "sha256": "63d63d1e587ff6808d364e071317527ba03b6929b5b60ade90f9b8b2d6d273c1",
+          "size": 5185958
         },
         "darwin-arm64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/openviking-cli/v0.4.23/openviking-cli-0.4.23-darwin-arm64.zip",
-          "sha256": "f1c65eb0060f976feaba6faaa4e0e911bea4dd169a552d01178f70aa2ea0bc91",
-          "size": 4911867
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/openviking-cli/v0.5.1/openviking-cli-0.5.1-darwin-arm64.zip",
+          "sha256": "ea982a41dc1a48984a9f2a4a974b911176260c4377ea975f0532e9c9e08ac8a9",
+          "size": 4932797
         }
       },
       "skills": {
@@ -1029,6 +1029,205 @@
       "notes": [
         "内测：官网专属CLI文档未上线，source_url暂用CDN产品动态页，正式文档上线后替换。",
         "内测例外（用户确认）：安装包由 code.byted.org/vcloud-fe/volc-feishu-skill@da5bf36 volcengine-cdn/cli 经 bun 1.3.5 --compile 本地构建；x64 为 baseline 构建；暂不提供 windows-arm64。"
+      ]
+    },
+    {
+      "id": "imagexcli",
+      "command": "imagexcli",
+      "aliases": [],
+      "description": "veImageX CLI / imagexcli / 图片处理 veImageX（内测）",
+      "readiness": "ready",
+      "executable": "imagexcli",
+      "launch": {
+        "kind": "native"
+      },
+      "source_url": "https://docs.volcengine.com/docs/508/147542",
+      "platforms": {
+        "darwin-amd64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/imagexcli/v0.2.27/imagexcli-0.2.27-darwin-amd64.zip",
+          "sha256": "55084dd6f6792cc96375d044d841a8451e8dc7fccd1da1b571ba7d722d73009b",
+          "size": 24941276
+        },
+        "darwin-arm64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/imagexcli/v0.2.27/imagexcli-0.2.27-darwin-arm64.zip",
+          "sha256": "35c50757a492245443497fe8523468f09b0404c2d86a1e248adfb3608e37d5c2",
+          "size": 22482149
+        },
+        "linux-amd64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/imagexcli/v0.2.27/imagexcli-0.2.27-linux-amd64.zip",
+          "sha256": "76fdf8e72608a9cb4ed8a881eb4f7c3e5aa1017823a81e5932e6129a7dd6d127",
+          "size": 39493290
+        },
+        "linux-arm64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/imagexcli/v0.2.27/imagexcli-0.2.27-linux-arm64.zip",
+          "sha256": "879f1730bb2edbd7a429b6a9cdca719f68210425c6298a0bb054b00888450963",
+          "size": 38077893
+        },
+        "windows-amd64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/imagexcli/v0.2.27/imagexcli-0.2.27-windows-amd64.zip",
+          "sha256": "0919634b6cd8800fc139869281b3084a2ffa06494c9e0e74b0e7940fb2095b2c",
+          "size": 41136503
+        }
+      },
+      "skills": {
+        "repository": "https://github.com/volcengine/volcengine-skills",
+        "names": []
+      },
+      "path_policy": "prefer",
+      "release_version": "0.2.27",
+      "notes": [
+        "内测：专属CLI官网文档未上线，source_url暂用产品功能发布历史页，正式文档上线后替换。",
+        "内测例外（用户确认）：安装包由 code.byted.org/vcloud-fe/volc-feishu-skill@7b65565 imagex/cli 经 bun 1.3.5 --compile 本地构建；x64 为 baseline 构建；暂不提供 windows-arm64。"
+      ]
+    },
+    {
+      "id": "livecli",
+      "command": "livecli",
+      "aliases": [],
+      "description": "Live CLI / livecli / 视频直播 Live（内测）",
+      "readiness": "ready",
+      "executable": "livecli",
+      "launch": {
+        "kind": "native"
+      },
+      "source_url": "https://docs.volcengine.com/docs/6469/125530",
+      "platforms": {
+        "darwin-amd64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/livecli/v0.3.5/livecli-0.3.5-darwin-amd64.zip",
+          "sha256": "007f8cf86ccd2d6c63840b2312e05b6362503e58c8a561a815ce7d6fdcbeade0",
+          "size": 24963430
+        },
+        "darwin-arm64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/livecli/v0.3.5/livecli-0.3.5-darwin-arm64.zip",
+          "sha256": "dc86b478b8399978a4d7db9dcaad9d84ceb194364d959a25f76e07dd1fb20f8d",
+          "size": 22506054
+        },
+        "linux-amd64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/livecli/v0.3.5/livecli-0.3.5-linux-amd64.zip",
+          "sha256": "d673a3e6984b80a158e1ef2729e6a1d4751c4836751574b52ff88a477469df37",
+          "size": 39515291
+        },
+        "linux-arm64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/livecli/v0.3.5/livecli-0.3.5-linux-arm64.zip",
+          "sha256": "14a5aa3dbdf449c92e87b32f18c993053ecbc2af905c021d44ada171050d5df3",
+          "size": 38099325
+        },
+        "windows-amd64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/livecli/v0.3.5/livecli-0.3.5-windows-amd64.zip",
+          "sha256": "0dd97ca9497a02ae705ee62dadac02466364a91c35830da4fefe501b67d295d5",
+          "size": 41157995
+        }
+      },
+      "skills": {
+        "repository": "https://github.com/volcengine/volcengine-skills",
+        "names": []
+      },
+      "path_policy": "prefer",
+      "release_version": "0.3.5",
+      "notes": [
+        "内测：专属CLI官网文档未上线，source_url暂用产品功能发布历史页，正式文档上线后替换。",
+        "内测例外（用户确认）：安装包由 code.byted.org/vcloud-fe/volc-feishu-skill@7b65565 live/cli 经 bun 1.3.5 --compile 本地构建；x64 为 baseline 构建；暂不提供 windows-arm64。",
+        "构建时为源码中未提交且不可达的 lib/oauth.js、lib/credentials.js、lib/api-result.js 生成抛出 MODULE_NOT_FOUND 的占位模块（auth_type=ve-sdk 且未开启 normalizeResult 时不会加载）。"
+      ]
+    },
+    {
+      "id": "livesaascli",
+      "command": "livesaascli",
+      "aliases": [],
+      "description": "LiveSaaS CLI / livesaascli / 企业直播 LiveSaaS（内测）",
+      "readiness": "ready",
+      "executable": "livesaascli",
+      "launch": {
+        "kind": "native"
+      },
+      "source_url": "https://docs.volcengine.com/docs/3019/2155825",
+      "platforms": {
+        "darwin-amd64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/livesaascli/v1.2.0/livesaascli-1.2.0-darwin-amd64.zip",
+          "sha256": "76a66580ae8d1a2dea2297b81b8b8f5940b58fb2fb18d97987cea351093a5f30",
+          "size": 25856762
+        },
+        "darwin-arm64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/livesaascli/v1.2.0/livesaascli-1.2.0-darwin-arm64.zip",
+          "sha256": "c49f62c47b4e0786a473e280ef660b260993eb7c0d3bd9aec1b984584f35567f",
+          "size": 23432036
+        },
+        "linux-amd64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/livesaascli/v1.2.0/livesaascli-1.2.0-linux-amd64.zip",
+          "sha256": "e74fec02e7f09a67292a0a8a0069847dc2a35e22333aef474e0f55879cb99726",
+          "size": 40408706
+        },
+        "linux-arm64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/livesaascli/v1.2.0/livesaascli-1.2.0-linux-arm64.zip",
+          "sha256": "b09919d89cfb7ee658f6c5b1ff84382234f7c73ac964d4d9924056eb3c520c4c",
+          "size": 38993886
+        },
+        "windows-amd64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/livesaascli/v1.2.0/livesaascli-1.2.0-windows-amd64.zip",
+          "sha256": "0d94a4f7e0cc0a3aeac758498a2b3cf679faf9fa2bea3772e4c4953313f5005e",
+          "size": 42052059
+        }
+      },
+      "skills": {
+        "repository": "https://github.com/volcengine/volcengine-skills",
+        "names": []
+      },
+      "path_policy": "prefer",
+      "release_version": "1.2.0",
+      "notes": [
+        "内测：专属CLI官网文档未上线，source_url暂用产品功能发布历史页，正式文档上线后替换。",
+        "内测例外（用户确认）：安装包由 code.byted.org/vcloud-fe/volc-feishu-skill@7b65565 livesaas/cli 经 bun 1.3.5 --compile 本地构建；x64 为 baseline 构建；暂不提供 windows-arm64。",
+        "构建时将运行时按 __dirname 读取的 openapi/affordance 数据改为内置模块，jq 改用 jq-wasm/inline；编译版的可写目录（viewer customConfig.json）位于 ~/.livesaascli。"
+      ]
+    },
+    {
+      "id": "vodcli",
+      "command": "vodcli",
+      "aliases": [],
+      "description": "VOD CLI / vodcli / 视频点播 VOD（内测）",
+      "readiness": "ready",
+      "executable": "vodcli",
+      "launch": {
+        "kind": "native"
+      },
+      "source_url": "https://docs.volcengine.com/docs/4/2173212",
+      "platforms": {
+        "darwin-amd64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/vodcli/v0.1.16/vodcli-0.1.16-darwin-amd64.zip",
+          "sha256": "18d359d37ecd628b7902ade7b93db4fe81333926e0a30983ff2a005b14fcfa82",
+          "size": 24838658
+        },
+        "darwin-arm64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/vodcli/v0.1.16/vodcli-0.1.16-darwin-arm64.zip",
+          "sha256": "0b3cff28e024e98fcf2fb93a0bdc15b6d67997e7adf11f541a128705a14b5774",
+          "size": 22366202
+        },
+        "linux-amd64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/vodcli/v0.1.16/vodcli-0.1.16-linux-amd64.zip",
+          "sha256": "b606f66345c418cba3645889e507ba2458a49ce492c31ab502ab9aba89cc1bf7",
+          "size": 39390460
+        },
+        "linux-arm64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/vodcli/v0.1.16/vodcli-0.1.16-linux-arm64.zip",
+          "sha256": "4044a53d72a8fba9d01014a70cf844b4fee1a44604dfac2ad6f61b1a88c586dc",
+          "size": 37974634
+        },
+        "windows-amd64": {
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/vodcli/v0.1.16/vodcli-0.1.16-windows-amd64.zip",
+          "sha256": "027dc4f459200b235ccdbee23c08a8f0269dfb7e92ebd72ffef15a75e03deef7",
+          "size": 41033425
+        }
+      },
+      "skills": {
+        "repository": "https://github.com/volcengine/volcengine-skills",
+        "names": []
+      },
+      "path_policy": "prefer",
+      "release_version": "0.1.16",
+      "notes": [
+        "内测：专属CLI官网文档未上线，source_url暂用产品功能发布历史页，正式文档上线后替换。",
+        "内测例外（用户确认）：安装包由 code.byted.org/vcloud-fe/volc-feishu-skill@7b65565 vod/cli 经 bun 1.3.5 --compile 本地构建；x64 为 baseline 构建；暂不提供 windows-arm64。",
+        "构建时为源码中未提交且不可达的 lib/oauth.js、lib/credentials.js、lib/api-result.js 生成抛出 MODULE_NOT_FOUND 的占位模块（auth_type=ve-sdk 且未开启 normalizeResult 时不会加载）。"
       ]
     }
   ]
