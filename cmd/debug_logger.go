@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -362,20 +363,58 @@ func isSensitiveDebugKey(key string) bool {
 // Treat apostrophes as query data, preferring to over-redact any outer single quotes.
 var sensitiveQueryParamPattern = regexp.MustCompile(`([?&])([^=&\s"#]+)=([^&\s"#]*)`)
 
+// %q 的反斜杠转义对属于 URL 内容，只有未转义的双引号才结束整个 URL。
+var quotedQueryURLPattern = regexp.MustCompile(`(?i)"https?://(?:\\.|[^"\\])*"`)
+
 // redactSensitiveText 脱敏错误文本中 URL query 携带的敏感参数值。
 // key 先做 URL 解码再按 isSensitiveDebugKey 判断，因此大小写、编码和重复参数都会被统一替换。
 func redactSensitiveText(text string) string {
-	return sensitiveQueryParamPattern.ReplaceAllStringFunc(text, func(pair string) string {
-		m := sensitiveQueryParamPattern.FindStringSubmatch(pair)
-		key := m[2]
-		if unescaped, err := url.QueryUnescape(key); err == nil {
-			key = unescaped
+	// 仅在完整引用 URL 内使用：空白和转义双引号不再截断 query 参数值。
+	text = quotedQueryURLPattern.ReplaceAllStringFunc(text, func(quoted string) string {
+		raw, err := strconv.Unquote(quoted)
+		if err != nil {
+			return quoted
 		}
-		if !isSensitiveDebugKey(key) {
-			return pair
+		start := strings.IndexByte(raw, '?')
+		if start < 0 {
+			return quoted
 		}
-		return m[1] + m[2] + "=" + maskedDebugValue
+		end := strings.IndexByte(raw, '#')
+		if end < 0 {
+			end = len(raw)
+		}
+		if end < start {
+			return quoted
+		}
+		pairs := strings.Split(raw[start+1:end], "&")
+		for i, pair := range pairs {
+			pairs[i] = redactSensitiveQueryPair(pair)
+		}
+		redacted := raw[:start+1] + strings.Join(pairs, "&") + raw[end:]
+		if redacted == raw {
+			return quoted
+		}
+		return strconv.Quote(redacted)
 	})
+
+	return sensitiveQueryParamPattern.ReplaceAllStringFunc(text, func(pair string) string {
+		return pair[:1] + redactSensitiveQueryPair(pair[1:])
+	})
+}
+
+func redactSensitiveQueryPair(pair string) string {
+	separator := strings.IndexByte(pair, '=')
+	if separator < 0 {
+		return pair
+	}
+	key := pair[:separator]
+	if unescaped, err := url.QueryUnescape(key); err == nil {
+		key = unescaped
+	}
+	if !isSensitiveDebugKey(key) {
+		return pair
+	}
+	return pair[:separator+1] + maskedDebugValue
 }
 
 // redactedError 只替换对外展示的错误文本，并通过 Unwrap 保留原始错误链。

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -28,6 +29,8 @@ func TestRedactSensitiveTextValidation(t *testing.T) {
 		{"repeated", "SessionToken='<REDACTED_A>&SessionToken=<REDACTED_B>'<REDACTED_C>", 2},
 		{"quoted_key", "Session'Token=<REDACTED_A>", 1},
 		{"short_keys", "AK='<REDACTED_A>&sK=<REDACTED_B>'&Pwd=<REDACTED_C>", 3},
+		{"escaped_double_quote", "Password=<REDACTED_A>\\\"<REDACTED_B>", 1},
+		{"space", "Password=<REDACTED_A> <REDACTED_B>", 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			raw := `Get "https://example.invalid/?` + tc.query + `&Action=Inspect&TaskId=public'Task&Version=v1": transport stopped`
@@ -54,6 +57,53 @@ func TestRedactSensitiveTextValidation(t *testing.T) {
 		got := redactSensitiveText("Get 'https://example.invalid/?Action=Inspect&SessionToken='<REDACTED_A>': transport stopped")
 		assertSafeQueryError(t, got)
 	})
+	t.Run("quoted_url_contexts", func(t *testing.T) {
+		for _, value := range []string{
+			"<REDACTED_A> <REDACTED_B>", "<REDACTED_A>\"<REDACTED_B>",
+			"<REDACTED_A>\\\"<REDACTED_B>", "<REDACTED_A>'<REDACTED_B>",
+			"<REDACTED_A>\\<REDACTED_B>", "<REDACTED_A>\t<REDACTED_B>",
+		} {
+			address := "https://example.invalid/?Action=Inspect&Password=" + value + "&TaskId=public"
+			raw := "request failed: Get " + strconv.Quote(address) + ": transport stopped"
+			got := redactSensitiveText(raw)
+			want := "request failed: Get " + strconv.Quote("https://example.invalid/?Action=Inspect&Password="+maskedDebugValue+"&TaskId=public") + ": transport stopped"
+			if got != want {
+				t.Fatal("quoted URL redaction changed context or exposed a value")
+			}
+			if redactSensitiveText(got) != got {
+				t.Fatal("quoted redaction is not idempotent")
+			}
+		}
+	})
+	t.Run("multiple_urls", func(t *testing.T) {
+		first := "https://example.invalid/?Action=Inspect&Password=<REDACTED_A> <REDACTED_B>"
+		second := "https://example.invalid/?TaskId=public&SessionToken=<REDACTED_C>\"<REDACTED_D>"
+		raw := "Get " + strconv.Quote(first) + ": redirect " + strconv.Quote(second) + ": transport stopped"
+		want := "Get " + strconv.Quote("https://example.invalid/?Action=Inspect&Password="+maskedDebugValue) + ": redirect " + strconv.Quote("https://example.invalid/?TaskId=public&SessionToken="+maskedDebugValue) + ": transport stopped"
+		if redactSensitiveText(raw) != want {
+			t.Fatal("multiple URL redaction lost boundaries")
+		}
+	})
+	t.Run("non_sensitive_quoted_url", func(t *testing.T) {
+		raw := "Get " + strconv.Quote("https://example.invalid/?Action=Inspect&TaskId=public \"label\"") + ": transport stopped"
+		if redactSensitiveText(raw) != raw {
+			t.Fatal("non-sensitive quoted URL changed")
+		}
+	})
+	t.Run("query_boundaries", func(t *testing.T) {
+		for _, tc := range []struct{ input, want string }{
+			{"https://example.invalid/path", "https://example.invalid/path"},
+			{"https://example.invalid/path?Action=Inspect#section", "https://example.invalid/path?Action=Inspect#section"},
+			{"https://example.invalid/path#section?Action=Inspect", "https://example.invalid/path#section?Action=Inspect"},
+			{"https://example.invalid/?Action=Inspect&flag&Session%54oken=<REDACTED_A> <REDACTED_B>#section", "https://example.invalid/?Action=Inspect&flag&Session%54oken=" + maskedDebugValue + "#section"},
+			{`HTTPS://example.invalid/?pAsSwOrD=<REDACTED_A>\"<REDACTED_B>&TaskId=public`, "HTTPS://example.invalid/?pAsSwOrD=" + maskedDebugValue + "&TaskId=public"},
+		} {
+			input, want := "Get "+strconv.Quote(tc.input)+": transport stopped", "Get "+strconv.Quote(tc.want)+": transport stopped"
+			if redactSensitiveText(input) != want {
+				t.Fatal("query boundary or literal parameter changed")
+			}
+		}
+	})
 }
 
 func assertSafeQueryError(t *testing.T, got string) {
@@ -78,6 +128,11 @@ func TestRedirectErrorOutputValidation(t *testing.T) {
 		{"leading", "SessionToken='%3CREDACTED_A%3E"},
 		{"middle", "SessionToken=%3CREDACTED_A%3E'%3CREDACTED_B%3E"},
 		{"encoded_repeated", "Session%54oken=%27%3CREDACTED_A%3E&sEsSiOnToKeN=%3CREDACTED_B%3E"},
+		{"double_quote", "Password=%3CREDACTED_A%3E\"%3CREDACTED_B%3E"},
+		{"space", "Password=%3CREDACTED_A%3E %3CREDACTED_B%3E"},
+		{"backslash_quote", "Password=%3CREDACTED_A%3E\\\"%3CREDACTED_B%3E"},
+		{"encoded_quote", "Password=%3CREDACTED_A%3E%22%3CREDACTED_B%3E"},
+		{"quoted_repeated", "Password=%3CREDACTED_A%3E\"%3CREDACTED_B%3E&Session%54oken=%3CREDACTED_C%3E %3CREDACTED_D%3E"},
 	} {
 		t.Run(query.name, func(t *testing.T) {
 			cause := errors.New("transport stopped")

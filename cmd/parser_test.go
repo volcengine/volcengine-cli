@@ -385,6 +385,7 @@ func TestParserAcceptsPEMValuesStartingWithHyphens(t *testing.T) {
 func TestParserTreatsHyphenPrefixedNonFlagTokensAsValues(t *testing.T) {
 	parser := NewParser([]string{
 		"--SingleHyphen", "-value",
+		"--DoubleHyphen", "--value",
 		"--TripleHyphen", "---value",
 		"--FourHyphens", "----value",
 		"--FiveHyphens", "-----value",
@@ -399,6 +400,7 @@ func TestParserTreatsHyphenPrefixedNonFlagTokensAsValues(t *testing.T) {
 
 	for name, want := range map[string]string{
 		"SingleHyphen": "-value",
+		"DoubleHyphen": "--value",
 		"TripleHyphen": "---value",
 		"FourHyphens":  "----value",
 		"FiveHyphens":  "-----value",
@@ -582,22 +584,26 @@ func TestParserRejectsEqualsSyntaxInPairedMode(t *testing.T) {
 	}
 }
 
-// PARSER-FLAG-AS-VALUE: a flag in value position reports the previous flag as missing a value.
-func TestParserRejectsFlagInPairedValuePosition(t *testing.T) {
+// Paired values preserve the original literal-value contract. Incomplete
+// pairs still use the legacy missing-value diagnostics.
+func TestParserPairedValueCompatibility(t *testing.T) {
 	tests := []struct {
-		name    string
-		args    []string
-		wantErr string
+		name      string
+		args      []string
+		wantErr   string
+		wantName  string
+		wantValue string
+		fixed     bool
 	}{
 		{
-			name:    "dynamic flag before dynamic flag",
-			args:    []string{"--Name", "--Other"},
-			wantErr: "--Name must set value.",
+			name:     "dynamic flag before dynamic flag",
+			args:     []string{"--Name", "--Other"},
+			wantName: "Name", wantValue: "--Other",
 		},
 		{
-			name:    "dynamic flag before equals-style token",
-			args:    []string{"--Description", "--A=1"},
-			wantErr: "--Description must set value.",
+			name:     "dynamic flag before equals-style token",
+			args:     []string{"--Description", "--A=1"},
+			wantName: "Description", wantValue: "--A=1",
 		},
 		{
 			name:    "dynamic flag before fixed flag",
@@ -605,15 +611,30 @@ func TestParserRejectsFlagInPairedValuePosition(t *testing.T) {
 			wantErr: "--Name must set value.",
 		},
 		{
-			name:    "fixed flag before dynamic flag",
-			args:    []string{"---profile", "--Foo"},
-			wantErr: "---profile must set value.",
+			name:     "fixed flag before dynamic flag",
+			args:     []string{"---profile", "--Foo"},
+			wantName: "profile", wantValue: "--Foo", fixed: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewParser(tt.args).ReadArgs(NewContext())
+			c := NewContext()
+			_, err := NewParser(tt.args).ReadArgs(c)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("literal value rejected: %v", err)
+				}
+				flags := c.dynamicFlags
+				if tt.fixed {
+					flags = c.fixedFlags
+				}
+				f := flags.GetByName(tt.wantName)
+				if f == nil || f.GetValue() != tt.wantValue {
+					t.Fatalf("literal value was not preserved for %s", tt.wantName)
+				}
+				return
+			}
 			if err == nil {
 				t.Fatal("expected error, got nil")
 			}
@@ -655,5 +676,30 @@ func TestParserReadArgsRejectsInvalidContext(t *testing.T) {
 				t.Fatalf("error = %q, want to contain %q", err.Error(), "invalid context")
 			}
 		})
+	}
+}
+
+// Validate the complete parser-to-request boundary, not just stored flag values.
+func TestParserLiteralValuesReachRequest(t *testing.T) {
+	for _, value := range []string{"--value", "--A=1", "--yes", "-y", "", "-1", "-----BEGIN <REDACTED>"} {
+		for _, jsonBody := range []bool{false, true} {
+			t.Run(value+map[bool]string{true: "/json", false: "/query"}[jsonBody], func(t *testing.T) {
+				c := NewContext()
+				if _, err := NewParser([]string{"--Description", value, "--Name", "ordinary"}).ReadArgs(c); err != nil {
+					t.Fatalf("literal argument rejected: %v", err)
+				}
+				if len(c.fixedFlags.flags) != 0 {
+					t.Fatal("literal value activated a system flag")
+				}
+				input, fromBody, err := buildActionInput(c.dynamicFlags.flags, nil, jsonBody)
+				if err != nil || fromBody {
+					t.Fatal("literal input did not reach flattened request path")
+				}
+				m, ok := input.(map[string]interface{})
+				if !ok || len(m) != 2 || m["Description"] != value || m["Name"] != "ordinary" {
+					t.Fatal("literal request value changed")
+				}
+			})
+		}
 	}
 }
