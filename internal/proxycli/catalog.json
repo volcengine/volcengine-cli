@@ -1026,9 +1026,7 @@
       },
       "path_policy": "prefer",
       "release_version": "0.1.2",
-      "notes": [
-        "内测例外（用户确认）：安装包由 code.byted.org/vcloud-fe/volc-feishu-skill@72ff26e cdn/cli 经 bun 1.3.5 --compile 本地构建；x64 为 baseline 构建；暂不提供 windows-arm64。"
-      ]
+      "notes": []
     },
     {
       "id": "imagexcli",
@@ -1074,9 +1072,7 @@
       },
       "path_policy": "prefer",
       "release_version": "0.2.28",
-      "notes": [
-        "内测例外（用户确认）：安装包由 code.byted.org/vcloud-fe/volc-feishu-skill@72ff26e imagex/cli 经 bun 1.3.5 --compile 本地构建；x64 为 baseline 构建；暂不提供 windows-arm64。"
-      ]
+      "notes": []
     },
     {
       "id": "livecli",
@@ -1122,10 +1118,7 @@
       },
       "path_policy": "prefer",
       "release_version": "0.3.6",
-      "notes": [
-        "内测例外（用户确认）：安装包由 code.byted.org/vcloud-fe/volc-feishu-skill@72ff26e live/cli 经 bun 1.3.5 --compile 本地构建；x64 为 baseline 构建；暂不提供 windows-arm64。",
-        "构建时为源码中未提交且不可达的 lib/oauth.js、lib/credentials.js、lib/api-result.js 生成抛出 MODULE_NOT_FOUND 的占位模块（auth_type=ve-sdk 且未开启 normalizeResult 时不会加载）。"
-      ]
+      "notes": []
     },
     {
       "id": "livesaascli",
@@ -1171,10 +1164,7 @@
       },
       "path_policy": "prefer",
       "release_version": "1.2.2",
-      "notes": [
-        "内测例外（用户确认）：安装包由 code.byted.org/vcloud-fe/volc-feishu-skill@72ff26e livesaas/cli 经 bun 1.3.5 --compile 本地构建；x64 为 baseline 构建；暂不提供 windows-arm64。",
-        "构建时将运行时按 __dirname 读取的 openapi/affordance 数据改为内置模块，jq 改用 jq-wasm/inline；编译版的可写目录（viewer customConfig.json）位于 ~/.livesaascli。"
-      ]
+      "notes": []
     },
     {
       "id": "vodcli",
@@ -1220,10 +1210,7 @@
       },
       "path_policy": "prefer",
       "release_version": "0.1.17",
-      "notes": [
-        "内测例外（用户确认）：安装包由 code.byted.org/vcloud-fe/volc-feishu-skill@72ff26e vod/cli 经 bun 1.3.5 --compile 本地构建；x64 为 baseline 构建；暂不提供 windows-arm64。",
-        "构建时为源码中未提交且不可达的 lib/oauth.js、lib/credentials.js、lib/api-result.js 生成抛出 MODULE_NOT_FOUND 的占位模块（auth_type=ve-sdk 且未开启 normalizeResult 时不会加载）。"
-      ]
+      "notes": []
     }
   ]
 }
