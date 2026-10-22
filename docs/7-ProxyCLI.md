@@ -109,11 +109,11 @@ Each product CLI covers its own specialized scenarios. Consult its official docu
 | Observability and troubleshooting: VeOps | veops-cli | `ve veops-cli version` | [Official documentation](https://docs.volcengine.com/docs/86845/2563136) |
 | Localization: Starling | starling | `ve starling --help` | [Official documentation](https://docs.volcengine.com/docs/4640/2122756) |
 | OpenViking | ov | `ve ov --version` | [Official documentation](https://docs.volcengine.com/docs/84313/2533512) |
-| Content Delivery Network CDN (beta) | cdncli | `ve cdncli -V` | [Official documentation](https://docs.volcengine.com/docs/Informationdeliverynetwork/Productdynamics) |
-| Image Processing veImageX (beta) | imagexcli | `ve imagexcli --version` | [Official documentation](https://docs.volcengine.com/docs/508/147542) |
-| Live Streaming (beta) | livecli | `ve livecli --version` | [Official documentation](https://docs.volcengine.com/docs/6469/125530) |
-| Enterprise Live Streaming LiveSaaS (beta) | livesaascli | `ve livesaascli -V` | [Official documentation](https://docs.volcengine.com/docs/3019/2155825) |
-| Video on Demand VOD (beta) | vodcli | `ve vodcli --version` | [Official documentation](https://docs.volcengine.com/docs/4/2173212) |
+| Content Delivery Network CDN (beta) | cdncli | `ve cdncli -V` | [Official documentation](https://docs.volcengine.com/docs/Informationdeliverynetwork/APIList-15?lang=zh) |
+| Image Processing veImageX (beta) | imagexcli | `ve imagexcli --version` | [Official documentation](https://docs.volcengine.com/docs/veImageX/Callmethod-8?lang=zh) |
+| Live Streaming (beta) | livecli | `ve livecli --version` | [Official documentation](https://docs.volcengine.com/docs/VideoLIVE/APIList-11?lang=zh) |
+| Enterprise Live Streaming LiveSaaS (beta) | livesaascli | `ve livesaascli -V` | [Official documentation](https://docs.volcengine.com/docs/EnterpriseLIVE/APIOverview-9?lang=zh) |
+| Video on Demand VOD (beta) | vodcli | `ve vodcli --version` | [Official documentation](https://docs.volcengine.com/docs/video_on_demand/APIList-6?lang=zh) |
 
 TOS uses `help` for help; Milvus, Viking, and VeOps use `version` for version information. On first use of OpenViking, run `ve ov language en` before requesting help. Starling currently provides amd64 binaries; platform support depends on the product and your VE build.
 

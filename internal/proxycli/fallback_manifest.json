@@ -231,37 +231,37 @@
       }
     },
     "byted-supabase-cli": {
-      "version": "0.1.34",
+      "version": "0.1.36",
       "platforms": {
         "linux-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/byted-supabase-cli/v0.1.34/byted-supabase-cli-0.1.34-linux-amd64.zip",
-          "sha256": "16b941d9d5dde1c50ff5b15c656311c3e46d3b7522582971ea510eee623cb59b",
-          "size": 17289548
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/byted-supabase-cli/v0.1.36/byted-supabase-cli-0.1.36-linux-amd64.zip",
+          "sha256": "cd3e78c4752ea4a250654d72b4e4ca4e9d529cb18dbb564235cbe36435578dbe",
+          "size": 17289634
         },
         "windows-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/byted-supabase-cli/v0.1.34/byted-supabase-cli-0.1.34-windows-amd64.zip",
-          "sha256": "f6bc1c90e677aaff888caf06f33c0181d75f012bf8915181b682dbc2311c8aad",
-          "size": 17627087
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/byted-supabase-cli/v0.1.36/byted-supabase-cli-0.1.36-windows-amd64.zip",
+          "sha256": "204f90f03edb0665ba314bad025e1bb766ec7f9f5ad67f0fd3e32fb65c95aad5",
+          "size": 17627009
         },
         "darwin-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/byted-supabase-cli/v0.1.34/byted-supabase-cli-0.1.34-darwin-amd64.zip",
-          "sha256": "3653cec4adf5f3a3b8dfe3478a92ddb255e185a5a775b3cb462dcfdac11a2c7f",
-          "size": 17552024
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/byted-supabase-cli/v0.1.36/byted-supabase-cli-0.1.36-darwin-amd64.zip",
+          "sha256": "3ea67170ce4a702e5a7c1d6ca42576b136514788f19d9fd2c2ca385afa1b1fc4",
+          "size": 17551760
         },
         "linux-arm64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/byted-supabase-cli/v0.1.34/byted-supabase-cli-0.1.34-linux-arm64.zip",
-          "sha256": "74c0b7bf9e575fd8281375b01f34f0813a22a43b9997c85f914b7c8190613c7a",
-          "size": 15735335
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/byted-supabase-cli/v0.1.36/byted-supabase-cli-0.1.36-linux-arm64.zip",
+          "sha256": "b07bb034ef0accc54a25f77f0f8d18b99790b4cbed6d32d00de7f77fcf95cbf6",
+          "size": 15735103
         },
         "windows-arm64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/byted-supabase-cli/v0.1.34/byted-supabase-cli-0.1.34-windows-arm64.zip",
-          "sha256": "cdcb685c39686e0e61056e92e43c54181fdeb1f932e09fe0b08e875ce63ec0f4",
-          "size": 15825869
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/byted-supabase-cli/v0.1.36/byted-supabase-cli-0.1.36-windows-arm64.zip",
+          "sha256": "5afd0d1a3e13cf6628fc0a928c19fc07d5c25fe9d28eda13672cc6d274ff53c4",
+          "size": 15826043
         },
         "darwin-arm64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/byted-supabase-cli/v0.1.34/byted-supabase-cli-0.1.34-darwin-arm64.zip",
-          "sha256": "fc135f0e4a707c326d57d46af1ee8e5481b4dc2217ff26292ad4bf82c4d8bdba",
-          "size": 16394816
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/byted-supabase-cli/v0.1.36/byted-supabase-cli-0.1.36-darwin-arm64.zip",
+          "sha256": "4663986031a2984c403ac29b284cfcf13e898859b3185418c31a35eecabed400",
+          "size": 16394741
         }
       }
     },
@@ -501,152 +501,152 @@
       }
     },
     "cdncli": {
-      "version": "0.1.1",
+      "version": "0.1.2",
       "platforms": {
         "darwin-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/cdncli/v0.1.1/cdncli-0.1.1-darwin-amd64.zip",
-          "sha256": "2a19e3e600ef8a0c7e9078129536ea3e439ab835631950e34bc4dae064e9e19b",
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/cdncli/v0.1.2/cdncli-0.1.2-darwin-amd64.zip",
+          "sha256": "617a001def24d26c341d549aefe140ac6c5a66abdf79f9748bb4bf6060774fdc",
           "size": 24908086
         },
         "darwin-arm64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/cdncli/v0.1.1/cdncli-0.1.1-darwin-arm64.zip",
-          "sha256": "ee67ee4986364e223e5073ea1b0f3e403e3af5b5597d21ec952ffec36d4ed34c",
-          "size": 22436598
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/cdncli/v0.1.2/cdncli-0.1.2-darwin-arm64.zip",
+          "sha256": "e1b16da158995d54338ef89cdc05a627c960f1b75eccfa9850ba8c0105ecf7dc",
+          "size": 22436599
         },
         "linux-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/cdncli/v0.1.1/cdncli-0.1.1-linux-amd64.zip",
-          "sha256": "2836b2e0755aec3a49af4e9bf818c93981ac63e100b28ac59b149e07aebbbbd6",
-          "size": 39459827
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/cdncli/v0.1.2/cdncli-0.1.2-linux-amd64.zip",
+          "sha256": "52b2bec717074ac2ba802307a9d69a805d8f9d9199ca6531605ff1396dfc7bb5",
+          "size": 39459828
         },
         "linux-arm64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/cdncli/v0.1.1/cdncli-0.1.1-linux-arm64.zip",
-          "sha256": "e843362a8fba9a49de6ddfb3da62d5b7d3f4d86d93611e580e186641052fcbac",
-          "size": 38043688
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/cdncli/v0.1.2/cdncli-0.1.2-linux-arm64.zip",
+          "sha256": "369eb89bd531523d2c0bbd464b5ae26fa96900f14775e9aec1ae610f5c12a409",
+          "size": 38043689
         },
         "windows-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/cdncli/v0.1.1/cdncli-0.1.1-windows-amd64.zip",
-          "sha256": "42cbfcec11a336f1b534c8aa6b8b8a8b84f8ede373f221926100ff0aa1b96ff7",
-          "size": 41102580
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/cdncli/v0.1.2/cdncli-0.1.2-windows-amd64.zip",
+          "sha256": "c27f2231ca3c650c29b347e9158c85a85856d05279a4bb6b73e57365bfeddcdd",
+          "size": 41102581
         }
       }
     },
     "imagexcli": {
-      "version": "0.2.27",
+      "version": "0.2.28",
       "platforms": {
         "darwin-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/imagexcli/v0.2.27/imagexcli-0.2.27-darwin-amd64.zip",
-          "sha256": "55084dd6f6792cc96375d044d841a8451e8dc7fccd1da1b571ba7d722d73009b",
-          "size": 24941276
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/imagexcli/v0.2.28/imagexcli-0.2.28-darwin-amd64.zip",
+          "sha256": "b93c0c67bcbf75cb9470d11464d96993fdc2cca18e6f90c29cec10b6ac183759",
+          "size": 24941273
         },
         "darwin-arm64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/imagexcli/v0.2.27/imagexcli-0.2.27-darwin-arm64.zip",
-          "sha256": "35c50757a492245443497fe8523468f09b0404c2d86a1e248adfb3608e37d5c2",
-          "size": 22482149
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/imagexcli/v0.2.28/imagexcli-0.2.28-darwin-arm64.zip",
+          "sha256": "3c345886f90db7d3c7072c6bd95ff167d224b479c9f2f972a0259a0314451fe4",
+          "size": 22482144
         },
         "linux-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/imagexcli/v0.2.27/imagexcli-0.2.27-linux-amd64.zip",
-          "sha256": "76fdf8e72608a9cb4ed8a881eb4f7c3e5aa1017823a81e5932e6129a7dd6d127",
-          "size": 39493290
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/imagexcli/v0.2.28/imagexcli-0.2.28-linux-amd64.zip",
+          "sha256": "4f5c15b9b3a4352504404ded1b720adb3ebc9e4c451170d6ad4a1ac1ff8b6114",
+          "size": 39493288
         },
         "linux-arm64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/imagexcli/v0.2.27/imagexcli-0.2.27-linux-arm64.zip",
-          "sha256": "879f1730bb2edbd7a429b6a9cdca719f68210425c6298a0bb054b00888450963",
-          "size": 38077893
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/imagexcli/v0.2.28/imagexcli-0.2.28-linux-arm64.zip",
+          "sha256": "12962c0e28552c44db8f01136bf655c0292dec9182f7cfa3ecc73cc14444dba6",
+          "size": 38077892
         },
         "windows-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/imagexcli/v0.2.27/imagexcli-0.2.27-windows-amd64.zip",
-          "sha256": "0919634b6cd8800fc139869281b3084a2ffa06494c9e0e74b0e7940fb2095b2c",
-          "size": 41136503
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/imagexcli/v0.2.28/imagexcli-0.2.28-windows-amd64.zip",
+          "sha256": "25db61f9ce555f96f6a21d065aebd6b87cde377ea152ed6b346a96753ee88243",
+          "size": 41136496
         }
       }
     },
     "livecli": {
-      "version": "0.3.5",
+      "version": "0.3.6",
       "platforms": {
         "darwin-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/livecli/v0.3.5/livecli-0.3.5-darwin-amd64.zip",
-          "sha256": "007f8cf86ccd2d6c63840b2312e05b6362503e58c8a561a815ce7d6fdcbeade0",
-          "size": 24963430
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/livecli/v0.3.6/livecli-0.3.6-darwin-amd64.zip",
+          "sha256": "b313f17a926c59cee0ef2bbdeced3789fe30ea16347dacb6bfcc512cd3895899",
+          "size": 24963453
         },
         "darwin-arm64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/livecli/v0.3.5/livecli-0.3.5-darwin-arm64.zip",
-          "sha256": "dc86b478b8399978a4d7db9dcaad9d84ceb194364d959a25f76e07dd1fb20f8d",
-          "size": 22506054
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/livecli/v0.3.6/livecli-0.3.6-darwin-arm64.zip",
+          "sha256": "ca6970d5aee18b2ea23b52aa66497f5b8d41c924184d3a43ae1ae6eda2201b68",
+          "size": 22506062
         },
         "linux-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/livecli/v0.3.5/livecli-0.3.5-linux-amd64.zip",
-          "sha256": "d673a3e6984b80a158e1ef2729e6a1d4751c4836751574b52ff88a477469df37",
-          "size": 39515291
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/livecli/v0.3.6/livecli-0.3.6-linux-amd64.zip",
+          "sha256": "06fa0cb237ad93ae79f090179d0416f172404c739be751a76661bcc5ab563116",
+          "size": 39515311
         },
         "linux-arm64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/livecli/v0.3.5/livecli-0.3.5-linux-arm64.zip",
-          "sha256": "14a5aa3dbdf449c92e87b32f18c993053ecbc2af905c021d44ada171050d5df3",
-          "size": 38099325
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/livecli/v0.3.6/livecli-0.3.6-linux-arm64.zip",
+          "sha256": "1efe5c2c88004e792e9fea97f270421609587dcfe266f46b0dc0bd2cffd95ed8",
+          "size": 38099342
         },
         "windows-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/livecli/v0.3.5/livecli-0.3.5-windows-amd64.zip",
-          "sha256": "0dd97ca9497a02ae705ee62dadac02466364a91c35830da4fefe501b67d295d5",
-          "size": 41157995
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/livecli/v0.3.6/livecli-0.3.6-windows-amd64.zip",
+          "sha256": "8a1774365ee9ebfb7909433cf3395a681e197189cd3c7bea234e97b94a109a18",
+          "size": 41158021
         }
       }
     },
     "livesaascli": {
-      "version": "1.2.1",
+      "version": "1.2.2",
       "platforms": {
         "darwin-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/livesaascli/v1.2.1/livesaascli-1.2.1-darwin-amd64.zip",
-          "sha256": "7aee42d1d0a80f43e098dbc5e3711eb3e7f4479b2fbaf90d1b9177aa796f9431",
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/livesaascli/v1.2.2/livesaascli-1.2.2-darwin-amd64.zip",
+          "sha256": "99b3062be3d68a4fabc2f8de6474cdffec7b265d9275e68adcde1334eeb1c74b",
           "size": 25870405
         },
         "darwin-arm64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/livesaascli/v1.2.1/livesaascli-1.2.1-darwin-arm64.zip",
-          "sha256": "ee52c9667a57785b47faddc92cafcf7edd65635e1bfaf55d80943c3606c5546c",
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/livesaascli/v1.2.2/livesaascli-1.2.2-darwin-arm64.zip",
+          "sha256": "6700ad619042eb0560dd1bd45a7bb57359bafe2701570c2433fc93271afcb926",
           "size": 23443876
         },
         "linux-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/livesaascli/v1.2.1/livesaascli-1.2.1-linux-amd64.zip",
-          "sha256": "3ad070c25a5123aa46bc1883f58cc4718401c2748dc2ea7f986d0a4201ce7a8b",
-          "size": 40421539
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/livesaascli/v1.2.2/livesaascli-1.2.2-linux-amd64.zip",
+          "sha256": "d2c54b5c25d0b4fd38a557547bd7aaed4c2c26919972865e2a95df370671e26d",
+          "size": 40421540
         },
         "linux-arm64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/livesaascli/v1.2.1/livesaascli-1.2.1-linux-arm64.zip",
-          "sha256": "81ea7f7346b98f7925c79e7d3ddaff466b384bb7db232fec59a4f84ac706aa40",
-          "size": 39002702
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/livesaascli/v1.2.2/livesaascli-1.2.2-linux-arm64.zip",
+          "sha256": "a610feefbf7bd8d04cef92f7ebc9ba955f82f1127debfad1dbff7d685b19a688",
+          "size": 39002703
         },
         "windows-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/livesaascli/v1.2.1/livesaascli-1.2.1-windows-amd64.zip",
-          "sha256": "58797002b7282f8ecf31a515aad970a86460abbef35b2df4dff657ff6989f44a",
-          "size": 42063772
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/livesaascli/v1.2.2/livesaascli-1.2.2-windows-amd64.zip",
+          "sha256": "127ac8c3ef98caf38a65d3cf9c735b130c928e818cf39b4acfaf4aabf9984b3e",
+          "size": 42063773
         }
       }
     },
     "vodcli": {
-      "version": "0.1.16",
+      "version": "0.1.17",
       "platforms": {
         "darwin-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/vodcli/v0.1.16/vodcli-0.1.16-darwin-amd64.zip",
-          "sha256": "18d359d37ecd628b7902ade7b93db4fe81333926e0a30983ff2a005b14fcfa82",
-          "size": 24838658
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/vodcli/v0.1.17/vodcli-0.1.17-darwin-amd64.zip",
+          "sha256": "6b03d788423244bb204b792116fb1126884f56358ee3822c4afb92f670e60da5",
+          "size": 24838722
         },
         "darwin-arm64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/vodcli/v0.1.16/vodcli-0.1.16-darwin-arm64.zip",
-          "sha256": "0b3cff28e024e98fcf2fb93a0bdc15b6d67997e7adf11f541a128705a14b5774",
-          "size": 22366202
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/vodcli/v0.1.17/vodcli-0.1.17-darwin-arm64.zip",
+          "sha256": "f0dc02912a1f0070c9c876a40647c6f9600e4c23bd18156a91e2f920d86af7d5",
+          "size": 22366320
         },
         "linux-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/vodcli/v0.1.16/vodcli-0.1.16-linux-amd64.zip",
-          "sha256": "b606f66345c418cba3645889e507ba2458a49ce492c31ab502ab9aba89cc1bf7",
-          "size": 39390460
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/vodcli/v0.1.17/vodcli-0.1.17-linux-amd64.zip",
+          "sha256": "39ba1da052bd0e06371a7d46efbfddae84490a206170e828746fbf2b64475cab",
+          "size": 39390533
         },
         "linux-arm64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/vodcli/v0.1.16/vodcli-0.1.16-linux-arm64.zip",
-          "sha256": "4044a53d72a8fba9d01014a70cf844b4fee1a44604dfac2ad6f61b1a88c586dc",
-          "size": 37974634
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/vodcli/v0.1.17/vodcli-0.1.17-linux-arm64.zip",
+          "sha256": "7345c26ff3816a7d158294cf812a76518ed4d2cc42b31ee5b8185d9949cad167",
+          "size": 37974715
         },
         "windows-amd64": {
-          "url": "https://cloudcache.volccdn.com/ve/proxycli/vodcli/v0.1.16/vodcli-0.1.16-windows-amd64.zip",
-          "sha256": "027dc4f459200b235ccdbee23c08a8f0269dfb7e92ebd72ffef15a75e03deef7",
-          "size": 41033425
+          "url": "https://cloudcache.volccdn.com/ve/proxycli/vodcli/v0.1.17/vodcli-0.1.17-windows-amd64.zip",
+          "sha256": "f6309e4554860ce48b72fe7fabe26da037c8bc513bfddaeccca5856115794b2f",
+          "size": 41033437
         }
       }
     }
