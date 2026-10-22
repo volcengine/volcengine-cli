@@ -396,26 +396,34 @@ func formatParamRequirement(p param) string {
 
 func (meta *VolcengineMeta) GetRequestParams(apiMeta *ApiMeta) (params []param) {
 	var s []string
+	// Metadata is generated upstream and occasionally contains the same
+	// parameter path more than once (observed in alb CreateRules/ModifyRules
+	// after the 2026-10-22 metadata integration). Each key maps to exactly one
+	// CLI flag, so duplicates must collapse here or command registration
+	// panics with "flag redefined" and breaks the whole CLI at startup.
+	seen := make(map[string]struct{})
 	var traverse func(MetaInfo)
 
 	traverse = func(meta MetaInfo) {
 		if meta.Basic != nil {
 			for _, v := range *meta.Basic {
 				s = append(s, v)
-				if apiMeta == nil {
-					paramKey := strings.Join(s, ".")
-					params = append(params, param{
-						key:      paramKey,
-						typeName: "",
-						required: false,
-					})
-				} else {
-					paramKey := strings.Join(s, ".")
-					params = append(params, param{
-						key:      paramKey,
-						typeName: apiMeta.GetReqTypeName(paramKey),
-						required: apiMeta.GetReqRequired(paramKey),
-					})
+				paramKey := strings.Join(s, ".")
+				if _, duplicated := seen[paramKey]; !duplicated {
+					seen[paramKey] = struct{}{}
+					if apiMeta == nil {
+						params = append(params, param{
+							key:      paramKey,
+							typeName: "",
+							required: false,
+						})
+					} else {
+						params = append(params, param{
+							key:      paramKey,
+							typeName: apiMeta.GetReqTypeName(paramKey),
+							required: apiMeta.GetReqRequired(paramKey),
+						})
+					}
 				}
 				s = s[:len(s)-1]
 			}
