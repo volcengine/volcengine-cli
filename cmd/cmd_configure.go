@@ -60,11 +60,12 @@ func newConfigureRootCmd() *cobra.Command {
 }
 
 func newConfigureGetCmd() *cobra.Command {
+	var showSensitive bool
 	cmd := &cobra.Command{
 		Use: "get",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			profileName := cmd.Flag("profile").Value.String()
-			return getConfigProfile(profileName)
+			return getConfigProfile(profileName, showSensitive)
 		},
 		Short: tr("show target profile's information"),
 		Long: tr(`Description:
@@ -76,6 +77,7 @@ func newConfigureGetCmd() *cobra.Command {
 	cmd.SetUsageTemplate(configureActionUsageTemplate())
 
 	cmd.Flags().StringVar(&profileFlags.Name, "profile", "", tr("target profile name"))
+	cmd.Flags().BoolVar(&showSensitive, "show-sensitive", false, tr("display sensitive credential values without masking"))
 	cmd.Flags().BoolP("help", "h", false, "")
 
 	return cmd
@@ -185,10 +187,11 @@ func validateProfileMode(profile *Profile) error {
 }
 
 func newConfigureListCmd() *cobra.Command {
+	var showSensitive bool
 	cmd := &cobra.Command{
 		Use: "list",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return listConfigProfiles()
+			return listConfigProfiles(showSensitive)
 		},
 		Short: tr("list all profiles"),
 		Long: tr(`Description:
@@ -198,6 +201,7 @@ func newConfigureListCmd() *cobra.Command {
 
 	cmd.SetUsageTemplate(configureActionUsageTemplate())
 
+	cmd.Flags().BoolVar(&showSensitive, "show-sensitive", false, tr("display sensitive credential values without masking"))
 	cmd.Flags().BoolP("help", "h", false, "")
 
 	return cmd
