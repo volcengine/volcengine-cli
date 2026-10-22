@@ -172,13 +172,17 @@ pattern 必须且只能包含一个冒号，service 和 action 均不能为空�
 
 ### 官方预设
 
-`ve configure safety-policy preset readonly` 写入官方只读策略并启用：
+`ve configure safety-policy preset <name>` 写入官方策略并启用，可用 `ve configure safety-policy list` 查看规则。
 
-- 放行读接口：以 `Describe`、`Desc`、`List`、`Get`、`Query`、`Search`、`Show`、`Detail`、`Lookup`、`Check`、`Preview`、`Precheck`、`Calc`、`Stat`、`BatchGet`、`BatchList`、`Download` 或 `Analysis` 开头的 API，以及名称不以读类动词开头的读接口（例如 `bmq:TopicExist`、`vms:NumberList`）。
-- 签发凭证或 Token、读取密钥、打开控制台会话或返回上传地址的读接口（例如 `kms:GetSecretValue`、`id:GetRoleCredentials`、`ecs:DescribeInstanceVncUrl`、`vefaas:GetCodeUploadAddress`）需要确认。
-- 其他操作都需要确认（`*:*=confirm`），包括之后新增的服务和 API。
+`confirm-writes`：读操作直接放行，其他操作都需要确认：
 
-可以用 `ve configure safety-policy list` 查看规则。已有规则时，使用 `--overwrite` 替换，或使用 `--append` 保留现有规则并把预设追加在其后；现有规则优先匹配，已有的 `*:*` 规则会使预设失效。两者都未指定时交互式终端会询问，非交互场景直接报错，不会替用户选择。启用该预设后，`run_script` 只能读，因为脚本无法批准 `confirm`；其他操作需要经用户确认后通过 `call_api` 执行。
+- 放行读接口：以 `Describe`、`Desc`、`List`、`Get`、`Query`、`Search`、`Show`、`Detail`、`Lookup`、`Check`、`Calc`、`Stat`、`BatchGet`、`BatchList` 或 `Analysis` 开头的 API，以及名称不以读类动词开头的读接口（例如 `bmq:TopicExist`、`vms:NumberList`）。
+- 签发凭证或 Token、读取密钥、打开控制台会话或返回上传地址的读接口（例如 `kms:GetSecretValue`、`id:GetRoleCredentials`、`ecs:DescribeInstanceVncUrl`），以及名称像读、实际会生成内容或任务的接口（例如 `waf:QueryLLMGenerate`），需要确认。
+- 其他操作都需要确认（`*:*=confirm`），包括导出、下载以及之后新增的服务。无法确定是否只读的接口按写操作处理。
+
+`confirm-deletes`：只对破坏性或不可逆操作要求确认，包括名称中含 `Delet`、`Remove`、`Terminate`、`Destroy`、`Uninstall`、`Purge`、`Rollback` 或 `Restore` 的 API，以及以 `Del`、`Release`、`Drop`、`Truncate`、`Flush`、`Clean`、`Clear`、`Kill`、`Revoke`、`Reset`、`Unsubscribe`、`Deregister` 或 `Quit` 开头的 API。读接口优先放行，因此 `DescribeDeletedDBInstances` 这类读接口不会要求确认；其他操作放行。
+
+已有规则时，使用 `--overwrite` 替换，或使用 `--append` 保留现有规则并把预设追加在其后；现有规则优先匹配，已有的 `*:*` 规则会使预设失效。两者都未指定时交互式终端会询问，非交互场景直接报错，不会替用户选择，因此启动脚本应使用 `--overwrite`。`run_script` 运行的脚本无法批准 `confirm`，受保护的操作需要经用户确认后通过 `call_api` 执行。
 
 管理规则时，`add` 和 `remove` 按完整 pattern 文本进行不区分大小写的比较。`add` 原位更新找到的第一条规则，保持其顺序；未找到时追加。`remove` 删除所有相同 pattern 的规则，未找到时仍返回成功。查找已保存的 pattern 时不展开通配符或服务别名。
 

@@ -2,15 +2,21 @@ package safety
 
 import "sort"
 
-// PresetReadOnly is the official read-only preset: read APIs are allowed and
-// every other operation needs confirmation.
-const PresetReadOnly = "readonly"
+// Official presets.
+const (
+	// PresetConfirmWrites allows read APIs and requires confirmation for
+	// every other operation.
+	PresetConfirmWrites = "confirm-writes"
+	// PresetConfirmDeletes requires confirmation for destructive or
+	// irreversible operations and allows everything else.
+	PresetConfirmDeletes = "confirm-deletes"
+)
 
-// readOnlySensitive are read APIs that issue credentials or tokens, reveal
+// sensitiveReads are read APIs that issue credentials or tokens, reveal
 // secrets, open console sessions or hand out upload URLs. They change no
-// resource but grant access beyond reading, so the read-only preset asks for
-// confirmation before them.
-var readOnlySensitive = []string{
+// resource but grant access beyond reading, so confirm-writes asks before
+// them.
+var sensitiveReads = []string{
 	"kms:GetSecretValue", "kms:BatchGetSecretValue",
 	"metakms:GetSecretValue", "metakms:BatchGetSecretValue",
 	"bytehousece20240831:GetUserInitialPassword", "rocketmq:DescribeSecretKey",
@@ -27,19 +33,23 @@ var readOnlySensitive = []string{
 	"veenedge:GetVNCUrl", "acep:GetPreSignedEdgeURL",
 	"bio:GetImportWorkspacePreSignedURL", "vefaas:GetCodeUploadAddress",
 	"vms:GetResourceUploadUrl", "volcsms:GetUploadTosURL",
-	"aiotvideo20231001:DownloadLocalMedia",
 }
 
-// readOnlyPrefixes are action verbs that only read. Matching is
+// writeLikeReads are APIs named like reads that generate content,
+// parameters or tasks.
+var writeLikeReads = []string{
+	"waf:QueryLLMGenerate", "livesaas:QueryUploadMediaByURL", "kms:GetParametersForImport",
+}
+
+// readPrefixes are action verbs that only read. Matching is
 // case-insensitive, so lowerCamel actions such as spark:listApplication match.
-var readOnlyPrefixes = []string{
-	"Describe", "Desc", "List", "Get", "Query", "Search",
-	"Show", "Detail", "Lookup", "Check", "Preview", "Precheck",
-	"Calc", "Stat", "BatchGet", "BatchList", "Download", "Analysis",
+var readPrefixes = []string{
+	"Describe", "Desc", "List", "Get", "Query", "Search", "Show", "Detail",
+	"Lookup", "Check", "Calc", "Stat", "BatchGet", "BatchList", "Analysis",
 }
 
-// readOnlyActions are read APIs whose names do not start with a read verb.
-var readOnlyActions = []string{
+// readActions are read APIs whose names do not start with a read verb.
+var readActions = []string{
 	"bmq:GroupExist", "bmq:TopicExist",
 	"spark:existResourcePool", "cloudtrail:LookupEvents",
 	"certificateservice:CertificateGetDcvParam", "certificateservice:CertificateGetOrganization",
@@ -76,14 +86,25 @@ var readOnlyActions = []string{
 	"vikingdb:MemoryCollectionList", "vms:NumberList",
 	"vms:NumberPoolList", "volccontentplatform:TagListArticleTag",
 	"volccontentplatform:TagListArticleTagByOpenId", "volccontentplatform:TagListTagTree",
-	"livesaas20230801:ExportActivityData", "veenedge:ExportSecurityGroups",
-	"veenedge:ExportEIPInstances", "seccenter20240508:Export*",
-	"vefaasdev:ReadFiles",
+	"vefaasdev:ReadFiles", "bmq:PreviewTopicData",
+	"rdsmssql:DownloadSSLCertificate", "rdsmysqlv2:DownloadSSLCertificate",
+	"rdspostgresql:DownloadSSLCertificate", "pca:DownloadLeafInstance",
+	"dts:DownloadValidationTaskResult",
+}
+
+// destructivePatterns match destructive or irreversible operations. They err
+// on matching too much: confirm-deletes allows reads before them.
+var destructivePatterns = []string{
+	"*:*Delet*", "*:Del*", "*:*Remove*", "*:*Terminate*", "*:*Destroy*", "*:*Uninstall*",
+	"*:Release*", "*:MSRelease*", "*:Drop*", "*:Truncate*", "*:Flush*", "*:*Purge*",
+	"*:Clean*", "*:Clear*", "*:Kill*", "*:Revoke*", "*:*Rollback*", "*:*Restore*",
+	"*:Reset*", "*:BatchReset*", "*:Unsubscribe*", "*:Deregister*", "*:Quit*",
 }
 
 // presets maps a preset name to its rules.
 var presets = map[string]func() []Rule{
-	PresetReadOnly: readOnlyPresetRules,
+	PresetConfirmWrites:  confirmWritesRules,
+	PresetConfirmDeletes: confirmDeletesRules,
 }
 
 // PresetNames returns the names of the official presets.
@@ -106,19 +127,36 @@ func PresetRules(name string) ([]Rule, bool) {
 	return build(), true
 }
 
-// readOnlyPresetRules lists, in match order, the sensitive reads to
-// confirm, the read-only verbs and actions to allow, then confirmation for
-// everything else.
-func readOnlyPresetRules() []Rule {
-	rules := make([]Rule, 0, len(readOnlySensitive)+len(readOnlyPrefixes)+len(readOnlyActions)+1)
-	for _, pattern := range readOnlySensitive {
-		rules = append(rules, Rule{Pattern: pattern, Action: ActionConfirm})
-	}
-	for _, prefix := range readOnlyPrefixes {
+func readAllowRules() []Rule {
+	rules := make([]Rule, 0, len(readPrefixes))
+	for _, prefix := range readPrefixes {
 		rules = append(rules, Rule{Pattern: "*:" + prefix + "*", Action: ActionAllow})
 	}
-	for _, pattern := range readOnlyActions {
+	return rules
+}
+
+// confirmWritesRules lists, in match order, the sensitive and write-like
+// reads to confirm, the read verbs and actions to allow, then confirmation
+// for everything else, including services added later.
+func confirmWritesRules() []Rule {
+	var rules []Rule
+	for _, pattern := range append(append([]string{}, sensitiveReads...), writeLikeReads...) {
+		rules = append(rules, Rule{Pattern: pattern, Action: ActionConfirm})
+	}
+	rules = append(rules, readAllowRules()...)
+	for _, pattern := range readActions {
 		rules = append(rules, Rule{Pattern: pattern, Action: ActionAllow})
 	}
 	return append(rules, Rule{Pattern: "*:*", Action: ActionConfirm})
+}
+
+// confirmDeletesRules allows the read verbs, so reads never ask, then
+// requires confirmation for destructive operations; anything else matches no
+// rule and is allowed.
+func confirmDeletesRules() []Rule {
+	rules := readAllowRules()
+	for _, pattern := range destructivePatterns {
+		rules = append(rules, Rule{Pattern: pattern, Action: ActionConfirm})
+	}
+	return rules
 }

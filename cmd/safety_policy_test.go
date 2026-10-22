@@ -400,10 +400,14 @@ func TestSafetyConfirmationTemplateMatchesDefault(t *testing.T) {
 	}
 }
 
-// Every explicit (non-wildcard service) rule of the readonly preset must
+// Every explicit (non-wildcard service) rule of the official presets must
 // name a bundled API, so metadata updates cannot silently orphan a rule.
-func TestReadOnlyPresetNamesBundledAPIs(t *testing.T) {
-	rules, _ := safety.PresetRules(safety.PresetReadOnly)
+func TestSafetyPolicyPresetsNameBundledAPIs(t *testing.T) {
+	var rules []safety.Rule
+	for _, name := range safety.PresetNames() {
+		preset, _ := safety.PresetRules(name)
+		rules = append(rules, preset...)
+	}
 	for _, rule := range rules {
 		service, action, _ := strings.Cut(rule.Pattern, ":")
 		if service == "*" {
@@ -417,7 +421,7 @@ func TestReadOnlyPresetNamesBundledAPIs(t *testing.T) {
 			}
 		}
 		if !matched {
-			t.Errorf("readonly preset rule %s names no bundled API", rule.Pattern)
+			t.Errorf("preset rule %s names no bundled API", rule.Pattern)
 		}
 	}
 }
@@ -429,13 +433,13 @@ func TestConfigureSafetyPolicyPreset(t *testing.T) {
 	output := &bytes.Buffer{}
 	safetyPolicyOutput, safetyPolicyInput = output, strings.NewReader("")
 	defer func() { safetyPolicyOutput, safetyPolicyInput = previousOutput, previousInput }()
-	preset, _ := safety.PresetRules(safety.PresetReadOnly)
+	preset, _ := safety.PresetRules(safety.PresetConfirmWrites)
 
-	if _, err := runSafetyPolicyCommandForTest(t, "preset", "unknown"); err == nil || !strings.Contains(err.Error(), "readonly") {
+	if _, err := runSafetyPolicyCommandForTest(t, "preset", "unknown"); err == nil || !strings.Contains(err.Error(), "confirm-writes") {
 		t.Fatalf("unknown preset error = %v", err)
 	}
 	// No policy yet: the preset is written and enabled.
-	if _, err := runSafetyPolicyCommandForTest(t, "preset", "readonly"); err != nil {
+	if _, err := runSafetyPolicyCommandForTest(t, "preset", "confirm-writes"); err != nil {
 		t.Fatal(err)
 	}
 	policy, err := safety.LoadPolicy(dir)
@@ -447,10 +451,10 @@ func TestConfigureSafetyPolicyPreset(t *testing.T) {
 	if _, err := runSafetyPolicyCommandForTest(t, "add", "--pattern", "ecs:DescribeInstances", "--action", "deny"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runSafetyPolicyCommandForTest(t, "preset", "readonly"); err == nil || !strings.Contains(err.Error(), "--overwrite") {
+	if _, err := runSafetyPolicyCommandForTest(t, "preset", "confirm-writes"); err == nil || !strings.Contains(err.Error(), "--overwrite") {
 		t.Fatalf("preset over existing rules without a choice: %v", err)
 	}
-	if _, err := runSafetyPolicyCommandForTest(t, "preset", "readonly", "--overwrite", "--append"); err == nil {
+	if _, err := runSafetyPolicyCommandForTest(t, "preset", "confirm-writes", "--overwrite", "--append"); err == nil {
 		t.Fatal("--overwrite with --append accepted")
 	}
 
@@ -459,7 +463,7 @@ func TestConfigureSafetyPolicyPreset(t *testing.T) {
 		t.Fatal(err)
 	}
 	output.Reset()
-	if _, err := runSafetyPolicyCommandForTest(t, "preset", "readonly", "--append"); err != nil {
+	if _, err := runSafetyPolicyCommandForTest(t, "preset", "confirm-writes", "--append"); err != nil {
 		t.Fatal(err)
 	}
 	policy, _ = safety.LoadPolicy(dir)
@@ -471,7 +475,7 @@ func TestConfigureSafetyPolicyPreset(t *testing.T) {
 	}
 
 	// Overwrite replaces the rules.
-	if _, err := runSafetyPolicyCommandForTest(t, "preset", "readonly", "--overwrite"); err != nil {
+	if _, err := runSafetyPolicyCommandForTest(t, "preset", "confirm-writes", "--overwrite"); err != nil {
 		t.Fatal(err)
 	}
 	policy, _ = safety.LoadPolicy(dir)

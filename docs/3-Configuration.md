@@ -172,13 +172,17 @@ Patterns must contain exactly one colon, with a non-empty service and action and
 
 ### Official presets
 
-`ve configure safety-policy preset readonly` writes the official read-only policy and enables it:
+`ve configure safety-policy preset <name>` writes an official policy and enables it. Inspect the rules with `ve configure safety-policy list`.
 
-- Read APIs are allowed: actions starting with `Describe`, `Desc`, `List`, `Get`, `Query`, `Search`, `Show`, `Detail`, `Lookup`, `Check`, `Preview`, `Precheck`, `Calc`, `Stat`, `BatchGet`, `BatchList`, `Download` or `Analysis`, plus read APIs whose names do not start with a read verb (for example `bmq:TopicExist` or `vms:NumberList`).
-- Reads that issue credentials or tokens, reveal secrets, open console sessions or return upload URLs (for example `kms:GetSecretValue`, `id:GetRoleCredentials`, `ecs:DescribeInstanceVncUrl`, `vefaas:GetCodeUploadAddress`) require confirmation.
-- Everything else requires confirmation (`*:*=confirm`), including services and APIs added later.
+`confirm-writes` lets an agent read freely and asks before anything else:
 
-Inspect the rules with `ve configure safety-policy list`. If the policy already has rules, pass `--overwrite` to replace them or `--append` to keep them and add the preset after them; existing rules keep precedence, and an existing `*:*` rule shadows the preset. An interactive terminal asks when neither flag is given; non-interactive runs fail instead of guessing. With the preset, `run_script` can only read, because scripts cannot approve `confirm`; other operations go through `call_api` with user approval.
+- Read APIs are allowed: actions starting with `Describe`, `Desc`, `List`, `Get`, `Query`, `Search`, `Show`, `Detail`, `Lookup`, `Check`, `Calc`, `Stat`, `BatchGet`, `BatchList` or `Analysis`, plus read APIs whose names do not start with a read verb (for example `bmq:TopicExist` or `vms:NumberList`).
+- Reads that issue credentials or tokens, reveal secrets, open console sessions or return upload URLs (for example `kms:GetSecretValue`, `id:GetRoleCredentials`, `ecs:DescribeInstanceVncUrl`), and APIs named like reads that generate content or tasks (for example `waf:QueryLLMGenerate`), require confirmation.
+- Everything else requires confirmation (`*:*=confirm`), including exports, downloads and services added later. When in doubt an API is treated as a write.
+
+`confirm-deletes` asks only before destructive or irreversible operations: names containing `Delet`, `Remove`, `Terminate`, `Destroy`, `Uninstall`, `Purge`, `Rollback` or `Restore`, and actions starting with `Del`, `Release`, `Drop`, `Truncate`, `Flush`, `Clean`, `Clear`, `Kill`, `Revoke`, `Reset`, `Unsubscribe`, `Deregister` or `Quit`. Read APIs are allowed first, so reads such as `DescribeDeletedDBInstances` never ask; everything else is allowed.
+
+If the policy already has rules, pass `--overwrite` to replace them or `--append` to keep them and add the preset after them; existing rules keep precedence, and an existing `*:*` rule shadows the preset. An interactive terminal asks when neither flag is given; non-interactive runs fail instead of guessing, so startup scripts use `--overwrite`. Scripts run by `run_script` cannot approve `confirm`; protected operations go through `call_api` with user approval.
 
 For rule management, `add` and `remove` compare the complete pattern text case-insensitively. `add` updates the first matching pattern in place, preserving its position; otherwise, it appends a rule. `remove` deletes all matching patterns and still succeeds if none exist. Wildcards and service aliases are not expanded when locating stored patterns.
 
