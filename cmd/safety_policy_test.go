@@ -399,3 +399,83 @@ func TestSafetyConfirmationTemplateMatchesDefault(t *testing.T) {
 		t.Fatal("shared confirmation template has no Chinese translation")
 	}
 }
+
+// Every explicit (non-wildcard service) rule of the readonly preset must
+// name a bundled API, so metadata updates cannot silently orphan a rule.
+func TestReadOnlyPresetNamesBundledAPIs(t *testing.T) {
+	rules, _ := safety.PresetRules(safety.PresetReadOnly)
+	for _, rule := range rules {
+		service, action, _ := strings.Cut(rule.Pattern, ":")
+		if service == "*" {
+			continue
+		}
+		matched := false
+		for _, candidate := range rootSupport.GetAllAction(service) {
+			if strings.HasSuffix(action, "*") && strings.HasPrefix(candidate, strings.TrimSuffix(action, "*")) || candidate == action {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			t.Errorf("readonly preset rule %s names no bundled API", rule.Pattern)
+		}
+	}
+}
+
+func TestConfigureSafetyPolicyPreset(t *testing.T) {
+	dir, cleanup := withTestConfigDir(t)
+	defer cleanup()
+	previousOutput, previousInput := safetyPolicyOutput, safetyPolicyInput
+	output := &bytes.Buffer{}
+	safetyPolicyOutput, safetyPolicyInput = output, strings.NewReader("")
+	defer func() { safetyPolicyOutput, safetyPolicyInput = previousOutput, previousInput }()
+	preset, _ := safety.PresetRules(safety.PresetReadOnly)
+
+	if _, err := runSafetyPolicyCommandForTest(t, "preset", "unknown"); err == nil || !strings.Contains(err.Error(), "readonly") {
+		t.Fatalf("unknown preset error = %v", err)
+	}
+	// No policy yet: the preset is written and enabled.
+	if _, err := runSafetyPolicyCommandForTest(t, "preset", "readonly"); err != nil {
+		t.Fatal(err)
+	}
+	policy, err := safety.LoadPolicy(dir)
+	if err != nil || !policy.Enabled || len(policy.Rules) != len(preset) {
+		t.Fatalf("policy = %+v, %v", policy, err)
+	}
+
+	// Existing rules without a choice: a non-interactive run must not guess.
+	if _, err := runSafetyPolicyCommandForTest(t, "add", "--pattern", "ecs:DescribeInstances", "--action", "deny"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runSafetyPolicyCommandForTest(t, "preset", "readonly"); err == nil || !strings.Contains(err.Error(), "--overwrite") {
+		t.Fatalf("preset over existing rules without a choice: %v", err)
+	}
+	if _, err := runSafetyPolicyCommandForTest(t, "preset", "readonly", "--overwrite", "--append"); err == nil {
+		t.Fatal("--overwrite with --append accepted")
+	}
+
+	// Append keeps existing rules first and skips duplicate patterns.
+	if err := safety.SavePolicy(dir, &safety.Policy{Rules: []safety.Rule{{Pattern: "ecs:DescribeInstances", Action: safety.ActionDeny}, {Pattern: "*:*", Action: safety.ActionAllow}}}); err != nil {
+		t.Fatal(err)
+	}
+	output.Reset()
+	if _, err := runSafetyPolicyCommandForTest(t, "preset", "readonly", "--append"); err != nil {
+		t.Fatal(err)
+	}
+	policy, _ = safety.LoadPolicy(dir)
+	if !policy.Enabled || len(policy.Rules) != len(preset)+1 || policy.Rules[0].Pattern != "ecs:DescribeInstances" || policy.Rules[1].Pattern != "*:*" || policy.Rules[1].Action != safety.ActionAllow {
+		t.Fatalf("appended policy = %d rules, first %+v %+v", len(policy.Rules), policy.Rules[0], policy.Rules[1])
+	}
+	if !strings.Contains(output.String(), "matches every operation") {
+		t.Fatalf("append did not warn about the catch-all rule: %q", output.String())
+	}
+
+	// Overwrite replaces the rules.
+	if _, err := runSafetyPolicyCommandForTest(t, "preset", "readonly", "--overwrite"); err != nil {
+		t.Fatal(err)
+	}
+	policy, _ = safety.LoadPolicy(dir)
+	if len(policy.Rules) != len(preset) || policy.Rules[0] != preset[0] {
+		t.Fatalf("overwritten policy = %d rules", len(policy.Rules))
+	}
+}

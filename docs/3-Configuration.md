@@ -170,6 +170,16 @@ Rules use `service:action`, are matched case-insensitively, support `*`, and use
 
 Patterns must contain exactly one colon, with a non-empty service and action and no internal whitespace. Surrounding whitespace is ignored. For example, use `sts:GetCallerIdentity`, `sts:*`, `*:GetCallerIdentity`, or `*:*`; API-only names, service-only names, dot/space separators, and a lone `*` are rejected. Validation checks syntax only, so rules may cover unlisted services and future APIs used with `--force`.
 
+### Official presets
+
+`ve configure safety-policy preset readonly` writes the official read-only policy and enables it:
+
+- Read APIs are allowed: actions starting with `Describe`, `Desc`, `List`, `Get`, `Query`, `Search`, `Show`, `Detail`, `Lookup`, `Check`, `Preview`, `Precheck`, `Calc`, `Stat`, `BatchGet`, `BatchList`, `Download` or `Analysis`, plus read APIs whose names do not start with a read verb (for example `bmq:TopicExist` or `vms:NumberList`).
+- Reads that issue credentials or tokens, reveal secrets, open console sessions or return upload URLs (for example `kms:GetSecretValue`, `id:GetRoleCredentials`, `ecs:DescribeInstanceVncUrl`, `vefaas:GetCodeUploadAddress`) require confirmation.
+- Everything else requires confirmation (`*:*=confirm`), including services and APIs added later.
+
+Inspect the rules with `ve configure safety-policy list`. If the policy already has rules, pass `--overwrite` to replace them or `--append` to keep them and add the preset after them; existing rules keep precedence, and an existing `*:*` rule shadows the preset. An interactive terminal asks when neither flag is given; non-interactive runs fail instead of guessing. With the preset, `run_script` can only read, because scripts cannot approve `confirm`; other operations go through `call_api` with user approval.
+
 For rule management, `add` and `remove` compare the complete pattern text case-insensitively. `add` updates the first matching pattern in place, preserving its position; otherwise, it appends a rule. `remove` deletes all matching patterns and still succeeds if none exist. Wildcards and service aliases are not expanded when locating stored patterns.
 
 ```json

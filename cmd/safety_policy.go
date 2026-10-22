@@ -36,6 +36,7 @@ The first matching rule wins; unmatched commands are allowed.`),
 		newSafetyPolicyAddCommand(),
 		newSafetyPolicyRemoveCommand(),
 		newSafetyPolicyListCommand(),
+		newSafetyPolicyPresetCommand(),
 	)
 	return command
 }
@@ -115,6 +116,97 @@ func newSafetyPolicyAddCommand() *cobra.Command {
 	command.Flags().StringVar(&pattern, "pattern", "", tr("Case-insensitive service:action pattern with * wildcard"))
 	command.Flags().StringVar(&actionValue, "action", "", tr("Rule action: deny or confirm"))
 	return command
+}
+
+func newSafetyPolicyPresetCommand() *cobra.Command {
+	var overwrite, appendRules bool
+	command := &cobra.Command{
+		Use:   "preset <name>",
+		Short: tr("Apply an official safety policy preset"),
+		Long: tr(`Apply an official safety policy preset and enable the policy.
+readonly allows read APIs (Describe, List, Get, Query and other read verbs) and requires confirmation for everything else, including reads that issue credentials, reveal secrets, open consoles or return upload URLs.
+When rules already exist, choose --overwrite to replace them or --append to add the preset after them; an interactive terminal asks when neither is given.`),
+		Args:      cobra.ExactArgs(1),
+		ValidArgs: safety.PresetNames(),
+		RunE: func(_ *cobra.Command, args []string) error {
+			name := strings.ToLower(strings.TrimSpace(args[0]))
+			rules, ok := safety.PresetRules(name)
+			if !ok {
+				return trErrorf("unknown safety policy preset %q; available presets: %s", args[0], strings.Join(safety.PresetNames(), ", "))
+			}
+			if overwrite && appendRules {
+				return trErrorf("--overwrite and --append cannot be used together")
+			}
+			dir, policy, err := loadStoredSafetyPolicy()
+			if err != nil {
+				return err
+			}
+			if len(policy.Rules) > 0 && !overwrite && !appendRules {
+				choice, err := askSafetyPolicyPresetMerge(len(policy.Rules))
+				if err != nil {
+					return err
+				}
+				overwrite, appendRules = choice == "overwrite", choice == "append"
+				if !overwrite && !appendRules {
+					fmt.Fprintln(safetyPolicyOutput, tr("Cancelled; the safety policy was not changed."))
+					return nil
+				}
+			}
+			if appendRules {
+				rules = appendSafetyPolicyPreset(policy.Rules, rules)
+			}
+			policy.Rules = rules
+			policy.Enabled = true
+			if err := safety.SavePolicy(dir, policy); err != nil {
+				return err
+			}
+			fmt.Fprintf(safetyPolicyOutput, tr("Applied the %s safety policy preset: %d rules, policy enabled.\n"), name, len(policy.Rules))
+			return nil
+		},
+	}
+	command.Flags().BoolVar(&overwrite, "overwrite", false, tr("Replace existing rules with the preset"))
+	command.Flags().BoolVar(&appendRules, "append", false, tr("Keep existing rules and add the preset after them"))
+	return command
+}
+
+// askSafetyPolicyPresetMerge asks whether to overwrite or append to the
+// existing rules, and returns "overwrite", "append" or "" to cancel. Without
+// a terminal it fails, so scripts and agents must choose explicitly.
+func askSafetyPolicyPresetMerge(existing int) (string, error) {
+	if !safety.IsInteractive(safetyPolicyInput) {
+		return "", trErrorf("the safety policy already has %d rules; rerun with --overwrite to replace them or --append to keep them", existing)
+	}
+	fmt.Fprintf(safetyPolicyOutput, tr("The safety policy already has %d rules. [o]verwrite, [a]ppend or [c]ancel? "), existing)
+	var answer string
+	_, _ = fmt.Fscanln(safetyPolicyInput, &answer)
+	switch strings.ToLower(strings.TrimSpace(answer)) {
+	case "o", "overwrite":
+		return "overwrite", nil
+	case "a", "append":
+		return "append", nil
+	}
+	return "", nil
+}
+
+// appendSafetyPolicyPreset adds the preset after the existing rules, which
+// keep precedence because the first matching rule wins. Preset rules whose
+// pattern already exists are skipped. An existing catch-all rule would shadow
+// the whole preset, so it is reported.
+func appendSafetyPolicyPreset(existing, preset []safety.Rule) []safety.Rule {
+	merged := append([]safety.Rule{}, existing...)
+	patterns := map[string]bool{}
+	for _, rule := range existing {
+		patterns[strings.ToLower(rule.Pattern)] = true
+		if rule.Pattern == "*:*" {
+			fmt.Fprintf(safetyPolicyOutput, tr("Warning: the existing rule %s=%s matches every operation before the preset; remove it for the preset to take effect.\n"), rule.Pattern, rule.Action)
+		}
+	}
+	for _, rule := range preset {
+		if !patterns[strings.ToLower(rule.Pattern)] {
+			merged = append(merged, rule)
+		}
+	}
+	return merged
 }
 
 func newSafetyPolicyRemoveCommand() *cobra.Command {

@@ -170,6 +170,16 @@ ve configure safety-policy list
 
 pattern 必须且只能包含一个冒号，service 和 action 均不能为空，内部不能包含空白字符；首尾空白会被忽略。例如 `sts:GetCallerIdentity`、`sts:*`、`*:GetCallerIdentity`、`*:*` 均合法；只写 API 名、只写服务名、用点或空格分隔，以及单独的 `*` 都会被拒绝。这里只校验格式，允许配置未收录服务及通过 `--force` 调用的新 API。
 
+### 官方预设
+
+`ve configure safety-policy preset readonly` 写入官方只读策略并启用：
+
+- 放行读接口：以 `Describe`、`Desc`、`List`、`Get`、`Query`、`Search`、`Show`、`Detail`、`Lookup`、`Check`、`Preview`、`Precheck`、`Calc`、`Stat`、`BatchGet`、`BatchList`、`Download` 或 `Analysis` 开头的 API，以及名称不以读类动词开头的读接口（例如 `bmq:TopicExist`、`vms:NumberList`）。
+- 签发凭证或 Token、读取密钥、打开控制台会话或返回上传地址的读接口（例如 `kms:GetSecretValue`、`id:GetRoleCredentials`、`ecs:DescribeInstanceVncUrl`、`vefaas:GetCodeUploadAddress`）需要确认。
+- 其他操作都需要确认（`*:*=confirm`），包括之后新增的服务和 API。
+
+可以用 `ve configure safety-policy list` 查看规则。已有规则时，使用 `--overwrite` 替换，或使用 `--append` 保留现有规则并把预设追加在其后；现有规则优先匹配，已有的 `*:*` 规则会使预设失效。两者都未指定时交互式终端会询问，非交互场景直接报错，不会替用户选择。启用该预设后，`run_script` 只能读，因为脚本无法批准 `confirm`；其他操作需要经用户确认后通过 `call_api` 执行。
+
 管理规则时，`add` 和 `remove` 按完整 pattern 文本进行不区分大小写的比较。`add` 原位更新找到的第一条规则，保持其顺序；未找到时追加。`remove` 删除所有相同 pattern 的规则，未找到时仍返回成功。查找已保存的 pattern 时不展开通配符或服务别名。
 
 ```json
