@@ -92,3 +92,30 @@ func TestPresetsSurviveEnvironmentEncoding(t *testing.T) {
 		}
 	}
 }
+
+func TestDenyWritesPreset(t *testing.T) {
+	checkPreset(t, PresetDenyWrites, map[string]Action{
+		"ecs:DescribeInstances":     ActionAllow,
+		"billing:QueryBalanceAcct":  ActionAllow,
+		"ecs:RunInstances":          ActionDeny,
+		"ecs:DeleteInstance":        ActionDeny,
+		"kms:GetSecretValue":        ActionDeny,
+		"waf:QueryLLMGenerate":      ActionDeny,
+		"rdsmysqlv2:DownloadBackup": ActionDeny,
+		"newservice:AnyAction":      ActionDeny,
+	})
+	writes, _ := PresetRules(PresetConfirmWrites)
+	denied, _ := PresetRules(PresetDenyWrites)
+	if len(writes) != len(denied) {
+		t.Fatalf("deny-writes has %d rules, confirm-writes %d", len(denied), len(writes))
+	}
+	for i := range writes {
+		want := writes[i]
+		if want.Action == ActionConfirm {
+			want.Action = ActionDeny
+		}
+		if denied[i] != want {
+			t.Fatalf("rule %d = %+v, want %+v", i, denied[i], want)
+		}
+	}
+}

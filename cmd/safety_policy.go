@@ -126,6 +126,7 @@ func newSafetyPolicyPresetCommand() *cobra.Command {
 		Long: tr(`Apply an official safety policy preset and enable the policy.
 confirm-writes allows read APIs (Describe, List, Get, Query and other read verbs) and requires confirmation for everything else, including reads that issue credentials, reveal secrets, open consoles or return upload URLs.
 confirm-deletes requires confirmation for destructive or irreversible operations (Delete, Remove, Terminate, Release, Restore, Reset and similar) and allows everything else.
+deny-writes is confirm-writes with every confirmation turned into a denial: only read APIs run, and no approval unlocks anything else.
 When rules already exist, choose --overwrite to replace them or --append to add the preset after them; an interactive terminal asks when neither is given.`),
 		Args:      cobra.ExactArgs(1),
 		ValidArgs: safety.PresetNames(),

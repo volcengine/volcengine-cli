@@ -182,6 +182,8 @@ Patterns must contain exactly one colon, with a non-empty service and action and
 
 `confirm-deletes` asks only before destructive or irreversible operations: names containing `Delet`, `Remove`, `Terminate`, `Destroy`, `Uninstall`, `Purge`, `Rollback` or `Restore`, and actions starting with `Del`, `Release`, `Drop`, `Truncate`, `Flush`, `Clean`, `Clear`, `Kill`, `Revoke`, `Reset`, `Unsubscribe`, `Deregister` or `Quit`. Read APIs are allowed first, so reads such as `DescribeDeletedDBInstances` never ask; everything else is allowed.
 
+`deny-writes` uses the same list as `confirm-writes` but turns every confirmation into a denial: only read APIs run, and no approval (`--yes`, `yes=true`) unlocks a write or a sensitive read. Use it for agents that must stay read-only.
+
 If the policy already has rules, pass `--overwrite` to replace them or `--append` to keep them and add the preset after them; existing rules keep precedence, and an existing `*:*` rule shadows the preset. An interactive terminal asks when neither flag is given; non-interactive runs fail instead of guessing, so startup scripts use `--overwrite`. Scripts run by `run_script` cannot approve `confirm`; protected operations go through `call_api` with user approval.
 
 For rule management, `add` and `remove` compare the complete pattern text case-insensitively. `add` updates the first matching pattern in place, preserving its position; otherwise, it appends a rule. `remove` deletes all matching patterns and still succeeds if none exist. Wildcards and service aliases are not expanded when locating stored patterns.

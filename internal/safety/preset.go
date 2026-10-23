@@ -10,6 +10,9 @@ const (
 	// PresetConfirmDeletes requires confirmation for destructive or
 	// irreversible operations and allows everything else.
 	PresetConfirmDeletes = "confirm-deletes"
+	// PresetDenyWrites is confirm-writes with every confirm rule turned into
+	// deny: read APIs only, and no approval unlocks anything else.
+	PresetDenyWrites = "deny-writes"
 )
 
 // sensitiveReads are read APIs that issue credentials or tokens, reveal
@@ -105,6 +108,7 @@ var destructivePatterns = []string{
 var presets = map[string]func() []Rule{
 	PresetConfirmWrites:  confirmWritesRules,
 	PresetConfirmDeletes: confirmDeletesRules,
+	PresetDenyWrites:     func() []Rule { return DenyConfirmRules(confirmWritesRules()) },
 }
 
 // PresetNames returns the names of the official presets.
@@ -159,4 +163,18 @@ func confirmDeletesRules() []Rule {
 		rules = append(rules, Rule{Pattern: pattern, Action: ActionConfirm})
 	}
 	return rules
+}
+
+// DenyConfirmRules returns a copy of rules with every confirm rule turned into
+// deny, keeping the match order. It derives deny-writes from confirm-writes,
+// and a read-only policy from any confirm policy.
+func DenyConfirmRules(rules []Rule) []Rule {
+	denied := make([]Rule, 0, len(rules))
+	for _, rule := range rules {
+		if rule.Action == ActionConfirm {
+			rule.Action = ActionDeny
+		}
+		denied = append(denied, rule)
+	}
+	return denied
 }
