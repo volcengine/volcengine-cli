@@ -74,6 +74,9 @@ func (i *volcengineMCPInvoker) CallAPI(ctx context.Context, serviceName, action,
 	if err := enforceSafetyPolicy(serviceName, action, yes, false, tr("call the same MCP tool again with yes=true")); err != nil {
 		return nil, err
 	}
+	// 旧服务调用的迁移提示写入 stderr：stdio 下由客户端决定是否展示，
+	// SSE / Streamable HTTP 下留在服务端，不进入协议 stdout 与业务 JSON。
+	warnDeprecatedServiceCall(serviceName, rootSupport.GetVersion(serviceName))
 	callConfig, profileName, profileRegion, err := i.resolveConfig()
 	if err != nil {
 		return nil, formatActionError(err)

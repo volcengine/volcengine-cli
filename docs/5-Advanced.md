@@ -255,10 +255,7 @@ Notes:
 Normal metadata-validated call:
 
 ```shell
-ve rds_mysql ModifyDBInstanceIPList \
-  --InstanceId mysql-xxxxxx \
-  --GroupName default \
-  --IPList '["10.20.30.40"]'
+ve rdsmysqlv2 DescribeAllowLists --InstanceId mysql-xxxxxx
 ```
 
 Force-call an unlisted service:
@@ -427,8 +424,8 @@ Console Login always uses the Device Authorization Grant. With `--no-browser` th
 `--body` only accepts a JSON object or JSON array. Check quoting and shell escaping:
 
 ```shell
-ve rds_mysql ModifyDBInstanceIPList \
-  --body '{"InstanceId":"mysql-xxxxxx","GroupName":"default","IPList":["10.20.30.40"]}'
+ve rdsmysqlv2 ModifyAllowList \
+  --body '{"AllowListId":"acl-xxxxxx","AllowListName":"default","UserAllowList":"10.20.30.40"}'
 ```
 
 Do not mix `--body` with other API parameters.

@@ -26,10 +26,15 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 		}
 		params := exposedActionParams(meta, apiMeta)
 		publicParameters := exposedActionParameterNames(meta, apiMeta)
+		long := formatActionLong(serviceName, action)
+		if deprecated, ok := deprecatedServiceByCanonical(serviceName); ok {
+			// 旧服务 action 帮助顶部同样展示废弃与迁移提示；Short 保持简洁，不污染动作列表。
+			long = deprecated.helpNotice() + long
+		}
 		actionCmd := &cobra.Command{
 			Use:                action,
 			Short:              formatActionShort(serviceName, action),
-			Long:               formatActionLong(serviceName, action),
+			Long:               long,
 			DisableFlagParsing: true,
 			RunE: func(cmd *cobra.Command, args []string) error {
 				if wantHelp, detail := parseActionHelpArgs(args); wantHelp {
@@ -220,6 +225,8 @@ func executeInvocation(ctx *Context, p invocationParams, buildInput func() (invo
 	if executeInvocationHook != nil {
 		return executeInvocationHook(ctx, p, buildInput)
 	}
+	// 参数解析与版本选择已完成；命中废弃记录时向 stderr 提示一次，请求继续按原语义执行。
+	warnDeprecatedServiceCall(p.serviceName, p.version)
 	outputPlan, err := resolveAPIOutputPlan(ctx)
 	if err != nil {
 		return err

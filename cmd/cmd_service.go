@@ -16,6 +16,11 @@ func generateServiceCommands() {
 		apiMetas := rootSupport.SupportTypes[svc]
 		svc := svc
 		validActions := rootSupport.GetAllAction(svc)
+		// 旧版服务默认入口已隐藏，但显式查看帮助时在顶部展示废弃与迁移提示。
+		cmdUsageTemplate := usageTemplate
+		if deprecated, ok := deprecatedServiceByCanonical(svc); ok {
+			cmdUsageTemplate = deprecated.helpNotice() + usageTemplate
+		}
 		spellings := []string{svc}
 		for _, name := range compatible_support_cmd {
 			if strings.ReplaceAll(name, "_", "") == svc {
@@ -27,7 +32,7 @@ func generateServiceCommands() {
 		for _, spelling := range spellings {
 			svcCmd := &cobra.Command{
 				Use:                spelling,
-				Hidden:             spelling != svc,
+				Hidden:             spelling != svc || isDefaultHiddenService(svc),
 				Short:              formatServiceShort(svc),
 				DisableFlagParsing: true,
 				RunE: func(cmd *cobra.Command, args []string) error {
@@ -42,7 +47,7 @@ func generateServiceCommands() {
 				},
 			}
 
-			svcCmd.SetUsageTemplate(usageTemplate)
+			svcCmd.SetUsageTemplate(cmdUsageTemplate)
 			svcCmd.ValidArgs = validActions
 
 			actionCmds := generateActionCmd(svc, actionMeta, apiMetas)
