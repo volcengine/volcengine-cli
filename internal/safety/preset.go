@@ -16,9 +16,9 @@ const (
 )
 
 // sensitiveReads are read APIs that issue credentials or tokens, reveal
-// secrets, open console sessions or hand out upload URLs. They change no
-// resource but grant access beyond reading, so confirm-writes asks before
-// them.
+// secrets or private keys, open console sessions, return console output, or
+// hand out download or upload URLs for data. They change no resource but
+// grant access beyond reading, so confirm-writes asks before them.
 var sensitiveReads = []string{
 	"kms:GetSecretValue", "kms:BatchGetSecretValue",
 	"metakms:GetSecretValue", "metakms:BatchGetSecretValue",
@@ -36,6 +36,35 @@ var sensitiveReads = []string{
 	"veenedge:GetVNCUrl", "acep:GetPreSignedEdgeURL",
 	"bio:GetImportWorkspacePreSignedURL", "vefaas:GetCodeUploadAddress",
 	"vms:GetResourceUploadUrl", "volcsms:GetUploadTosURL",
+	"acep:GetEdgeTunnelConnectionInfo", "acep:ListAdbKey",
+	"aidap:DescribeAPIKeys", "aidap:DescribeDBAccountConnection",
+	"aidap:DescribeDataLakeSecretConnection", "aidap:ListDatabasesDataLakeSecretConnection",
+	"aidap:GetSchemaDiffResultDownloadLink", "aiotvideo:GetLocalDownload",
+	"apig:ListConsumerCredentials", "ark:GetEndpointCertificate",
+	"arkclaw:GetUserPoolClient", "bio:GetExportWorkspacePreSignedURL",
+	"bmq20240901:DescribeDeviceCredential", "certificateservice:CertificateGetInstance",
+	"certificateservice:CodeSignCertificateGetInstance", "cloudidentity:ListSCIMServerCredentials",
+	"cp:GetServiceConnection", "cp:ListServiceConnections",
+	"cp:GetTaskRunLogDownloadURI", "ecs:GetConsoleOutput",
+	"ecs:GetConsoleScreenshot", "iam:ListApiKeys",
+	"id:GetApiKeyCredentialProvider", "id:BatchGetApiKeyCredentialProviders",
+	"id:GetOauth2CredentialProvider", "id:BatchGetOauth2CredentialProviders",
+	"id:GetRoleCredentialProvider", "id:GetSharedOauth2Credential",
+	"id:ListSharedOauth2Credentials", "id:ListSCIMTokens",
+	"id:GetInboundAuthConfig", "id:BatchGetInboundAuthConfig",
+	"id:GetIdentityProviderOAuth", "id:GetUserPoolIamCredentialsServiceConfig",
+	"id:GetUserPoolClient", "id:ListUserPoolClients",
+	"livesaas20230801:GetActivityExportFile", "mem0:DescribeAPIKeyDetail",
+	"mongodb:DescribeDBInstanceBackupURL", "rdsmysqlv2:GetBackupDownloadLink",
+	"rdspostgresql:GetBackupDownloadLink", "redis:DescribeBackupPointDownloadUrls",
+	"pca:DownloadLeafInstance", "rocketmq:DescribeAccessKeyDetail",
+	"rocketmq:DescribeAccessKeys", "secagent:GetResourceAuthConfig",
+	"seccenter20240508:GetVarmorAuthInfo", "seccenter20240508:GetRepoRegistryVpcAuthCreateInfo",
+	"speechsaasprod:ListAPIKeys", "vefaas:ListE2BAPIKeys",
+	"vefaas:GetSandboxImagePrecacheTicket", "vke:ListKubeconfigs",
+	"vmp:GetWorkspaceAuthInfo", "vms:QueryAudioRecordFileUrl",
+	"vms:QueryAudioRecordToTextFileUrlV2", "vpn:DescribeSslVpnClientCertAttributes",
+	"vpn:DescribeVpnConnectionAttributes", "vpn:DescribeVpnConnections",
 }
 
 // writeLikeReads are APIs named like reads that generate content,
@@ -56,8 +85,7 @@ var readActions = []string{
 	"bmq:GroupExist", "bmq:TopicExist",
 	"spark:existResourcePool", "cloudtrail:LookupEvents",
 	"certificateservice:CertificateGetDcvParam", "certificateservice:CertificateGetOrganization",
-	"certificateservice:CertificateGetOrganizationList", "certificateservice:CertificateGetInstance",
-	"certificateservice:CertificateGetInstanceList", "certificateservice:CodeSignCertificateGetInstance",
+	"certificateservice:CertificateGetOrganizationList", "certificateservice:CertificateGetInstanceList",
 	"certificateservice:CodeSignCertificateListInstances", "cv20240606:FaceFusionMovieGetResult",
 	"cv20240606:LensVidaVideoGetResult", "cv20240606:LensVideoNnsrGetResult",
 	"cv20240606:AIGCStylizeImageUsage", "dataleap:DTSOpenDescribeResourceGroups",
@@ -91,8 +119,7 @@ var readActions = []string{
 	"volccontentplatform:TagListArticleTagByOpenId", "volccontentplatform:TagListTagTree",
 	"vefaasdev:ReadFiles", "bmq:PreviewTopicData",
 	"rdsmssql:DownloadSSLCertificate", "rdsmysqlv2:DownloadSSLCertificate",
-	"rdspostgresql:DownloadSSLCertificate", "pca:DownloadLeafInstance",
-	"dts:DownloadValidationTaskResult",
+	"rdspostgresql:DownloadSSLCertificate", "dts:DownloadValidationTaskResult",
 }
 
 // destructivePatterns match destructive or irreversible operations. They err
@@ -101,7 +128,8 @@ var destructivePatterns = []string{
 	"*:*Delet*", "*:Del*", "*:*Remove*", "*:*Terminate*", "*:*Destroy*", "*:*Uninstall*",
 	"*:Release*", "*:MSRelease*", "*:Drop*", "*:Truncate*", "*:Flush*", "*:*Purge*",
 	"*:Clean*", "*:Clear*", "*:Kill*", "*:Revoke*", "*:*Rollback*", "*:*Restore*",
-	"*:Reset*", "*:BatchReset*", "*:Unsubscribe*", "*:Deregister*", "*:Quit*",
+	"*:Reset*", "*:BatchReset*", "*:Unsubscribe*", "*:Deregister*", "*:Quit*", "*:ReplaceSystemVolume",
+	"*:ScaleIn*", "*:ScaleDown*", "*:Decrease*", "*:*Command*", "*:Execute*", "*:ForwardKubernetesApi",
 }
 
 // presets maps a preset name to its rules.

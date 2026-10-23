@@ -166,7 +166,7 @@ ve configure safety-policy list
 - `deny`：在本地拒绝，不发送 API 请求。
 - `confirm`：发送请求前必须获得明确确认。
 
-规则格式为 `service:action`，匹配不区分大小写，支持 `*` 通配符，并采用第一条匹配优先（first-match-wins）。未命中任何规则时默认允许。同一服务的所有写法视为同一服务，包括带版本号的命令名、带下划线的兼容命令名和 SDK 服务名。例如 `cloudtrail:Delete*`、`cloudtrail20180101:Delete*` 与 `cloud_trail:Delete*` 等价，对 `ve cloudtrail`、`ve cloudtrail20180101` 和 MCP `call_api` 同时生效；`rds_mysql:*` 同样覆盖 `ve rdsmysql`、`ve rdsmysqlv2` 和 `ve rds_mysql_v2`。API 名称按原样匹配，不做其他写法转换。
+规则格式为 `service:action`，匹配不区分大小写，支持 `*` 通配符，并采用第一条匹配优先（first-match-wins）；`add` 会把新规则放在最前面，因此即使已应用带兜底规则的预设，新规则也会生效。未命中任何规则时默认允许。同一服务的所有写法视为同一服务，包括带版本号的命令名、带下划线的兼容命令名和 SDK 服务名。例如 `cloudtrail:Delete*`、`cloudtrail20180101:Delete*` 与 `cloud_trail:Delete*` 等价，对 `ve cloudtrail`、`ve cloudtrail20180101` 和 MCP `call_api` 同时生效；`rds_mysql:*` 同样覆盖 `ve rdsmysql`、`ve rdsmysqlv2` 和 `ve rds_mysql_v2`。API 名称按原样匹配，不做其他写法转换。
 
 pattern 必须且只能包含一个冒号，service 和 action 均不能为空，内部不能包含空白字符；首尾空白会被忽略。例如 `sts:GetCallerIdentity`、`sts:*`、`*:GetCallerIdentity`、`*:*` 均合法；只写 API 名、只写服务名、用点或空格分隔，以及单独的 `*` 都会被拒绝。这里只校验格式，允许配置未收录服务及通过 `--force` 调用的新 API。
 
@@ -177,10 +177,10 @@ pattern 必须且只能包含一个冒号，service 和 action 均不能为空�
 `confirm-writes`：读操作直接放行，其他操作都需要确认：
 
 - 放行读接口：以 `Describe`、`Desc`、`List`、`Get`、`Query`、`Search`、`Show`、`Detail`、`Lookup`、`Check`、`Calc`、`Stat`、`BatchGet`、`BatchList` 或 `Analysis` 开头的 API，以及名称不以读类动词开头的读接口（例如 `bmq:TopicExist`、`vms:NumberList`）。
-- 签发凭证或 Token、读取密钥、打开控制台会话或返回上传地址的读接口（例如 `kms:GetSecretValue`、`id:GetRoleCredentials`、`ecs:DescribeInstanceVncUrl`），以及名称像读、实际会生成内容或任务的接口（例如 `waf:QueryLLMGenerate`），需要确认。
+- 签发凭证或 Token、读取密钥或私钥、打开控制台会话或返回控制台输出、返回数据下载或上传地址的读接口（例如 `kms:GetSecretValue`、`id:GetRoleCredentials`、`pca:DownloadLeafInstance`、`vke:ListKubeconfigs`、`rdsmysqlv2:GetBackupDownloadLink`、`ecs:DescribeInstanceVncUrl`），以及名称像读、实际会生成内容或任务的接口（例如 `waf:QueryLLMGenerate`），需要确认。
 - 其他操作都需要确认（`*:*=confirm`），包括导出、下载以及之后新增的服务。无法确定是否只读的接口按写操作处理。
 
-`confirm-deletes`：只对破坏性或不可逆操作要求确认，包括名称中含 `Delet`、`Remove`、`Terminate`、`Destroy`、`Uninstall`、`Purge`、`Rollback` 或 `Restore` 的 API，以及以 `Del`、`Release`、`Drop`、`Truncate`、`Flush`、`Clean`、`Clear`、`Kill`、`Revoke`、`Reset`、`Unsubscribe`、`Deregister` 或 `Quit` 开头的 API。读接口优先放行，因此 `DescribeDeletedDBInstances` 这类读接口不会要求确认；其他操作放行。
+`confirm-deletes`：只对破坏性或不可逆操作要求确认，包括名称中含 `Delet`、`Remove`、`Terminate`、`Destroy`、`Uninstall`、`Purge`、`Rollback` 或 `Restore` 的 API，以 `Del`、`Release`、`Drop`、`Truncate`、`Flush`、`Clean`、`Clear`、`Kill`、`Revoke`、`Reset`、`Unsubscribe`、`Deregister`、`Quit`、`ScaleIn`、`ScaleDown`、`Decrease` 或 `Execute` 开头的 API，名称中含 `Command` 的 API，以及会覆盖数据或执行任意命令的 `ReplaceSystemVolume` 和 `ForwardKubernetesApi`。读接口优先放行，因此 `DescribeDeletedDBInstances` 这类读接口不会要求确认；其他操作放行。
 
 `deny-writes`：名单与 `confirm-writes` 相同，但把所有需要确认的操作改为拒绝：只能调用只读 API，任何确认（`--yes`、`yes=true`）都无法放行写操作或敏感读。适用于必须保持只读的 Agent。
 

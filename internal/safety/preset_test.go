@@ -48,6 +48,14 @@ func TestConfirmWritesPreset(t *testing.T) {
 		"id:GetRoleCredentials":                      ActionConfirm,
 		"ecs:DescribeInstanceVncUrl":                 ActionConfirm,
 		"vefaas:GetCodeUploadAddress":                ActionConfirm,
+		"pca:DownloadLeafInstance":                   ActionConfirm,
+		"certificateservice:CertificateGetInstance":  ActionConfirm,
+		"vke:ListKubeconfigs":                        ActionConfirm,
+		"rdsmysqlv2:GetBackupDownloadLink":           ActionConfirm,
+		"id:GetUserPoolClient":                       ActionConfirm,
+		"apig:ListConsumerCredentials":               ActionConfirm,
+		"vpn:DescribeVpnConnectionAttributes":        ActionConfirm,
+		"ecs:GetConsoleOutput":                       ActionConfirm,
 		"newservice:AnyAction":                       ActionConfirm,
 	})
 }
@@ -70,6 +78,14 @@ func TestConfirmDeletesPreset(t *testing.T) {
 		"cp:TriggerManagedAppRollback":          ActionConfirm,
 		"redis:FlushDBInstance":                 ActionConfirm,
 		"organization:QuitOrganization":         ActionConfirm,
+		"ecs:ReplaceSystemVolume":               ActionConfirm,
+		"ecs:InvokeCommand":                     ActionConfirm,
+		"acep:RunCommand":                       ActionConfirm,
+		"dbw:ExecuteSQL":                        ActionConfirm,
+		"bmq:ScaleDownInstance":                 ActionConfirm,
+		"redis:DecreaseDBInstanceNodeNumber":    ActionConfirm,
+		"vke:ForwardKubernetesApi":              ActionConfirm,
+		"ecs:DescribeCommands":                  ActionAllow,
 	})
 	if _, ok := PresetRules("unknown"); ok {
 		t.Fatal("unknown preset accepted")

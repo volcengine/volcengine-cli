@@ -483,3 +483,28 @@ func TestConfigureSafetyPolicyPreset(t *testing.T) {
 		t.Fatalf("overwritten policy = %d rules", len(policy.Rules))
 	}
 }
+
+// add puts new rules first, so they apply even after a preset's catch-all.
+func TestConfigureSafetyPolicyAddAfterPreset(t *testing.T) {
+	dir, cleanup := withTestConfigDir(t)
+	defer cleanup()
+	previousOutput, previousInput := safetyPolicyOutput, safetyPolicyInput
+	safetyPolicyOutput, safetyPolicyInput = &bytes.Buffer{}, strings.NewReader("")
+	defer func() { safetyPolicyOutput, safetyPolicyInput = previousOutput, previousInput }()
+	if _, err := runSafetyPolicyCommandForTest(t, "preset", "confirm-writes"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runSafetyPolicyCommandForTest(t, "add", "--pattern", "ecs:Delete*", "--action", "deny"); err != nil {
+		t.Fatal(err)
+	}
+	policy, err := safety.LoadPolicy(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if policy.Rules[0].Pattern != "ecs:Delete*" || policy.Rules[0].Action != safety.ActionDeny {
+		t.Fatalf("first rule = %+v", policy.Rules[0])
+	}
+	if got := policy.Check(safety.CommandInfo{Product: "ecs", Action: "DeleteInstance"}).Action; got != safety.ActionDeny {
+		t.Fatalf("ecs:DeleteInstance = %s, want deny", got)
+	}
+}

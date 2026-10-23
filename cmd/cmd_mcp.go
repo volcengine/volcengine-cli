@@ -193,6 +193,9 @@ type mcpToolDependencies struct {
 }
 
 func runMCP(parent context.Context, options mcpCommandOptions) error {
+	if err := validateMCPOAuthOptions(options); err != nil {
+		return err
+	}
 	invoker, err := newReloadingVolcengineMCPInvoker(runtimeConfig(), options.Profile, options.Region)
 	if err != nil {
 		return err
@@ -408,6 +411,20 @@ func runMCPHTTP(ctx context.Context, listener net.Listener, baseURL string, opti
 		result = err
 	}
 	return result
+}
+
+// validateMCPOAuthOptions rejects OAuth settings without --oauth: the
+// server would otherwise start without any authentication although the
+// operator meant to require it.
+func validateMCPOAuthOptions(options mcpCommandOptions) error {
+	if options.OAuth {
+		return nil
+	}
+	if options.OAuthIssuer != "" || options.OAuthAuthorizationServer != "" || options.OAuthAudience != "" || len(options.OAuthScopes) > 0 ||
+		options.OAuthUpstream.configured() || len(options.OAuthUpstream.RedirectURIs) > 0 || options.OAuthAllowInsecureBaseURL {
+		return errors.New(tr("OAuth settings are configured but --oauth (VOLCENGINE_MCP_OAUTH) is not enabled; enable it or remove the OAuth settings"))
+	}
+	return nil
 }
 
 func newMCPServer(serverTransport transport.ServerTransport, invoker mcpAPIInvoker, dependencies mcpToolDependencies) (*server.Server, error) {

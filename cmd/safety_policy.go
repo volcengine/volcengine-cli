@@ -109,7 +109,11 @@ func newSafetyPolicyAddCommand() *cobra.Command {
 					return safety.SavePolicy(dir, policy)
 				}
 			}
-			policy.Rules = append(policy.Rules, safety.Rule{Pattern: pattern, Action: action})
+			// New rules go first: the first matching rule wins, so a rule
+			// appended after a catch-all such as a preset's *:* would never
+			// apply. add only accepts deny and confirm, so putting them first
+			// can only tighten the policy.
+			policy.Rules = append([]safety.Rule{{Pattern: pattern, Action: action}}, policy.Rules...)
 			return safety.SavePolicy(dir, policy)
 		},
 	}

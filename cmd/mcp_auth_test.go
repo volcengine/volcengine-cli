@@ -212,3 +212,26 @@ func TestMCPJWTVerifierWithSeparateAuthorizationServer(t *testing.T) {
 		t.Fatal("expected a token from another issuer to be rejected")
 	}
 }
+
+func TestMCPOAuthSettingsRequireOAuth(t *testing.T) {
+	for name, options := range map[string]mcpCommandOptions{
+		"issuer":        {OAuthIssuer: "https://auth.example.com"},
+		"authorization": {OAuthAuthorizationServer: "https://auth.example.com"},
+		"upstream":      {OAuthUpstream: mcpOAuthUpstreamOptions{ClientID: "client"}},
+		"insecure":      {OAuthAllowInsecureBaseURL: true},
+		"redirect URIs": {OAuthUpstream: mcpOAuthUpstreamOptions{RedirectURIs: []string{"https://app.example.com/cb"}}},
+		"scopes":        {OAuthScopes: []string{"mcp:use"}},
+		"audience":      {OAuthAudience: "volcengine-mcp"},
+	} {
+		if err := validateMCPOAuthOptions(options); err == nil || !strings.Contains(err.Error(), "--oauth") {
+			t.Fatalf("%s without --oauth: %v", name, err)
+		}
+		options.OAuth = true
+		if err := validateMCPOAuthOptions(options); err != nil {
+			t.Fatalf("%s with --oauth: %v", name, err)
+		}
+	}
+	if err := validateMCPOAuthOptions(mcpCommandOptions{}); err != nil {
+		t.Fatalf("no OAuth settings: %v", err)
+	}
+}
