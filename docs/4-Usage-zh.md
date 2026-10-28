@@ -108,7 +108,13 @@ ve ecs DescribeInstances --InstanceIds.1 i-1234567890abcdef0
 ve rdsmysqlv2 DescribeAllowLists --InstanceId mysql-xxxxxx --RegionId cn-beijing
 ```
 
-> 旧版 `ve rdsmysql` 和 `ve rds_mysql` 命令（API 2018-01-01）仍可继续使用，调用时会向 stderr 输出废弃提示且请求继续执行；新脚本请使用 API 2022-01-01 的 `ve rdsmysqlv2`。
+> 旧版 `ve rdsmysql` 和 `ve rds_mysql` 命令（API 2018-01-01）仍可继续使用，调用时默认向 stderr 输出废弃提示且请求继续执行；新脚本请使用 API 2022-01-01 的 `ve rdsmysqlv2`。
+>
+> 如果脚本或 CI 将 stderr 非空视为失败，可设置 `VE_NO_DEPRECATION_WARNING=1` 关闭调用时的废弃告警。仅精确值 `1` 生效；未设置、空值或其他值均保留告警，stderr 重定向时也一样。该开关不屏蔽错误，不改变 stdout、退出码、帮助提示或 MCP API 描述。MCP `call_api` 需在服务端进程设置此变量。
+
+```shell
+VE_NO_DEPRECATION_WARNING=1 ve rdsmysql ListDBInstances
+```
 
 参数名和值使用空格分隔。当前 CLI 参数语法是：
 

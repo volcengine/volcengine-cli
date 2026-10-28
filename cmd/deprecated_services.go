@@ -17,6 +17,8 @@ import (
 // deprecatedService 描述一条「实际请求服务 + API 版本」的废弃关系。
 // 服务名与 API 版本共同识别废弃对象，避免误标同服务新版或其他服务的同名版本。
 type deprecatedService struct {
+	// productName 是迁移提示中展示的产品名称。
+	productName string
 	// requestService 是签名发往的实际请求服务名（serviceMapping 归一化后）。
 	requestService string
 	// deprecatedVersion 是被废弃的 API 版本。
@@ -33,6 +35,7 @@ type deprecatedService struct {
 
 // deprecatedServices 是本期本地废弃记录，按设计仅包含 RDS MySQL 2018。
 var deprecatedServices = []deprecatedService{{
+	productName:        "RDS MySQL",
 	requestService:     "rds_mysql",
 	deprecatedVersion:  "2018-01-01",
 	replacementVersion: "2022-01-01",
@@ -78,8 +81,12 @@ func deprecatedServiceForCall(requestService, version string) (deprecatedService
 
 // warnDeprecatedServiceCall 在最终请求服务与版本命中废弃记录时，向 stderr 输出一次
 // 迁移提示。提示不改写请求、不改变退出码，stdout 业务输出保持原契约。
+// VE_NO_DEPRECATION_WARNING=1 关闭调用告警，帮助和 MCP API 描述中的提示不受影响。
 // serviceName 为 RootSupport 包名或用户输入服务名，先经 serviceMapping 标准化。
 func warnDeprecatedServiceCall(serviceName, version string) {
+	if os.Getenv("VE_NO_DEPRECATION_WARNING") == "1" {
+		return
+	}
 	requestService := serviceName
 	if mapped, ok := GetServiceMapping(serviceName); ok {
 		requestService = mapped
@@ -91,10 +98,10 @@ func warnDeprecatedServiceCall(serviceName, version string) {
 	fmt.Fprintln(os.Stderr, d.callWarning())
 }
 
-// callWarning 构造终端与 MCP 共用的英文 warning 文案（固定三行）。
+// callWarning 构造终端与 MCP 共用的 warning 文案（固定三行）。
 func (d deprecatedService) callWarning() string {
 	return strings.Join([]string{
-		trf("Warning: RDS MySQL API %s is deprecated.", d.deprecatedVersion),
+		trf("Warning: %s API %s is deprecated.", d.productName, d.deprecatedVersion),
 		trf("Please migrate to API %s using ve %s.", d.replacementVersion, d.newServiceCommand),
 		trf("The current request will continue using API %s.", d.deprecatedVersion),
 	}, "\n")
@@ -103,7 +110,7 @@ func (d deprecatedService) callWarning() string {
 // helpNotice 构造旧服务帮助顶部的废弃与迁移提示（纯文本，直接拼到 usage 模板前）。
 func (d deprecatedService) helpNotice() string {
 	return strings.Join([]string{
-		trf("Deprecated: RDS MySQL API %s is deprecated.", d.deprecatedVersion),
+		trf("Deprecated: %s API %s is deprecated.", d.productName, d.deprecatedVersion),
 		trf("Please migrate to API %s using ve %s.", d.replacementVersion, d.newServiceCommand),
 		trf("The current command and its actions continue to use API %s.", d.deprecatedVersion),
 	}, "\n") + "\n\n"
@@ -112,6 +119,6 @@ func (d deprecatedService) helpNotice() string {
 // mcpAPIDescriptionPrefix 构造 MCP list_apis 旧 API description 字段中的迁移提示，
 // 保持单行与既有字段名称、类型不变。
 func (d deprecatedService) mcpAPIDescriptionPrefix() string {
-	return trf("Deprecated: RDS MySQL API %s is deprecated. Migrate to API %s using service code %s.",
-		d.deprecatedVersion, d.replacementVersion, d.newServiceCommand)
+	return trf("Deprecated: %s API %s is deprecated. Migrate to API %s using service code %s.",
+		d.productName, d.deprecatedVersion, d.replacementVersion, d.newServiceCommand)
 }
