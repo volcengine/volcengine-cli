@@ -71,12 +71,13 @@ func (i *volcengineMCPInvoker) CallAPI(ctx context.Context, serviceName, action,
 	if !rootSupport.IsValidAction(serviceName, action) {
 		return nil, fmt.Errorf("unsupported API %s.%s", serviceName, action)
 	}
+	// 已下线版本直接阻断，不发起请求；MCP 以工具错误返回，不污染业务 JSON。
+	if err := rejectDeprecatedServiceCall(serviceName, rootSupport.GetVersion(serviceName)); err != nil {
+		return nil, err
+	}
 	if err := enforceSafetyPolicy(serviceName, action, yes, false, tr("call the same MCP tool again with yes=true")); err != nil {
 		return nil, err
 	}
-	// 旧服务调用的迁移提示写入 stderr：stdio 下由客户端决定是否展示，
-	// SSE / Streamable HTTP 下留在服务端，不进入协议 stdout 与业务 JSON。
-	warnDeprecatedServiceCall(serviceName, rootSupport.GetVersion(serviceName))
 	callConfig, profileName, profileRegion, err := i.resolveConfig()
 	if err != nil {
 		return nil, formatActionError(err)

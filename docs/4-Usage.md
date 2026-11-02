@@ -108,13 +108,7 @@ Multiple parameters:
 ve rdsmysqlv2 DescribeAllowLists --InstanceId mysql-xxxxxx --RegionId cn-beijing
 ```
 
-> The legacy `ve rdsmysql` and `ve rds_mysql` commands (API 2018-01-01) remain usable; by default they print a deprecation warning to stderr and continue executing. New scripts should use `ve rdsmysqlv2` (API 2022-01-01).
->
-> For scripts or CI that treat nonempty stderr as failure, set `VE_NO_DEPRECATION_WARNING=1` to suppress invocation deprecation warnings. Only the exact value `1` disables them; unset, empty, or other values keep them enabled, including when stderr is redirected. This does not suppress errors or change stdout, exit codes, help notices, or MCP API descriptions. For MCP `call_api`, set the variable on the server process.
-
-```shell
-VE_NO_DEPRECATION_WARNING=1 ve rdsmysql ListDBInstances
-```
+> The legacy `ve rdsmysql` and `ve rds_mysql` commands (API 2018-01-01) have been retired: calling them fails immediately with an incompatible-version error and no request is sent, including with `--force` or an explicit `--version 2018-01-01`. Migrate existing scripts to `ve rdsmysqlv2` (API 2022-01-01).
 
 Parameter names and values are separated by spaces. The supported syntax is:
 

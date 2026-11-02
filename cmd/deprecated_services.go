@@ -1,27 +1,24 @@
-// deprecated_services.go 在非生成源码中维护本期服务版本废弃记录。
+// deprecated_services.go 在非生成源码中维护服务版本废弃/下线记录。
 //
-// 记录只用于：
-//   - 默认入口可见性（根帮助、补全候选、MCP list_services 等发现路径）；
-//   - 显式旧版调用的迁移提示。
+// CLI 对记录命中的「实际请求服务 + 最终 API 版本」直接阻断：不发起请求、
+// 返回不兼容版本错误。记录同时用于默认入口隐藏与帮助提示。
 //
-// 不修改内嵌 metadata/structure/metatype/bindata，不移除任何命令注册，
-// 不改写请求服务名、版本、参数和返回值。
+// 不修改内嵌 metadata/structure/metatype/bindata，不提供绕过开关。
 package cmd
 
 import (
 	"fmt"
-	"os"
 	"strings"
 )
 
-// deprecatedService 描述一条「实际请求服务 + API 版本」的废弃关系。
-// 服务名与 API 版本共同识别废弃对象，避免误标同服务新版或其他服务的同名版本。
+// deprecatedService 描述一条「实际请求服务 + API 版本」的下线关系。
+// 服务名与 API 版本共同识别对象，避免误伤同服务新版或其他服务的同名版本。
 type deprecatedService struct {
-	// productName 是迁移提示中展示的产品名称。
+	// productName 是提示中展示的产品名称。
 	productName string
 	// requestService 是签名发往的实际请求服务名（serviceMapping 归一化后）。
 	requestService string
-	// deprecatedVersion 是被废弃的 API 版本。
+	// deprecatedVersion 是已下线、禁止调用的 API 版本。
 	deprecatedVersion string
 	// replacementVersion 是建议迁移的 API 版本。
 	replacementVersion string
@@ -33,7 +30,7 @@ type deprecatedService struct {
 	newServiceCommand string
 }
 
-// deprecatedServices 是本期本地废弃记录，按设计仅包含 RDS MySQL 2018。
+// deprecatedServices 是本期本地记录，目前仅包含 RDS MySQL 2018（CLI 已直接下线）。
 var deprecatedServices = []deprecatedService{{
 	productName:        "RDS MySQL",
 	requestService:     "rds_mysql",
@@ -45,7 +42,6 @@ var deprecatedServices = []deprecatedService{{
 }}
 
 // isDefaultHiddenService 报告某个默认发现入口（规范服务名或兼容别名）是否应隐藏。
-// 显式输入旧服务不经过可见性判断，调用能力保持不变。
 func isDefaultHiddenService(service string) bool {
 	for _, d := range deprecatedServices {
 		for _, spelling := range d.hiddenSpellings {
@@ -57,8 +53,8 @@ func isDefaultHiddenService(service string) bool {
 	return false
 }
 
-// deprecatedServiceByCanonical 按 RootSupport 包名（如 rdsmysql）查找废弃记录，
-// 用于服务帮助和 MCP list_apis 等只有规范服务名的场景。
+// deprecatedServiceByCanonical 按 RootSupport 包名（如 rdsmysql）查找记录，
+// 用于服务/action 帮助和 MCP 显式查询拦截。
 func deprecatedServiceByCanonical(service string) (deprecatedService, bool) {
 	for _, d := range deprecatedServices {
 		if d.canonicalService == service {
@@ -68,8 +64,8 @@ func deprecatedServiceByCanonical(service string) (deprecatedService, bool) {
 	return deprecatedService{}, false
 }
 
-// deprecatedServiceForCall 按标准化后的实际请求服务名与最终 API 版本查找废弃记录，
-// 用于调用提示。命令字符串本身不作为判断依据。
+// deprecatedServiceForCall 按标准化后的实际请求服务名与最终 API 版本查找记录。
+// 命令字符串本身不作为判断依据。
 func deprecatedServiceForCall(requestService, version string) (deprecatedService, bool) {
 	for _, d := range deprecatedServices {
 		if d.requestService == requestService && d.deprecatedVersion == version {
@@ -79,46 +75,33 @@ func deprecatedServiceForCall(requestService, version string) (deprecatedService
 	return deprecatedService{}, false
 }
 
-// warnDeprecatedServiceCall 在最终请求服务与版本命中废弃记录时，向 stderr 输出一次
-// 迁移提示。提示不改写请求、不改变退出码，stdout 业务输出保持原契约。
-// VE_NO_DEPRECATION_WARNING=1 关闭调用告警，帮助和 MCP API 描述中的提示不受影响。
+// rejectDeprecatedServiceCall 在最终请求服务与版本命中下线记录时返回不兼容版本错误。
+// 调用方必须在发起任何网络请求前返回该错误；不提供绕过开关。
 // serviceName 为 RootSupport 包名或用户输入服务名，先经 serviceMapping 标准化。
-func warnDeprecatedServiceCall(serviceName, version string) {
-	if os.Getenv("VE_NO_DEPRECATION_WARNING") == "1" {
-		return
-	}
+func rejectDeprecatedServiceCall(serviceName, version string) error {
 	requestService := serviceName
 	if mapped, ok := GetServiceMapping(serviceName); ok {
 		requestService = mapped
 	}
 	d, ok := deprecatedServiceForCall(requestService, version)
 	if !ok {
-		return
+		return nil
 	}
-	fmt.Fprintln(os.Stderr, d.callWarning())
+	return d.retiredCallError()
 }
 
-// callWarning 构造终端与 MCP 共用的 warning 文案（固定三行）。
-func (d deprecatedService) callWarning() string {
-	return strings.Join([]string{
-		trf("Warning: %s API %s is deprecated.", d.productName, d.deprecatedVersion),
+// retiredCallError 构造终端与 MCP 共用的不兼容版本错误（两行，写 stderr / 工具错误）。
+func (d deprecatedService) retiredCallError() error {
+	return fmt.Errorf("%s", strings.Join([]string{
+		trf("%s API %s has been retired and is no longer available.", d.productName, d.deprecatedVersion),
 		trf("Please migrate to API %s using ve %s.", d.replacementVersion, d.newServiceCommand),
-		trf("The current request will continue using API %s.", d.deprecatedVersion),
-	}, "\n")
+	}, "\n"))
 }
 
-// helpNotice 构造旧服务帮助顶部的废弃与迁移提示（纯文本，直接拼到 usage 模板前）。
+// helpNotice 构造旧服务帮助顶部的下线提示（帮助仍可查看，调用一律阻断）。
 func (d deprecatedService) helpNotice() string {
 	return strings.Join([]string{
-		trf("Deprecated: %s API %s is deprecated.", d.productName, d.deprecatedVersion),
+		trf("%s API %s has been retired and can no longer be called from the CLI.", d.productName, d.deprecatedVersion),
 		trf("Please migrate to API %s using ve %s.", d.replacementVersion, d.newServiceCommand),
-		trf("The current command and its actions continue to use API %s.", d.deprecatedVersion),
 	}, "\n") + "\n\n"
-}
-
-// mcpAPIDescriptionPrefix 构造 MCP list_apis 旧 API description 字段中的迁移提示，
-// 保持单行与既有字段名称、类型不变。
-func (d deprecatedService) mcpAPIDescriptionPrefix() string {
-	return trf("Deprecated: %s API %s is deprecated. Migrate to API %s using service code %s.",
-		d.productName, d.deprecatedVersion, d.replacementVersion, d.newServiceCommand)
 }

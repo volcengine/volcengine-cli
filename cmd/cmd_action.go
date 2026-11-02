@@ -222,11 +222,13 @@ func executeInvocation(ctx *Context, p invocationParams, buildInput func() (invo
 	if err := enforceCLISafetyPolicy(ctx, p.serviceName, p.action); err != nil {
 		return err
 	}
+	// 已下线版本在发请求前直接阻断（普通与 --force 路径都汇聚于此，无绕过开关）。
+	if err := rejectDeprecatedServiceCall(p.serviceName, p.version); err != nil {
+		return err
+	}
 	if executeInvocationHook != nil {
 		return executeInvocationHook(ctx, p, buildInput)
 	}
-	// 参数解析与版本选择已完成；命中废弃记录时向 stderr 提示一次，请求继续按原语义执行。
-	warnDeprecatedServiceCall(p.serviceName, p.version)
 	outputPlan, err := resolveAPIOutputPlan(ctx)
 	if err != nil {
 		return err

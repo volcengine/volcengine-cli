@@ -61,22 +61,15 @@ func listMCPAPIs(support *RootSupport, service string) ([]mcpAPIResult, error) {
 	if support == nil || !support.IsValidSvc(service) {
 		return nil, fmt.Errorf("unsupported service %q", service)
 	}
+	if d, ok := deprecatedServiceByCanonical(service); ok {
+		return nil, d.retiredCallError()
+	}
 	results := make([]mcpAPIResult, 0, len(support.GetAllAction(service)))
-	deprecated, deprecatedSvc := deprecatedServiceByCanonical(service)
 	for _, api := range support.GetAllAction(service) {
 		description := getApiDescription(service, api)
-		text := firstLine(firstNonEmpty(description.DescriptionEn, description.DescriptionCn, description.Description))
-		if deprecatedSvc {
-			// 旧 API 的废弃版本、替代版本及新版服务代码写入现有 description 字段，
-			// 不改变字段名称、类型，供调用方在查询阶段获得迁移提示。
-			if text != "" {
-				text = deprecated.mcpAPIDescriptionPrefix() + " " + text
-			} else {
-				text = deprecated.mcpAPIDescriptionPrefix()
-			}
-		}
+		text := firstNonEmpty(description.DescriptionEn, description.DescriptionCn, description.Description)
 		results = append(results, mcpAPIResult{
-			Service: service, API: api, NameCN: description.NameCn, NameEN: description.NameEn, Description: text,
+			Service: service, API: api, NameCN: description.NameCn, NameEN: description.NameEn, Description: firstLine(text),
 		})
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].API < results[j].API })
@@ -86,6 +79,9 @@ func listMCPAPIs(support *RootSupport, service string) ([]mcpAPIResult, error) {
 func getMCPAPIParameters(support *RootSupport, service, api string) (*mcpAPIParameters, error) {
 	if support == nil || !support.IsValidAction(service, api) {
 		return nil, fmt.Errorf("unsupported API %s.%s", service, api)
+	}
+	if d, ok := deprecatedServiceByCanonical(service); ok {
+		return nil, d.retiredCallError()
 	}
 	info := support.GetApiInfo(service, api)
 	method := "GET"
