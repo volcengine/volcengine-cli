@@ -248,7 +248,7 @@ CLI 内置了部分云产品的元数据，正常调用时会校验 service 和 
 - 已收录 service 在 force 模式下可不传 `--version`，行为与正常路径一致（如 `ve sts GetCallerIdentity --force`）。
 - `--method` 在正常路径与 force 路径使用相同解析顺序：显式 `--method` 覆盖元数据；未指定时优先用已收录 action 的 Method；均无则默认 `GET`（不因 `--force` 而改变）。
 - 对外系统参数统一用 **双横线** `--`（含 `--force` / `--version` / `--method`）。HTTP 头/JSON body 用双横线保留控制参数 **`--header` / `--body`**（见 [使用指南](4-Usage-zh.md#双横线保留控制参数)）。
-- `--force` 是**纯开关**：只写 `--force` 本身。不要写 `--force true` 或 `--force false`；其后的 token 会被当成位置参数（常被误当成 action 名）。
+- `--force` 是**纯开关**：只写 `--force` 本身。不要写 `--force true` 或 `--force false`；多出的 token 会被拒绝并报 `unexpected argument`。
 
 ### 示例
 
@@ -327,7 +327,7 @@ endpoint is required for unlisted service "newservice": set --endpoint, or confi
 unknown service "newservice": use --force with --version, and a fixed endpoint via --endpoint or profile/VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)
 ```
 
-误把 `--force` 写成带值开关（`true` 会被当成位置参数 / action）：
+误把 `--force` 写成带值开关（多出的 `true` 会被当作多余参数拒绝）：
 
 ```text
 # 错误：不要在 --force 后跟 true/false
