@@ -109,17 +109,38 @@ func newSafetyPolicyAddCommand() *cobra.Command {
 					return safety.SavePolicy(dir, policy)
 				}
 			}
-			// New rules go first: the first matching rule wins, so a rule
-			// appended after a catch-all such as a preset's *:* would never
-			// apply. add only accepts deny and confirm, so putting them first
-			// can only tighten the policy.
-			policy.Rules = append([]safety.Rule{{Pattern: pattern, Action: action}}, policy.Rules...)
+			policy.Rules = insertSafetyRule(policy.Rules, safety.Rule{Pattern: pattern, Action: action})
 			return safety.SavePolicy(dir, policy)
 		},
 	}
 	command.Flags().StringVar(&pattern, "pattern", "", tr("Case-insensitive service:action pattern with * wildcard"))
 	command.Flags().StringVar(&actionValue, "action", "", tr("Rule action: deny or confirm"))
 	return command
+}
+
+// insertSafetyRule places a new rule where it applies without loosening
+// the policy. The first matching rule wins, so a rule appended after a
+// catch-all such as a preset's trailing *:* would never apply, and a confirm
+// rule placed before a deny rule would let approval unlock what the deny
+// blocked. A deny rule goes first; a confirm rule goes after the last deny
+// rule; both stay before a trailing *:* rule.
+func insertSafetyRule(rules []safety.Rule, rule safety.Rule) []safety.Rule {
+	position := 0
+	if rule.Action == safety.ActionConfirm {
+		end := len(rules)
+		if end > 0 && rules[end-1].Pattern == "*:*" {
+			end--
+		}
+		for i := 0; i < end; i++ {
+			if rules[i].Action == safety.ActionDeny {
+				position = i + 1
+			}
+		}
+	}
+	inserted := make([]safety.Rule, 0, len(rules)+1)
+	inserted = append(inserted, rules[:position]...)
+	inserted = append(inserted, rule)
+	return append(inserted, rules[position:]...)
 }
 
 func newSafetyPolicyPresetCommand() *cobra.Command {

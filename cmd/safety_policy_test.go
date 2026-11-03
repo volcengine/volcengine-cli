@@ -508,3 +508,59 @@ func TestConfigureSafetyPolicyAddAfterPreset(t *testing.T) {
 		t.Fatalf("ecs:DeleteInstance = %s, want deny", got)
 	}
 }
+
+// add keeps deny rules ahead of confirm rules and both ahead of a trailing
+// *:* catch-all, so a new confirm rule never turns an existing deny into an
+// approvable operation, and a new rule still applies after a preset.
+func TestSafetyPolicyAddOrdersDenyBeforeConfirm(t *testing.T) {
+	dir, cleanup := withTestConfigDir(t)
+	defer cleanup()
+	check := func(api string) safety.Action {
+		t.Helper()
+		policy, err := safety.LoadPolicy(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		service, action, _ := strings.Cut(api, ":")
+		return policy.Check(safety.CommandInfo{Product: service, Action: action}).Action
+	}
+	add := func(pattern, action string) {
+		t.Helper()
+		if _, err := runSafetyPolicyCommandForTest(t, "add", "--pattern", pattern, "--action", action); err != nil {
+			t.Fatalf("add %s=%s: %v", pattern, action, err)
+		}
+	}
+
+	add("ecs:DeleteInstance", "deny")
+	if _, err := runSafetyPolicyCommandForTest(t, "enable"); err != nil {
+		t.Fatal(err)
+	}
+	add("ecs:*", "confirm")
+	if got := check("ecs:DeleteInstance"); got != safety.ActionDeny {
+		t.Fatalf("ecs:DeleteInstance = %s after adding ecs:*=confirm, want deny", got)
+	}
+	if got := check("ecs:RunInstances"); got != safety.ActionConfirm {
+		t.Fatalf("ecs:RunInstances = %s, want confirm", got)
+	}
+
+	// After a preset that ends with *:*, a new confirm rule still applies,
+	// stays behind the preset's deny rules and before its catch-all.
+	if _, err := runSafetyPolicyCommandForTest(t, "preset", "deny-writes", "--overwrite"); err != nil {
+		t.Fatal(err)
+	}
+	add("kms:*", "confirm")
+	if got := check("kms:GetSecretValue"); got != safety.ActionDeny {
+		t.Fatalf("kms:GetSecretValue = %s after adding kms:*=confirm, want the preset's deny", got)
+	}
+	if got := check("kms:CreateKey"); got != safety.ActionConfirm {
+		t.Fatalf("kms:CreateKey = %s, want confirm before the preset's *:*", got)
+	}
+	add("kms:CreateKey", "deny")
+	policy, err := safety.LoadPolicy(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first, last := policy.Rules[0], policy.Rules[len(policy.Rules)-1]; first.Pattern != "kms:CreateKey" || first.Action != safety.ActionDeny || last.Pattern != "*:*" {
+		t.Fatalf("rules start with %+v and end with %+v", first, last)
+	}
+}
