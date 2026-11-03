@@ -184,7 +184,7 @@ pattern 必须且只能包含一个冒号，service 和 action 均不能为空�
 
 `deny-writes`：名单与 `confirm-writes` 相同，但把所有需要确认的操作改为拒绝：只能调用只读 API，任何确认（`--yes`、`yes=true`）都无法放行写操作或敏感读。适用于必须保持只读的 Agent。
 
-已有规则时，使用 `--overwrite` 替换，或使用 `--append` 保留现有规则并把预设追加在其后；现有规则优先匹配，已有的 `*:*` 规则会使预设失效。两者都未指定时交互式终端会询问，非交互场景直接报错，不会替用户选择，因此启动脚本应使用 `--overwrite`。`run_script` 运行的脚本无法批准 `confirm`，受保护的操作需要经用户确认后通过 `call_api` 执行。
+已有规则时，使用 `--overwrite` 替换，或使用 `--append` 保留现有规则并把预设追加在其后；现有规则优先匹配，已有的 `*:*` 规则会使预设失效。两者都未指定时交互式终端会询问，非交互场景直接报错，不会替用户选择，因此启动脚本应使用 `--overwrite`。`run_script` 运行的脚本按整体确认：第一个受 `confirm` 规则保护的调用会停止运行，用户批准该脚本后，用 `yes: true` 原样重新运行。
 
 管理规则时，`add` 和 `remove` 按完整 pattern 文本进行不区分大小写的比较。`add` 原位更新找到的第一条规则，保持其顺序；未找到时追加。`remove` 删除所有相同 pattern 的规则，未找到时仍返回成功。查找已保存的 pattern 时不展开通配符或服务别名。
 
@@ -204,7 +204,7 @@ pattern 必须且只能包含一个冒号，service 和 action 均不能为空�
 ve ecs UpdateInstance --InstanceId i-xxxxx --yes
 ```
 
-`--yes` 只能跳过 `confirm`，不能绕过 `deny`。MCP 客户端在重试 `call_api` 时传入 `yes: true`，详见 [MCP 服务](6-MCP-zh.md#安全策略)。脚本无法批准 `confirm` 操作，也不遵循 `VOLCENGINE_SAFETY_SKIP_CONFIRM`，详见 [run_script](6-MCP-zh.md#run_script)。
+`--yes` 只能跳过 `confirm`，不能绕过 `deny`。MCP 客户端在重试 `call_api` 时传入 `yes: true`，详见 [MCP 服务](6-MCP-zh.md#安全策略)。脚本通过 `run_script` 的 `yes: true`（`ve script run` 使用 `--yes`）整体批准，不遵循 `VOLCENGINE_SAFETY_SKIP_CONFIRM`，详见 [run_script](6-MCP-zh.md#run_script)。
 
 环境变量优先级高于配置文件：
 

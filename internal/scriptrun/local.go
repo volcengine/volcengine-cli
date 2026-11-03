@@ -147,6 +147,25 @@ type localRun struct {
 	output  *limitedBuffer
 
 	journal []JournalEntry
+
+	// dispatch is done once the run is stopping: calls that have not been
+	// sent yet are rejected instead, and calls in flight make no new
+	// attempt. stopDispatch is idempotent.
+	dispatch     context.Context
+	stopDispatch context.CancelFunc
+	// deadline is the run's wall-clock limit; a call is never sent after it,
+	// even before the main loop has seen the timer fire.
+	deadline time.Time
+}
+
+type dispatchContextKey struct{}
+
+// DispatchStopped reports whether the run that issued the call behind ctx is
+// stopping. An Invoker checks it right before sending a request and before
+// each retry, so no new request reaches the API once the run stops.
+func DispatchStopped(ctx context.Context) bool {
+	dispatch, ok := ctx.Value(dispatchContextKey{}).(context.Context)
+	return ok && dispatch.Err() != nil
 }
 
 func (r *localRun) execute(startFrame []byte) *Result {
@@ -154,6 +173,8 @@ func (r *localRun) execute(startFrame []byte) *Result {
 	stopped := make(chan struct{})
 	runCtx, cancelCalls := context.WithCancel(r.parent)
 	defer cancelCalls()
+	r.dispatch, r.stopDispatch = context.WithCancel(runCtx)
+	defer r.stopDispatch()
 
 	outputDone := make(chan struct{})
 	go func() {
@@ -192,6 +213,7 @@ func (r *localRun) execute(startFrame []byte) *Result {
 	}
 
 	send(startFrame)
+	r.deadline = time.Now().Add(r.limits.Timeout)
 	timer := time.NewTimer(r.limits.Timeout)
 	defer timer.Stop()
 	completions := make(chan completion, r.limits.MaxCalls)
@@ -282,6 +304,9 @@ loop:
 			break loop
 		}
 	}
+	// Every exit from the loop stops the run: nothing that is still queued
+	// is sent, even while finally blocks get their grace period below.
+	r.stopDispatch()
 
 	if !workerFinished && !workerExited {
 		// Ask the script to unwind, then give finally blocks a short grace
@@ -361,21 +386,28 @@ func (r *localRun) startCall(runCtx context.Context, seq int, id int64, message 
 			var fatal *CallError
 			if callErr != nil && callErr.Fatal {
 				fatal = callErr
+				// Stop dispatch before this call releases its slot, so the
+				// call queued behind it cannot take the slot and be sent
+				// before the main loop handles the stop.
+				r.stopDispatch()
 			}
 			completions <- completion{index: index, frame: frame, entry: done, fatal: fatal}
 		}
+		notSent := &CallError{Code: ErrorCodeRunCancelled, Status: CallStatusRejected, Message: "the run ended before this call was sent"}
 		select {
 		case semaphore <- struct{}{}:
-		case <-runCtx.Done():
-			finish(nil, &CallError{Code: ErrorCodeRunCancelled, Status: CallStatusRejected, Message: "the run ended before this call was sent"})
+		case <-r.dispatch.Done():
+			finish(nil, notSent)
 			return
 		}
 		defer func() { <-semaphore }()
-		if runCtx.Err() != nil {
-			finish(nil, &CallError{Code: ErrorCodeRunCancelled, Status: CallStatusRejected, Message: "the run ended before this call was sent"})
+		// Both select cases can be ready at once; check again after taking
+		// the slot.
+		if r.dispatch.Err() != nil || !time.Now().Before(r.deadline) {
+			finish(nil, notSent)
 			return
 		}
-		callCtx, cancel := context.WithTimeout(runCtx, r.limits.CallTimeout)
+		callCtx, cancel := context.WithTimeout(context.WithValue(runCtx, dispatchContextKey{}, r.dispatch), r.limits.CallTimeout)
 		data, callErr := r.invoker.Invoke(callCtx, call)
 		if callErr != nil && callErr.Status != CallStatusRejected && callErr.Status != CallStatusFailed {
 			switch {

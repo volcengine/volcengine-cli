@@ -570,3 +570,104 @@ func assertProcessesGone(t *testing.T, pidFile string) {
 		}
 	}
 }
+
+// Once the broker decides to stop a run, calls still waiting for a
+// max_concurrency slot are never sent, even while the script's finally
+// blocks get their grace period; they are journaled as rejected.
+func TestLocalExecutorStopSendsNoQueuedCalls(t *testing.T) {
+	tests := []struct {
+		name       string
+		limits     func(*Limits)
+		slow       time.Duration
+		code       string
+		wantStatus string
+	}{
+		{
+			name: "fatal call", slow: 300 * time.Millisecond, wantStatus: RunStatusAborted,
+			code: `
+import asyncio
+slow = asyncio.ensure_future(call_api("svc", "Slow"))
+await asyncio.sleep(0.05)
+protected = asyncio.ensure_future(call_api("svc", "Protected"))
+await asyncio.sleep(0.05)
+queued = [asyncio.ensure_future(call_api("svc", "Queued", {"I": i})) for i in range(3)]
+try:
+    await asyncio.gather(slow, protected, *queued, return_exceptions=True)
+finally:
+    await asyncio.sleep(0.4)
+result = "done"
+`,
+		},
+		{
+			name: "call limit", slow: 300 * time.Millisecond, wantStatus: RunStatusLimitExceeded,
+			limits: func(limits *Limits) { limits.MaxCalls = 3 },
+			code: `
+import asyncio
+slow = asyncio.ensure_future(call_api("svc", "Slow"))
+await asyncio.sleep(0.05)
+queued = [asyncio.ensure_future(call_api("svc", "Queued", {"I": i})) for i in range(2)]
+await asyncio.sleep(0.05)
+extra = [asyncio.ensure_future(call_api("svc", "Extra", {"I": i})) for i in range(2)]
+try:
+    await asyncio.gather(slow, *queued, *extra, return_exceptions=True)
+finally:
+    await asyncio.sleep(0.4)
+result = "done"
+`,
+		},
+		{
+			name: "wall-clock timeout", slow: 1100 * time.Millisecond, wantStatus: RunStatusTimedOut,
+			limits: func(limits *Limits) { limits.Timeout = time.Second },
+			code: `
+import asyncio
+slow = asyncio.ensure_future(call_api("svc", "Slow"))
+await asyncio.sleep(0.05)
+queued = [asyncio.ensure_future(call_api("svc", "Queued", {"I": i})) for i in range(3)]
+try:
+    await asyncio.gather(slow, *queued, return_exceptions=True)
+finally:
+    await asyncio.sleep(0.45)
+result = "done"
+`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var mu sync.Mutex
+			sent := []string{}
+			invoker := invokeFunc(func(_ context.Context, call Call) (map[string]interface{}, *CallError) {
+				mu.Lock()
+				sent = append(sent, call.API)
+				mu.Unlock()
+				switch call.API {
+				case "Slow":
+					time.Sleep(tt.slow)
+				case "Protected":
+					return nil, &CallError{Code: "SafetyConfirmationRequired", Status: CallStatusRejected, Message: "needs approval", Fatal: true}
+				}
+				return map[string]interface{}{}, nil
+			})
+			limits := DefaultLimits()
+			limits.MaxConcurrency = 1
+			if tt.limits != nil {
+				tt.limits(&limits)
+			}
+			result := runScript(t, tt.code, nil, limits, invoker)
+			if result.Status != tt.wantStatus {
+				t.Fatalf("status = %s, error = %+v", result.Status, result.Error)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			for _, api := range sent {
+				if api == "Queued" {
+					t.Fatalf("a queued call was sent after the run stopped: sent %v, journal %+v", sent, result.Calls)
+				}
+			}
+			for _, entry := range result.Calls {
+				if entry.API == "Queued" && (entry.Status != CallStatusRejected || entry.ErrorCode != ErrorCodeRunCancelled) {
+					t.Fatalf("queued call journal entry = %+v, want rejected %s", entry, ErrorCodeRunCancelled)
+				}
+			}
+		})
+	}
+}

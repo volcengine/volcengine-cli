@@ -184,7 +184,7 @@ Patterns must contain exactly one colon, with a non-empty service and action and
 
 `deny-writes` uses the same list as `confirm-writes` but turns every confirmation into a denial: only read APIs run, and no approval (`--yes`, `yes=true`) unlocks a write or a sensitive read. Use it for agents that must stay read-only.
 
-If the policy already has rules, pass `--overwrite` to replace them or `--append` to keep them and add the preset after them; existing rules keep precedence, and an existing `*:*` rule shadows the preset. An interactive terminal asks when neither flag is given; non-interactive runs fail instead of guessing, so startup scripts use `--overwrite`. Scripts run by `run_script` cannot approve `confirm`; protected operations go through `call_api` with user approval.
+If the policy already has rules, pass `--overwrite` to replace them or `--append` to keep them and add the preset after them; existing rules keep precedence, and an existing `*:*` rule shadows the preset. An interactive terminal asks when neither flag is given; non-interactive runs fail instead of guessing, so startup scripts use `--overwrite`. A script run by `run_script` is approved as a whole: the first call that a `confirm` rule protects stops the run, and after the user approves the script it runs again unchanged with `yes: true`.
 
 For rule management, `add` and `remove` compare the complete pattern text case-insensitively. `add` updates the first matching pattern in place, preserving its position; otherwise, it appends a rule. `remove` deletes all matching patterns and still succeeds if none exist. Wildcards and service aliases are not expanded when locating stored patterns.
 
@@ -204,7 +204,7 @@ In an interactive terminal, a `confirm` match prompts for `yes`. Agents must sta
 ve ecs UpdateInstance --InstanceId i-xxxxx --yes
 ```
 
-`--yes` skips only `confirm`; it never bypasses `deny`. MCP clients use `yes: true` on the repeated `call_api` request. Scripts cannot approve `confirm` operations and ignore `VOLCENGINE_SAFETY_SKIP_CONFIRM`; see [MCP Server](6-MCP.md#safety-policy) and [run_script](6-MCP.md#run_script).
+`--yes` skips only `confirm`; it never bypasses `deny`. MCP clients use `yes: true` on the repeated `call_api` request. Scripts are approved as a whole with `yes: true` on `run_script` (`--yes` on `ve script run`) and ignore `VOLCENGINE_SAFETY_SKIP_CONFIRM`; see [MCP Server](6-MCP.md#safety-policy) and [run_script](6-MCP.md#run_script).
 
 Environment overrides have higher priority than the file:
 

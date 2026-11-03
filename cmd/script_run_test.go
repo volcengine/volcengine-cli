@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/volcengine/volcengine-cli/internal/pyruntime"
 	"github.com/volcengine/volcengine-cli/internal/safety"
@@ -111,6 +112,11 @@ func (m *scriptMockAPI) serve(w http.ResponseWriter, r *http.Request) {
 			cores = 8
 		}
 		body = map[string]interface{}{"ResponseMetadata": metadata, "Result": map[string]interface{}{"InstanceTypes": []interface{}{map[string]interface{}{"InstanceTypeId": typeID, "Processor": map[string]interface{}{"Cpus": cores}}}}}
+	case "CreateTags":
+		// A server error the SDK retries.
+		metadata["Error"] = map[string]interface{}{"Code": "InternalError", "Message": "try again"}
+		w.WriteHeader(http.StatusInternalServerError)
+		body = map[string]interface{}{"ResponseMetadata": metadata}
 	case "DescribeVpcs":
 		metadata["Error"] = map[string]interface{}{"Code": "InvalidVpc.NotFound", "Message": "the VPC does not exist"}
 		w.WriteHeader(http.StatusNotFound)
@@ -700,5 +706,47 @@ func TestSafetyDeniedMessagesLeaveOutRuleForModels(t *testing.T) {
 		if !strings.Contains(message, "blocked by safety policy: vpc CreateVpc") || strings.Contains(message, "*:*") || strings.Contains(message, "%!") {
 			t.Fatalf("%s deny = %q", source, message)
 		}
+	}
+}
+
+// A call in flight when the run stops gets the response to its current
+// attempt but makes no new attempt: the SDK does not retry it after the stop.
+func TestScriptRunStopSendsNoRetries(t *testing.T) {
+	mock := newScriptMockAPI(t)
+	dir, _ := setupScriptProfile(t, mock.server.URL)
+	if err := safety.SavePolicy(dir, &safety.Policy{Enabled: true, Rules: []safety.Rule{
+		{Pattern: "ecs:RunInstances", Action: safety.ActionConfirm},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	mock.hook = func(_ int, request scriptAPIRequest) {
+		if request.Action == "CreateTags" {
+			time.Sleep(250 * time.Millisecond)
+		}
+	}
+	code := `
+import asyncio
+tagging = asyncio.ensure_future(call_api("ecs", "CreateTags", {"ResourceIds.1": "i-1"}))
+await asyncio.sleep(0.1)
+try:
+    await asyncio.gather(tagging, call_api("ecs", "RunInstances", {"InstanceName": "a"}), return_exceptions=True)
+finally:
+    await asyncio.sleep(0.45)
+result = "done"
+`
+	limits := scriptrun.DefaultLimits()
+	limits.MaxConcurrency = 2
+	report := runScriptForTest(t, code, limits)
+	if report.Status != scriptrun.RunStatusAborted {
+		t.Fatalf("status = %s, error = %+v", report.Status, report.Error)
+	}
+	attempts := 0
+	for _, request := range mock.snapshot() {
+		if request.Action == "CreateTags" {
+			attempts++
+		}
+	}
+	if attempts != 1 {
+		t.Fatalf("CreateTags reached the API %d times; a stopped run must not retry it (journal %+v)", attempts, report.Calls)
 	}
 }

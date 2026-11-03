@@ -168,11 +168,11 @@ result = {"instances": len(instances), "types": len(details)}
 
 ### 结果与调用日志
 
-结果包含 `status`（`succeeded`、`failed`、`cancelled`、`timed_out`、`aborted` 或 `limit_exceeded`）、`result`、`error`（类型、信息和脚本自身的 traceback）、`output`、`calls`、`summary`、`binding`、`runtime` 和 `trust`。`succeeded` 以外的状态均以 Tool 错误返回，同时附带完整报告。`calls` 按发起顺序记录每个 API 调用的状态（`ok`、`failed`、`rejected` 或 `unknown`）、错误码、错误信息和 `RequestId`。失败、取消或超时之前已完成的调用会保留在日志中。**不要重新运行已部分执行的脚本**，应基于调用日志继续处理。
+结果包含 `status`（`succeeded`、`failed`、`cancelled`、`timed_out`、`aborted` 或 `limit_exceeded`）、`result`、`error`（类型、信息和脚本自身的 traceback）、`output`、`calls`、`summary`、`binding`、`runtime` 和 `trust`。`succeeded` 以外的状态均以 Tool 错误返回，同时附带完整报告。`calls` 按发起顺序记录每个 API 调用的状态（`ok`、`failed`、`rejected` 或 `unknown`）、错误码、错误信息和 `RequestId`。失败、取消或超时之前已完成的调用会保留在日志中。**不要重新运行已部分执行的脚本**，应基于调用日志继续处理。唯一的例外是因 `SafetyConfirmationRequired` 停止后、经用户批准的那一次整体重跑（见下文）。运行一旦停止就不再发送新调用：仍在等待 `max_concurrency` 名额的调用记为 `rejected`，已在途的调用不再重试。
 
 ### 安全策略
 
-脚本发起的每个 API 调用都会重新加载并评估安全策略，运行期间新增的规则会作用于下一个调用。`deny` 规则以 `SafetyDenied` 拒绝该调用。允许的 API（包括写操作）正常执行。脚本按整体确认：未批准时，第一个受 `confirm` 规则保护的调用不会发送，并且整个运行停止（状态为 `aborted`，错误码为 `SafetyConfirmationRequired`），即使脚本捕获了 `APIError` 也是如此。Agent 说明整个脚本做什么，等待用户的新回复批准，然后用相同的代码和参数并设置 `yes: true`（`ve script run` 使用 `--yes`）重新运行该脚本。这次运行会发送所有受 `confirm` 规则保护的调用；`deny` 规则仍然生效，运行结束后即丢弃批准。改用 `call_api` 逐个执行受保护操作，可能重复执行脚本已经做过的操作。停止前已执行、由 `allow` 规则放行的调用，会在批准后的运行中再次执行。脚本刻意不遵循 `VOLCENGINE_SAFETY_SKIP_CONFIRM`。
+脚本发起的每个 API 调用都会重新加载并评估安全策略，运行期间新增的规则会作用于下一个调用。`deny` 规则以 `SafetyDenied` 拒绝该调用。允许的 API（包括写操作）正常执行。脚本按整体确认：未批准时，第一个受 `confirm` 规则保护的调用不会发送，并且整个运行停止（状态为 `aborted`，错误码为 `SafetyConfirmationRequired`），即使脚本捕获了 `APIError` 也是如此。Agent 说明整个脚本做什么，等待用户的新回复批准，然后用相同的代码和参数并设置 `yes: true`（`ve script run` 使用 `--yes`）重新运行该脚本。这次运行会发送所有受 `confirm` 规则保护的调用；`deny` 规则仍然生效，运行结束后即丢弃批准。改用 `call_api` 逐个执行受保护操作，可能重复执行脚本已经做过的操作。调用日志中状态为 `ok` 或 `unknown` 的调用（停止前由 `allow` 规则放行）可能已经变更了资源，会在批准后的运行中再次执行，Agent 需要告知用户。脚本刻意不遵循 `VOLCENGINE_SAFETY_SKIP_CONFIRM`。
 
 ### 身份绑定
 

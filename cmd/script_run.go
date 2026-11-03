@@ -95,6 +95,11 @@ func (s *scriptAPIInvoker) Invoke(ctx context.Context, call scriptrun.Call) (map
 		callErr.Fatal = true
 		return nil, callErr
 	}
+	// The run may have stopped while the policy and credentials were
+	// resolved; a stopped run sends no new request.
+	if scriptrun.DispatchStopped(ctx) {
+		return nil, rejected(scriptrun.ErrorCodeRunCancelled, "the run ended before this call was sent")
+	}
 	output, err := callAPIWithClientContext(ctx, client.sdk, call.Service, call.API, call.Parameters, false)
 	if err != nil {
 		var failure volcengineerr.RequestFailure
@@ -133,7 +138,7 @@ func checkScriptSafetyPolicy(service, action string, approved bool) *scriptrun.C
 			return nil
 		}
 		return &scriptrun.CallError{Code: scriptErrorSafetyConfirmation, Status: scriptrun.CallStatusRejected, Fatal: true,
-			Message: fmt.Sprintf(tr("safety policy requires confirmation for: %s %s. The call was not sent and the run was stopped; the script needs approval as a whole.\nSTOP: Briefly explain what the whole script does, including every operation it may change, ask to continue, then end this turn and wait for a NEW user reply. Do not perform the operations another way, such as one by one with call_api.\nOnly after approval, run the same script with unchanged code and args and yes=true (ve script run: --yes) ONCE. If the journal shows calls that changed resources before the stop, tell the user the approved run repeats them. Discard approval after that run, even on failure."), service, action)}
+			Message: fmt.Sprintf(tr("safety policy requires confirmation for: %s %s. The call was not sent and the run was stopped; the script needs approval as a whole.\nSTOP: Briefly explain what the whole script does, including every operation it may change, ask to continue, then end this turn and wait for a NEW user reply. Do not perform the operations another way, such as one by one with call_api.\nOnly after approval, run the same script with unchanged code and args and yes=true (ve script run: --yes) ONCE. Calls in the journal with status ok or unknown may already have changed resources; tell the user the approved run sends them again, and where possible check their real state with read-only APIs first. Discard approval after that run, even on failure."), service, action)}
 	}
 	return nil
 }

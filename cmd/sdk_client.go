@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/volcengine/volcengine-cli/internal/scriptrun"
 	"github.com/volcengine/volcengine-go-sdk/volcengine"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/client"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/client/metadata"
@@ -508,6 +509,16 @@ func (s *SdkClient) CallSdkWithContext(ctx context.Context, info SdkClientInfo, 
 		Fn: func(built *request.Request) {
 			applySdkRequestHeaders(built, info)
 			applyClientID(built)
+		},
+	})
+	// A script call stops retrying once its run stops, so no new attempt
+	// reaches the API after the run reports it stopped.
+	req.Handlers.AfterRetry.PushBackNamed(request.NamedHandler{
+		Name: "volcengine-cli.stop-retries-after-script-run",
+		Fn: func(retried *request.Request) {
+			if scriptrun.DispatchStopped(retried.Context()) {
+				retried.Retryable = volcengine.Bool(false)
+			}
 		},
 	})
 	err = req.Send()
