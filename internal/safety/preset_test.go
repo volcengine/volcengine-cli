@@ -71,6 +71,7 @@ func TestConfirmDeletesPreset(t *testing.T) {
 		"kms:ScheduleKeyDeletion":               ActionConfirm,
 		"i18nopenapi:ProjectDownloadTaskDelete": ActionConfirm,
 		"advdefence:DelHostRule":                ActionConfirm,
+		"advdefence:BatchDelHostRule":           ActionConfirm,
 		"vpc:RemoveAclEntries":                  ActionConfirm,
 		"ecs:TerminateInstances":                ActionConfirm,
 		"graph:DestroyInstance":                 ActionConfirm,

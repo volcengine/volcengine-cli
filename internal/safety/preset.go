@@ -125,7 +125,7 @@ var readActions = []string{
 // destructivePatterns match destructive or irreversible operations. They err
 // on matching too much: confirm-deletes allows reads before them.
 var destructivePatterns = []string{
-	"*:*Delet*", "*:Del*", "*:*Remove*", "*:*Terminate*", "*:*Destroy*", "*:*Uninstall*",
+	"*:*Delet*", "*:Del*", "*:BatchDel*", "*:*Remove*", "*:*Terminate*", "*:*Destroy*", "*:*Uninstall*",
 	"*:Release*", "*:MSRelease*", "*:Drop*", "*:Truncate*", "*:Flush*", "*:*Purge*",
 	"*:Clean*", "*:Clear*", "*:Kill*", "*:Revoke*", "*:*Rollback*", "*:*Restore*",
 	"*:Reset*", "*:BatchReset*", "*:Unsubscribe*", "*:Deregister*", "*:Quit*", "*:ReplaceSystemVolume",
