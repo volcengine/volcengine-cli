@@ -723,8 +723,8 @@ func TestSafetyDeniedMessagesLeaveOutRuleForModels(t *testing.T) {
 	}
 }
 
-// A call in flight when the run stops gets the response to its current
-// attempt but makes no new attempt: the SDK does not retry it after the stop.
+// A call in flight when the run stops is cancelled: it is journaled unknown
+// and the SDK does not retry it.
 func TestScriptRunStopSendsNoRetries(t *testing.T) {
 	mock := newScriptMockAPI(t)
 	dir, _ := setupScriptProfile(t, mock.server.URL)
@@ -763,9 +763,8 @@ result = "done"
 	if attempts != 1 {
 		t.Fatalf("CreateTags reached the API %d times; a stopped run must not retry it (journal %+v)", attempts, report.Calls)
 	}
-	// The call keeps the outcome of its only attempt.
-	if tagging := report.Calls[0]; tagging.API != "CreateTags" || tagging.Status != scriptrun.CallStatusFailed || tagging.ErrorCode != "InternalError" || tagging.RequestID == "" {
-		t.Fatalf("CreateTags journal entry = %+v, want failed InternalError with its RequestId", tagging)
+	if tagging := report.Calls[0]; tagging.API != "CreateTags" || tagging.Status != scriptrun.CallStatusUnknown || tagging.ErrorCode != scriptrun.ErrorCodeRunCancelled {
+		t.Fatalf("CreateTags journal entry = %+v, want unknown %s", tagging, scriptrun.ErrorCodeRunCancelled)
 	}
 }
 

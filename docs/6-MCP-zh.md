@@ -168,7 +168,7 @@ result = {"instances": len(instances), "types": len(details)}
 
 ### 结果与调用日志
 
-结果包含 `status`（`succeeded`、`failed`、`cancelled`、`timed_out`、`aborted` 或 `limit_exceeded`）、`result`、`error`（类型、信息和脚本自身的 traceback）、`output`、`calls`、`summary`、`binding`、`runtime` 和 `trust`。`succeeded` 以外的状态均以 Tool 错误返回，同时附带完整报告。`calls` 按发起顺序记录每个 API 调用的状态（`ok`、`failed`、`rejected` 或 `unknown`）、错误码、错误信息和 `RequestId`。失败、取消或超时之前已完成的调用会保留在日志中。**不要重新运行已部分执行的脚本**，应基于调用日志继续处理。唯一的例外是因 `SafetyConfirmationRequired` 停止后、经用户批准的那一次整体重跑（见下文）。运行一旦停止就不再发送新调用：仍在等待 `max_concurrency` 名额的调用记为 `rejected`，已在途的调用不再重试。
+结果包含 `status`（`succeeded`、`failed`、`cancelled`、`timed_out`、`aborted` 或 `limit_exceeded`）、`result`、`error`（类型、信息和脚本自身的 traceback）、`output`、`calls`、`summary`、`binding`、`runtime` 和 `trust`。`succeeded` 以外的状态均以 Tool 错误返回，同时附带完整报告。`calls` 按发起顺序记录每个 API 调用的状态（`ok`、`failed`、`rejected` 或 `unknown`）、错误码、错误信息和 `RequestId`。失败、取消或超时之前已完成的调用会保留在日志中。**不要重新运行已部分执行的脚本**，应基于调用日志继续处理。唯一的例外是因 `SafetyConfirmationRequired` 停止后、经用户批准的那一次整体重跑（见下文）。运行一旦停止就不再发送新调用：仍在等待 `max_concurrency` 名额的调用记为 `rejected`，已在途的调用会被取消并记为 `unknown`。
 
 ### 安全策略
 

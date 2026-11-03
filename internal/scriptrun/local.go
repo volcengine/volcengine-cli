@@ -149,8 +149,9 @@ type localRun struct {
 	journal []JournalEntry
 
 	// dispatch is done once the run is stopping: calls that have not been
-	// sent yet are rejected instead, and calls in flight make no new
-	// attempt. stopDispatch is idempotent.
+	// sent yet are rejected, and calls in flight are cancelled, so no new
+	// request (retry, redirect or transport replay) reaches the API after
+	// the stop. stopDispatch is idempotent.
 	dispatch     context.Context
 	stopDispatch context.CancelFunc
 	// deadline is the run's wall-clock limit; a call is never sent after it,
@@ -168,8 +169,7 @@ type dispatchState struct {
 
 // DispatchStopped reports whether the run that issued the call behind ctx is
 // stopping or past its wall-clock limit. An Invoker checks it right before
-// sending a request and before each retry, so no new request reaches the API
-// once the run stops.
+// sending, so a call that was not sent can be journaled as rejected.
 func DispatchStopped(ctx context.Context) bool {
 	state, ok := ctx.Value(dispatchContextKey{}).(dispatchState)
 	return ok && (state.dispatch.Err() != nil || !time.Now().Before(state.deadline))
@@ -414,11 +414,12 @@ func (r *localRun) startCall(runCtx context.Context, seq int, id int64, message 
 			finish(nil, notSent)
 			return
 		}
-		callCtx, cancel := context.WithTimeout(context.WithValue(runCtx, dispatchContextKey{}, dispatchState{dispatch: r.dispatch, deadline: r.deadline}), r.limits.CallTimeout)
+		// The call runs under dispatch, so stopping the run cancels it.
+		callCtx, cancel := context.WithTimeout(context.WithValue(r.dispatch, dispatchContextKey{}, dispatchState{dispatch: r.dispatch, deadline: r.deadline}), r.limits.CallTimeout)
 		data, callErr := r.invoker.Invoke(callCtx, call)
 		if callErr != nil && callErr.Status != CallStatusRejected && callErr.Status != CallStatusFailed {
 			switch {
-			case runCtx.Err() != nil:
+			case r.dispatch.Err() != nil:
 				callErr.Code, callErr.Status = ErrorCodeRunCancelled, CallStatusUnknown
 			case errors.Is(callCtx.Err(), context.DeadlineExceeded):
 				callErr.Code, callErr.Status = ErrorCodeCallTimeout, CallStatusUnknown
