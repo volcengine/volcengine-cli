@@ -749,4 +749,8 @@ result = "done"
 	if attempts != 1 {
 		t.Fatalf("CreateTags reached the API %d times; a stopped run must not retry it (journal %+v)", attempts, report.Calls)
 	}
+	// The call keeps the outcome of its only attempt.
+	if tagging := report.Calls[0]; tagging.API != "CreateTags" || tagging.Status != scriptrun.CallStatusFailed || tagging.ErrorCode != "InternalError" || tagging.RequestID == "" {
+		t.Fatalf("CreateTags journal entry = %+v, want failed InternalError with its RequestId", tagging)
+	}
 }

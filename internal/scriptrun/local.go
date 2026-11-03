@@ -160,12 +160,19 @@ type localRun struct {
 
 type dispatchContextKey struct{}
 
+// dispatchState is what DispatchStopped reads from a call's context.
+type dispatchState struct {
+	dispatch context.Context
+	deadline time.Time
+}
+
 // DispatchStopped reports whether the run that issued the call behind ctx is
-// stopping. An Invoker checks it right before sending a request and before
-// each retry, so no new request reaches the API once the run stops.
+// stopping or past its wall-clock limit. An Invoker checks it right before
+// sending a request and before each retry, so no new request reaches the API
+// once the run stops.
 func DispatchStopped(ctx context.Context) bool {
-	dispatch, ok := ctx.Value(dispatchContextKey{}).(context.Context)
-	return ok && dispatch.Err() != nil
+	state, ok := ctx.Value(dispatchContextKey{}).(dispatchState)
+	return ok && (state.dispatch.Err() != nil || !time.Now().Before(state.deadline))
 }
 
 func (r *localRun) execute(startFrame []byte) *Result {
@@ -407,7 +414,7 @@ func (r *localRun) startCall(runCtx context.Context, seq int, id int64, message 
 			finish(nil, notSent)
 			return
 		}
-		callCtx, cancel := context.WithTimeout(context.WithValue(runCtx, dispatchContextKey{}, r.dispatch), r.limits.CallTimeout)
+		callCtx, cancel := context.WithTimeout(context.WithValue(runCtx, dispatchContextKey{}, dispatchState{dispatch: r.dispatch, deadline: r.deadline}), r.limits.CallTimeout)
 		data, callErr := r.invoker.Invoke(callCtx, call)
 		if callErr != nil && callErr.Status != CallStatusRejected && callErr.Status != CallStatusFailed {
 			switch {

@@ -512,8 +512,10 @@ func (s *SdkClient) CallSdkWithContext(ctx context.Context, info SdkClientInfo, 
 		},
 	})
 	// A script call stops retrying once its run stops, so no new attempt
-	// reaches the API after the run reports it stopped.
-	req.Handlers.AfterRetry.PushBackNamed(request.NamedHandler{
+	// reaches the API after the run reports it stopped. The handler runs
+	// before core.AfterRetryHandler, which clears the request error when it
+	// decides to retry; deciding first keeps the error of the last attempt.
+	req.Handlers.AfterRetry.PushFrontNamed(request.NamedHandler{
 		Name: "volcengine-cli.stop-retries-after-script-run",
 		Fn: func(retried *request.Request) {
 			if scriptrun.DispatchStopped(retried.Context()) {
