@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -100,7 +101,14 @@ The JSON report, including the call journal, is written to stdout.`),
 			if err != nil {
 				return err
 			}
-			invoker, err := newReloadingVolcengineMCPInvoker(runtimeConfig(), options.Profile, options.Region)
+			profile, region := options.Profile, options.Region
+			if profile == "" {
+				profile = scriptGlobalFlagValue("profile")
+			}
+			if region == "" {
+				region = scriptGlobalFlagValue("region")
+			}
+			invoker, err := newReloadingVolcengineMCPInvoker(runtimeConfig(), profile, region)
 			if err != nil {
 				return err
 			}
@@ -191,7 +199,7 @@ func newScriptRuntimeInstallCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			artifact, err := manifest.Select(pyruntime.CurrentPlatform())
+			artifact, err := manifest.Select(pyruntime.CurrentPlatform(), pyruntime.CurrentLibc())
 			if err != nil {
 				return err
 			}
@@ -229,7 +237,7 @@ func newScriptRuntimeStatusCommand() *cobra.Command {
 		RunE: func(command *cobra.Command, _ []string) error {
 			status := map[string]interface{}{"platform": pyruntime.CurrentPlatform()}
 			if manifest, err := pyruntime.DefaultManifest(); err == nil {
-				if artifact, err := manifest.Select(pyruntime.CurrentPlatform()); err == nil {
+				if artifact, err := manifest.Select(pyruntime.CurrentPlatform(), pyruntime.CurrentLibc()); err == nil {
 					status["managed_available"] = artifact.Version
 				} else {
 					status["managed_available"] = false
@@ -253,4 +261,17 @@ func newScriptRuntimeStatusCommand() *cobra.Command {
 	}
 	command.Flags().StringVar(&python, "python", "", tr("Absolute path of the CPython 3.9+ interpreter for run_script"))
 	return command
+}
+
+// scriptGlobalFlagValue returns a system flag given before the subcommand,
+// as in ve --profile dev script run, which the root parses into ctx rather
+// than into the subcommand's own flags.
+func scriptGlobalFlagValue(name string) string {
+	if ctx == nil || ctx.fixedFlags == nil {
+		return ""
+	}
+	if flag := ctx.fixedFlags.GetByName(name); flag != nil {
+		return strings.TrimSpace(flag.GetValue())
+	}
+	return ""
 }

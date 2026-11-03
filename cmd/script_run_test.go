@@ -939,3 +939,50 @@ result = "done"
 		t.Fatalf("CreateTags journal entry = %+v, want rejected %s", tagging, scriptrun.ErrorCodeRunCancelled)
 	}
 }
+
+// System flags given before the subcommand, as in ve --profile dev script
+// run, select the run's profile and region like the subcommand's own flags,
+// which win when both are given.
+func TestScriptRunUsesGlobalProfileAndRegion(t *testing.T) {
+	mock := newScriptMockAPI(t)
+	setupScriptProfile(t, mock.server.URL)
+	t.Setenv(scriptRunEnabledEnvironment, "true")
+	file := filepath.Join(t.TempDir(), "script.py")
+	if err := os.WriteFile(file, []byte("result = 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	python := scriptTestPython(t)
+	run := func(args ...string) (string, error) {
+		t.Helper()
+		resolved, err := resolveSystemFlags(args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		previous := ctx
+		ctx = NewContext()
+		defer func() { ctx = previous }()
+		if err := applyResolvedSystemFlags(ctx, resolved.fixedFlags); err != nil {
+			t.Fatal(err)
+		}
+		var output strings.Builder
+		rootCmd.SetOut(&output)
+		rootCmd.SetArgs(resolved.args)
+		defer func() {
+			rootCmd.SetOut(nil)
+			rootCmd.SetArgs(nil)
+		}()
+		err = rootCmd.Execute()
+		return output.String(), err
+	}
+	if _, err := run("--profile", "nosuch", "script", "run", "--file", file, "--python", python); err == nil || !strings.Contains(err.Error(), `profile "nosuch" not found`) {
+		t.Fatalf("global --profile error = %v", err)
+	}
+	output, err := run("--region", "cn-shanghai", "script", "run", "--file", file, "--python", python)
+	if err != nil || !strings.Contains(output, `"region": "cn-shanghai"`) {
+		t.Fatalf("global --region: error = %v, output = %s", err, output)
+	}
+	output, err = run("--region", "cn-shanghai", "script", "run", "--region", "cn-guangzhou", "--file", file, "--python", python)
+	if err != nil || !strings.Contains(output, `"region": "cn-guangzhou"`) {
+		t.Fatalf("subcommand --region: error = %v, output = %s", err, output)
+	}
+}
