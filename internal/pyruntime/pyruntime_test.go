@@ -119,13 +119,23 @@ func TestDefaultManifestPinsFiveVerifiedPlatforms(t *testing.T) {
 		t.Fatalf("manifest has %d runtimes", len(manifest.Runtimes))
 	}
 	for platform, digest := range want {
-		artifact, err := manifest.Select(platform)
+		artifact, err := manifest.Select(platform, "")
 		if err != nil || artifact.SHA256 != digest || artifact.Version != "3.12.15" || !strings.HasPrefix(artifact.URL, "https://github.com/astral-sh/python-build-standalone/releases/download/20261013/") {
 			t.Fatalf("%s: artifact = %+v, error = %v", platform, artifact, err)
 		}
 	}
+	// The Linux runtimes are glibc builds: musl systems such as Alpine get an
+	// explicit unsupported error instead of a runtime that cannot start.
+	for _, platform := range []string{"linux-arm64", "linux-amd64"} {
+		if _, err := manifest.Select(platform, "glibc"); err != nil {
+			t.Fatalf("%s glibc: %v", platform, err)
+		}
+		if _, err := manifest.Select(platform, "musl"); err == nil || !strings.Contains(err.Error(), "(musl)") || !strings.Contains(err.Error(), "VOLCENGINE_SCRIPT_PYTHON") {
+			t.Fatalf("%s musl: expected an explicit unsupported error, got %v", platform, err)
+		}
+	}
 	for _, platform := range []string{"linux-386", "linux-arm", "freebsd-amd64", "windows-arm64", "windows-386"} {
-		if _, err := manifest.Select(platform); err == nil || !strings.Contains(err.Error(), "VOLCENGINE_SCRIPT_PYTHON") {
+		if _, err := manifest.Select(platform, ""); err == nil || !strings.Contains(err.Error(), "VOLCENGINE_SCRIPT_PYTHON") {
 			t.Fatalf("%s: expected an explicit unsupported-platform error, got %v", platform, err)
 		}
 	}
@@ -393,7 +403,7 @@ func TestInstallerRealPythonBuildStandaloneArchive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	artifact, err := manifest.Select(CurrentPlatform())
+	artifact, err := manifest.Select(CurrentPlatform(), CurrentLibc())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -498,4 +508,21 @@ func mustJSON(t *testing.T, value interface{}) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+func TestDetectLibc(t *testing.T) {
+	dir := t.TempDir()
+	loaders := filepath.Join(dir, "ld-musl-*.so.1")
+	if got := detectLibc("linux", loaders); got != "glibc" {
+		t.Fatalf("linux without a musl loader = %q, want glibc", got)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ld-musl-aarch64.so.1"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := detectLibc("linux", loaders); got != "musl" {
+		t.Fatalf("linux with a musl loader = %q, want musl", got)
+	}
+	if got := detectLibc("darwin", loaders); got != "" {
+		t.Fatalf("darwin = %q, want no libc", got)
+	}
 }

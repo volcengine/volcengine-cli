@@ -132,16 +132,45 @@ func CurrentPlatform() string {
 	return runtime.GOOS + "-" + runtime.GOARCH
 }
 
-// Select returns the artifact for platform or an explicit unsupported error.
-func (m *Manifest) Select(platform string) (Artifact, error) {
+// muslLoaders matches the dynamic loader that only musl-based Linux
+// systems, such as Alpine, install.
+var muslLoaders = "/lib/ld-musl-*.so.1"
+
+// CurrentLibc returns the C library of this Linux system, musl or glibc, and
+// an empty string elsewhere. Managed runtimes are built for one of them.
+func CurrentLibc() string {
+	return detectLibc(runtime.GOOS, muslLoaders)
+}
+
+func detectLibc(goos, loaders string) string {
+	if goos != "linux" {
+		return ""
+	}
+	if matches, _ := filepath.Glob(loaders); len(matches) > 0 {
+		return "musl"
+	}
+	return "glibc"
+}
+
+// Select returns the artifact for platform and libc (empty outside Linux) or
+// an explicit unsupported error. An artifact built for another C library is
+// not selected.
+func (m *Manifest) Select(platform, libc string) (Artifact, error) {
 	for _, artifact := range m.Runtimes {
-		if artifact.Platform == platform {
+		if artifact.Platform == platform && (artifact.Libc == "" || libc == "" || artifact.Libc == libc) {
 			return artifact, nil
 		}
 	}
 	supported := make([]string, 0, len(m.Runtimes))
 	for _, artifact := range m.Runtimes {
-		supported = append(supported, artifact.Platform)
+		name := artifact.Platform
+		if artifact.Libc != "" {
+			name += " (" + artifact.Libc + ")"
+		}
+		supported = append(supported, name)
+	}
+	if libc != "" {
+		platform += " (" + libc + ")"
 	}
 	return Artifact{}, fmt.Errorf("no managed Python runtime is available for %s (supported: %s); set VOLCENGINE_SCRIPT_PYTHON to a CPython %d.%d+ interpreter instead", platform, strings.Join(supported, ", "), MinimumMajor, MinimumMinor)
 }
