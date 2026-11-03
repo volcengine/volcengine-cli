@@ -512,13 +512,27 @@ func (s *SdkClient) CallSdkWithContext(ctx context.Context, info SdkClientInfo, 
 		},
 	})
 	// A script call stops retrying once its run stops, so no new attempt
-	// reaches the API after the run reports it stopped. The handler runs
-	// before core.AfterRetryHandler, which clears the request error when it
-	// decides to retry; deciding first keeps the error of the last attempt.
+	// reaches the API after the run reports it stopped. core.AfterRetryHandler
+	// sleeps the backoff and, when it retries, clears the request error, so
+	// the guard runs on both sides of it: first it keeps the attempt's error
+	// and declines the retry if the run already stopped; after the backoff it
+	// declines a retry the core handler chose if the run stopped meanwhile,
+	// restoring that error so the call is not reported as a success.
+	var attemptErr error
 	req.Handlers.AfterRetry.PushFrontNamed(request.NamedHandler{
 		Name: "volcengine-cli.stop-retries-after-script-run",
 		Fn: func(retried *request.Request) {
+			attemptErr = retried.Error
 			if scriptrun.DispatchStopped(retried.Context()) {
+				retried.Retryable = volcengine.Bool(false)
+			}
+		},
+	})
+	req.Handlers.AfterRetry.PushBackNamed(request.NamedHandler{
+		Name: "volcengine-cli.stop-retries-after-script-run-backoff",
+		Fn: func(retried *request.Request) {
+			if retried.Error == nil && volcengine.BoolValue(retried.Retryable) && scriptrun.DispatchStopped(retried.Context()) {
+				retried.Error = attemptErr
 				retried.Retryable = volcengine.Bool(false)
 			}
 		},

@@ -112,6 +112,11 @@ func (m *scriptMockAPI) serve(w http.ResponseWriter, r *http.Request) {
 			cores = 8
 		}
 		body = map[string]interface{}{"ResponseMetadata": metadata, "Result": map[string]interface{}{"InstanceTypes": []interface{}{map[string]interface{}{"InstanceTypeId": typeID, "Processor": map[string]interface{}{"Cpus": cores}}}}}
+	case "DeleteTags":
+		// Throttling: the SDK retries it after a backoff of at least 500ms.
+		metadata["Error"] = map[string]interface{}{"Code": "Throttling", "Message": "slow down"}
+		w.WriteHeader(http.StatusTooManyRequests)
+		body = map[string]interface{}{"ResponseMetadata": metadata}
 	case "CreateTags":
 		// A server error the SDK retries.
 		metadata["Error"] = map[string]interface{}{"Code": "InternalError", "Message": "try again"}
@@ -752,5 +757,51 @@ result = "done"
 	// The call keeps the outcome of its only attempt.
 	if tagging := report.Calls[0]; tagging.API != "CreateTags" || tagging.Status != scriptrun.CallStatusFailed || tagging.ErrorCode != "InternalError" || tagging.RequestID == "" {
 		t.Fatalf("CreateTags journal entry = %+v, want failed InternalError with its RequestId", tagging)
+	}
+}
+
+// A run that stops while the SDK sleeps its retry backoff sends no retry
+// after the sleep, and the call keeps a failed outcome rather than ok.
+func TestScriptRunStopDuringRetryBackoffSendsNoRetry(t *testing.T) {
+	mock := newScriptMockAPI(t)
+	dir, _ := setupScriptProfile(t, mock.server.URL)
+	if err := safety.SavePolicy(dir, &safety.Policy{Enabled: true, Rules: []safety.Rule{
+		{Pattern: "ecs:RunInstances", Action: safety.ActionConfirm},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	// DeleteTags is throttled at once, so the SDK sleeps 500ms-1s before
+	// retrying; the run stops about 450ms in, and the script's finally keeps
+	// the worker alive through the grace period, past most backoffs.
+	code := `
+import asyncio
+untagging = asyncio.ensure_future(call_api("ecs", "DeleteTags", {"ResourceIds.1": "i-1"}))
+await asyncio.sleep(0.45)
+try:
+    await asyncio.gather(untagging, call_api("ecs", "RunInstances", {"InstanceName": "a"}), return_exceptions=True)
+finally:
+    await asyncio.sleep(0.6)
+result = "done"
+`
+	limits := scriptrun.DefaultLimits()
+	limits.MaxConcurrency = 2
+	// The backoff is random; three runs make a retry after the stop all but
+	// certain when the guard is missing.
+	for round := 0; round < 3; round++ {
+		before := len(mock.snapshot())
+		report := runScriptForTest(t, code, limits)
+		if report.Status != scriptrun.RunStatusAborted {
+			t.Fatalf("round %d: status = %s, error = %+v", round, report.Status, report.Error)
+		}
+		attempts := 0
+		for _, request := range mock.snapshot()[before:] {
+			if request.Action == "DeleteTags" {
+				attempts++
+			}
+		}
+		untagging := report.Calls[0]
+		if attempts != 1 || untagging.API != "DeleteTags" || untagging.Status == scriptrun.CallStatusOK {
+			t.Fatalf("round %d: DeleteTags reached the API %d times, journal %+v; want 1 attempt and no ok", round, attempts, untagging)
+		}
 	}
 }
