@@ -112,6 +112,15 @@ func (m *scriptMockAPI) serve(w http.ResponseWriter, r *http.Request) {
 			cores = 8
 		}
 		body = map[string]interface{}{"ResponseMetadata": metadata, "Result": map[string]interface{}{"InstanceTypes": []interface{}{map[string]interface{}{"InstanceTypeId": typeID, "Processor": map[string]interface{}{"Cpus": cores}}}}}
+	case "ModifyInstanceAttribute":
+		// A slow redirect: following it is a new request.
+		if r.URL.Path != "/redirected" {
+			time.Sleep(250 * time.Millisecond)
+			w.Header().Set("Location", "/redirected?"+r.URL.RawQuery)
+			w.WriteHeader(http.StatusTemporaryRedirect)
+			return
+		}
+		body = map[string]interface{}{"ResponseMetadata": metadata, "Result": map[string]interface{}{}}
 	case "DeleteTags":
 		// Throttling: the SDK retries it after a backoff of at least 500ms.
 		metadata["Error"] = map[string]interface{}{"Code": "Throttling", "Message": "slow down"}
@@ -803,5 +812,131 @@ result = "done"
 		if attempts != 1 || untagging.API != "DeleteTags" || untagging.Status == scriptrun.CallStatusOK {
 			t.Fatalf("round %d: DeleteTags reached the API %d times, journal %+v; want 1 attempt and no ok", round, attempts, untagging)
 		}
+	}
+}
+
+// A run that stops while a call's response is a redirect does not follow it:
+// the redirected request would be a new request after the stop.
+func TestScriptRunStopFollowsNoRedirect(t *testing.T) {
+	mock := newScriptMockAPI(t)
+	dir, _ := setupScriptProfile(t, mock.server.URL)
+	if err := safety.SavePolicy(dir, &safety.Policy{Enabled: true, Rules: []safety.Rule{
+		{Pattern: "ecs:RunInstances", Action: safety.ActionConfirm},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	// A run that has not stopped still follows the redirect.
+	followed := runScriptForTest(t, `result = (await call_api("ecs", "ModifyInstanceAttribute", {"InstanceId": "i-1"}))["ResponseMetadata"]["RequestId"]`, scriptrun.DefaultLimits())
+	if followed.Status != scriptrun.RunStatusSucceeded || len(mock.snapshot()) != 2 {
+		t.Fatalf("unstopped run = %s / %+v, requests %d", followed.Status, followed.Error, len(mock.snapshot()))
+	}
+	before := len(mock.snapshot())
+
+	code := `
+import asyncio
+modifying = asyncio.ensure_future(call_api("ecs", "ModifyInstanceAttribute", {"InstanceId": "i-1", "InstanceName": "a"}))
+await asyncio.sleep(0.1)
+try:
+    await asyncio.gather(modifying, call_api("ecs", "RunInstances", {"InstanceName": "a"}), return_exceptions=True)
+finally:
+    await asyncio.sleep(0.45)
+result = "done"
+`
+	limits := scriptrun.DefaultLimits()
+	limits.MaxConcurrency = 2
+	report := runScriptForTest(t, code, limits)
+	if report.Status != scriptrun.RunStatusAborted {
+		t.Fatalf("status = %s, error = %+v", report.Status, report.Error)
+	}
+	attempts := 0
+	for _, request := range mock.snapshot()[before:] {
+		if request.Action == "ModifyInstanceAttribute" {
+			attempts++
+		}
+	}
+	if modifying := report.Calls[0]; attempts != 1 || modifying.Status == scriptrun.CallStatusOK {
+		t.Fatalf("ModifyInstanceAttribute reached the API %d times, journal %+v; want 1 request and no ok", attempts, modifying)
+	}
+}
+
+// A call whose credentials arrive after its run stopped is not sent. The
+// script runs in a child process, because net/http reads the proxy that
+// routes the instance metadata service to the mock only once per process.
+func TestScriptRunStopBeforeFirstSend(t *testing.T) {
+	if endpoint := os.Getenv("VOLCENGINE_SCRIPT_STOP_HELPER_ENDPOINT"); endpoint != "" {
+		dir, write := setupScriptProfile(t, endpoint)
+		write(&Profile{Name: "dev", Mode: ModeEcsRole, RoleName: "agent", Region: "cn-beijing", Endpoint: endpoint})
+		if err := safety.SavePolicy(dir, &safety.Policy{Enabled: true, Rules: []safety.Rule{
+			{Pattern: "ecs:RunInstances", Action: safety.ActionConfirm},
+		}}); err != nil {
+			t.Fatal(err)
+		}
+		limits := scriptrun.DefaultLimits()
+		limits.MaxConcurrency = 2
+		report := runScriptForTest(t, `
+import asyncio
+tagging = asyncio.ensure_future(call_api("ecs", "CreateTags", {"ResourceIds.1": "i-1"}))
+await asyncio.sleep(0.1)
+try:
+    await asyncio.gather(tagging, call_api("ecs", "RunInstances", {"InstanceName": "a"}), return_exceptions=True)
+finally:
+    await asyncio.sleep(0.45)
+result = "done"
+`, limits)
+		data, _ := json.Marshal(report.Result)
+		fmt.Println("REPORT " + string(data))
+		return
+	}
+
+	var mu sync.Mutex
+	actions := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Proxied requests to the instance metadata service.
+		switch {
+		case r.URL.Host != "" && r.URL.Path == "/latest/api/token":
+			_, _ = w.Write([]byte("imds-token"))
+			return
+		case r.URL.Host != "" && strings.HasPrefix(r.URL.Path, "/volcstack/latest/iam/security_credentials/"):
+			time.Sleep(250 * time.Millisecond)
+			_, _ = w.Write([]byte(`{"AccessKeyId":"role-ak","SecretAccessKey":"role-sk","SessionToken":"role-token","ExpiredTime":"2099-01-01T00:00:00Z"}`))
+			return
+		}
+		_ = r.ParseForm()
+		mu.Lock()
+		actions = append(actions, r.Form.Get("Action"))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ResponseMetadata":{"RequestId":"req-1"},"Result":{}}`))
+	}))
+	defer server.Close()
+
+	command := exec.Command(os.Args[0], "-test.run=^TestScriptRunStopBeforeFirstSend$", "-test.count=1")
+	command.Env = append(os.Environ(), "VOLCENGINE_SCRIPT_STOP_HELPER_ENDPOINT="+server.URL,
+		"HTTP_PROXY="+server.URL, "http_proxy="+server.URL, "NO_PROXY=", "no_proxy=")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("helper failed: %v\n%s", err, output)
+	}
+	var result struct {
+		Status string                   `json:"status"`
+		Calls  []scriptrun.JournalEntry `json:"calls"`
+	}
+	for _, line := range strings.Split(string(output), "\n") {
+		if strings.HasPrefix(line, "REPORT ") {
+			_ = json.Unmarshal([]byte(strings.TrimPrefix(line, "REPORT ")), &result)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if result.Status != scriptrun.RunStatusAborted || len(result.Calls) == 0 {
+		t.Fatalf("helper report = %+v\n%s", result, output)
+	}
+	for _, action := range actions {
+		if action == "CreateTags" {
+			t.Fatalf("CreateTags was sent after the run stopped: requests %v, journal %+v", actions, result.Calls)
+		}
+	}
+	if tagging := result.Calls[0]; tagging.API != "CreateTags" || tagging.Status != scriptrun.CallStatusRejected || tagging.ErrorCode != scriptrun.ErrorCodeRunCancelled {
+		t.Fatalf("CreateTags journal entry = %+v, want rejected %s", tagging, scriptrun.ErrorCodeRunCancelled)
 	}
 }

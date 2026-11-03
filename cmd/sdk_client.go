@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -300,7 +301,7 @@ func newSimpleClient(ctx *Context, credentialOverride *credentials.Credentials) 
 	// and proxy into it, so a shared http.DefaultClient races between
 	// concurrent API calls (MCP requests and run_script calls).
 	config := volcengine.NewConfig().
-		WithHTTPClient(&http.Client{}).
+		WithHTTPClient(&http.Client{CheckRedirect: checkScriptRedirect}).
 		WithRegion(region).
 		WithCredentials(creds).
 		WithDisableSSL(disableSSl).
@@ -519,6 +520,21 @@ func (s *SdkClient) CallSdkWithContext(ctx context.Context, info SdkClientInfo, 
 	// declines a retry the core handler chose if the run stopped meanwhile,
 	// restoring that error so the call is not reported as a success.
 	var attemptErr error
+	// The send boundary is checked too: a request signed after its run
+	// stopped (credentials can take a while to fetch) is not sent. Cancelling
+	// its HTTP context makes net/http fail before it dials.
+	stoppedBeforeSend := false
+	req.Handlers.Send.PushFrontNamed(request.NamedHandler{
+		Name: "volcengine-cli.stop-sending-after-script-run",
+		Fn: func(sending *request.Request) {
+			if scriptrun.DispatchStopped(sending.Context()) {
+				stoppedBeforeSend = true
+				stopped, cancel := context.WithCancel(sending.HTTPRequest.Context())
+				cancel()
+				sending.HTTPRequest = sending.HTTPRequest.WithContext(stopped)
+			}
+		},
+	})
 	req.Handlers.AfterRetry.PushFrontNamed(request.NamedHandler{
 		Name: "volcengine-cli.stop-retries-after-script-run",
 		Fn: func(retried *request.Request) {
@@ -538,7 +554,29 @@ func (s *SdkClient) CallSdkWithContext(ctx context.Context, info SdkClientInfo, 
 		},
 	})
 	err = req.Send()
+	if stoppedBeforeSend {
+		if req.RetryCount == 0 {
+			return output, errScriptCallNotSent
+		}
+		return output, attemptErr
+	}
 	return output, err
+}
+
+// errScriptCallNotSent reports a script call whose run stopped before its
+// request was sent.
+var errScriptCallNotSent = errors.New("the run ended before this call was sent")
+
+// checkScriptRedirect follows redirects like net/http's default policy, but
+// not for a script call whose run has stopped: a redirect is a new request.
+func checkScriptRedirect(next *http.Request, via []*http.Request) error {
+	if scriptrun.DispatchStopped(next.Context()) {
+		return errors.New("the run stopped; the redirect was not followed")
+	}
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	return nil
 }
 
 func applySdkRequestHeaders(req *request.Request, info SdkClientInfo) {

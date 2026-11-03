@@ -101,6 +101,9 @@ func (s *scriptAPIInvoker) Invoke(ctx context.Context, call scriptrun.Call) (map
 		return nil, rejected(scriptrun.ErrorCodeRunCancelled, "the run ended before this call was sent")
 	}
 	output, err := callAPIWithClientContext(ctx, client.sdk, call.Service, call.API, call.Parameters, false)
+	if errors.Is(err, errScriptCallNotSent) {
+		return nil, rejected(scriptrun.ErrorCodeRunCancelled, err.Error())
+	}
 	if err != nil {
 		var failure volcengineerr.RequestFailure
 		if errors.As(err, &failure) {
