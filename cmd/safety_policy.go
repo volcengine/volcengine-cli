@@ -330,6 +330,15 @@ func enforceSafetyPolicy(product, action string, skipConfirm, interactive bool, 
 	if err != nil {
 		return err
 	}
+	return enforceGivenSafetyPolicy(policy, product, action, skipConfirm, interactive, retryInstruction,
+		tr("operation blocked by safety policy: %s %s (rule: %s)"))
+}
+
+// enforceGivenSafetyPolicy is enforceSafetyPolicy with an already resolved
+// policy. denied formats a deny with the product, action and matched rule
+// pattern; messages for a model use explicit argument indexes to leave the
+// pattern out.
+func enforceGivenSafetyPolicy(policy *safety.Policy, product, action string, skipConfirm, interactive bool, retryInstruction, denied string) error {
 	return safety.CheckAndConfirmWithMessages(
 		safetyPolicyInput,
 		safetyPolicyOutput,
@@ -339,7 +348,7 @@ func enforceSafetyPolicy(product, action string, skipConfirm, interactive bool, 
 		skipConfirm || safety.SkipConfirmFromEnvironment(),
 		retryInstruction,
 		safety.Messages{
-			Denied: tr("operation blocked by safety policy: %s %s (rule: %s)"),
+			Denied: denied,
 			// Keep this literal for the static i18n catalog scanner. A regression
 			// test checks it against safety.ConfirmationNeededMessage.
 			ConfirmationNeeded:  tr("safety policy requires confirmation for: %s %s\ncurrent environment is non-interactive.\nSTOP: Briefly explain the target and impact, ask to continue, then end this turn and wait for a NEW user reply.\nOnly after approval, internally %s ONCE with unchanged arguments; do not ask the user to handle this flag.\nDiscard approval after that attempt, even on failure. Start every new operation without --yes/yes=true; explain and ask only if blocked. Never reuse earlier approvals or weaken policy."),
@@ -395,6 +404,14 @@ func safetySDKService(service string) string {
 		}
 	}
 	return ""
+}
+
+// safetyDeniedForModel formats a safety policy deny returned to a model by
+// call_api and run_script. It leaves out the matched rule: a catch-all
+// pattern such as *:* reads as if every API were blocked, and the model
+// cannot act on it. CLI users, who own the policy, still see the rule.
+func safetyDeniedForModel() string {
+	return tr("operation blocked by safety policy: %[1]s %[2]s. Do not retry it or try another way to perform it; tell the user it was blocked.")
 }
 
 func enforceCLISafetyPolicy(callContext *Context, product, action string) error {

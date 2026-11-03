@@ -149,6 +149,11 @@ func setupScriptProfile(t *testing.T, endpoint string) (string, func(*Profile)) 
 
 func runScriptForTest(t *testing.T, code string, limits scriptrun.Limits) *scriptRunReport {
 	t.Helper()
+	return runApprovedScriptForTest(t, code, limits, false)
+}
+
+func runApprovedScriptForTest(t *testing.T, code string, limits scriptrun.Limits, approved bool) *scriptRunReport {
+	t.Helper()
 	invoker, err := newReloadingVolcengineMCPInvoker(LoadConfig(), "", "")
 	if err != nil {
 		t.Fatalf("create invoker: %v", err)
@@ -158,7 +163,7 @@ func runScriptForTest(t *testing.T, code string, limits scriptrun.Limits) *scrip
 		t.Fatalf("resolve interpreter: %v", err)
 	}
 	runner := &localScriptRunner{invoker: invoker, interpreter: interpreter}
-	report, err := runner.RunScript(context.Background(), scriptrun.Request{Code: code, Limits: limits})
+	report, err := runner.RunScript(context.Background(), scriptrun.Request{Code: code, Limits: limits, Approved: approved})
 	if err != nil {
 		t.Fatalf("RunScript() error = %v", err)
 	}
@@ -193,7 +198,7 @@ cpus = {d["Result"]["InstanceTypes"][0]["InstanceTypeId"]: d["Result"]["Instance
 big = [item["InstanceId"] for item in instances if cpus[item["InstanceTypeId"]] >= 8]
 
 outcomes = {}
-for service, api, params in [("ecs", "DeleteInstance", {"InstanceId": big[0]}), ("ecs", "StopInstances", {"InstanceIds.1": big[0]}), ("vpc", "DescribeVpcs", {"VpcIds.1": "vpc-x"}), ("ecs", "NoSuchApi", {})]:
+for service, api, params in [("ecs", "StopInstances", {"InstanceIds.1": big[0]}), ("vpc", "DescribeVpcs", {"VpcIds.1": "vpc-x"}), ("ecs", "NoSuchApi", {})]:
     try:
         await call_api(service, api, params)
         outcomes[api] = "ok"
@@ -219,10 +224,9 @@ result = {"total": len(instances), "big": big, "outcomes": outcomes, "shanghai":
 		t.Fatalf("result = %s", report.Result.Result)
 	}
 	wantOutcomes := map[string]string{
-		"DeleteInstance": `["SafetyConfirmationRequired","rejected",""]`,
-		"StopInstances":  `["SafetyDenied","rejected",""]`,
-		"DescribeVpcs":   `["InvalidVpc.NotFound","failed","req-`,
-		"NoSuchApi":      `["UnsupportedAPI","rejected",""]`,
+		"StopInstances": `["SafetyDenied","rejected",""]`,
+		"DescribeVpcs":  `["InvalidVpc.NotFound","failed","req-`,
+		"NoSuchApi":     `["UnsupportedAPI","rejected",""]`,
 	}
 	for api, want := range wantOutcomes {
 		if !strings.HasPrefix(string(got.Outcomes[api]), want) {
@@ -247,16 +251,11 @@ result = {"total": len(instances), "big": big, "outcomes": outcomes, "shanghai":
 	if len(requests) != 3+2+1+1 || requests[len(requests)-1].Region != "cn-shanghai" || requests[0].Region != "cn-beijing" {
 		t.Fatalf("API requests = %v (%+v)", actions, requests)
 	}
-	if report.Summary.OK != 6 || report.Summary.Rejected != 3 || report.Summary.Failed != 1 {
+	if report.Summary.OK != 6 || report.Summary.Rejected != 2 || report.Summary.Failed != 1 {
 		t.Fatalf("summary = %+v, journal = %+v", report.Summary, report.Calls)
 	}
 	if report.Calls[0].RequestID != "req-1" || report.Calls[0].Status != scriptrun.CallStatusOK {
 		t.Fatalf("successful journal entries must keep the RequestId: %+v", report.Calls[0])
-	}
-	for _, entry := range report.Calls {
-		if entry.API == "DeleteInstance" && !strings.Contains(entry.Error, "call_api") {
-			t.Fatalf("confirmation journal entry does not direct the agent to call_api: %+v", entry)
-		}
 	}
 }
 
@@ -395,7 +394,7 @@ func TestScriptBindingRejectsRoleTargetChangeBeforeSending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bound, err := newScriptAPIInvoker(base, mcpRequestMetadata{})
+	bound, err := newScriptAPIInvoker(base, mcpRequestMetadata{}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -610,5 +609,96 @@ func TestResolveScriptPythonReportsSourceAndHonorsExplicitOverrides(t *testing.T
 	}
 	if _, err := resolveScriptPython(context.Background(), filepath.Join(t.TempDir(), "missing")); err == nil || strings.Contains(err.Error(), "not prepared") {
 		t.Fatalf("invalid flag error = %v", err)
+	}
+}
+
+// A script is approved as a whole: the first protected call stops the run,
+// even when the script catches APIError, and an approved run sends every
+// confirm call while deny rules still reject.
+func TestScriptRunConfirmStopsTheRunAndApprovalCoversTheScript(t *testing.T) {
+	mock := newScriptMockAPI(t)
+	dir, _ := setupScriptProfile(t, mock.server.URL)
+	if err := safety.SavePolicy(dir, &safety.Policy{Enabled: true, Rules: []safety.Rule{
+		{Pattern: "ecs:StopInstance*", Action: safety.ActionDeny},
+		{Pattern: "ecs:Describe*", Action: safety.ActionAllow},
+		{Pattern: "*:*", Action: safety.ActionConfirm},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	// The environment-wide skip switch must not approve script calls.
+	t.Cleanup(setenvForTest(t, safety.EnvSkipConfirm, "true"))
+	code := `
+await call_api("ecs", "DescribeInstances", {"MaxResults": 1})
+done = []
+for name in ("a", "b", "c"):
+    try:
+        await call_api("ecs", "RunInstances", {"InstanceName": name})
+        done.append(name)
+    except APIError as error:
+        done.append(error.code)
+try:
+    await call_api("ecs", "StopInstances", {"InstanceIds.1": "i-1"})
+except APIError as error:
+    done.append(error.code)
+result = done
+`
+	actions := func() string {
+		names := []string{}
+		for _, request := range mock.snapshot() {
+			names = append(names, request.Action)
+		}
+		return strings.Join(names, ",")
+	}
+
+	stopped := runScriptForTest(t, code, scriptrun.DefaultLimits())
+	if stopped.Status != scriptrun.RunStatusAborted || stopped.Error == nil || !strings.Contains(stopped.Error.Message, "SafetyConfirmationRequired") ||
+		!strings.Contains(stopped.Error.Message, "yes=true") {
+		t.Fatalf("unapproved run = %s / %+v", stopped.Status, stopped.Error)
+	}
+	if got := actions(); got != "DescribeInstances" {
+		t.Fatalf("unapproved run sent %s", got)
+	}
+	if last := stopped.Calls[len(stopped.Calls)-1]; last.API != "RunInstances" || last.Status != scriptrun.CallStatusRejected {
+		t.Fatalf("journal = %+v", stopped.Calls)
+	}
+
+	approved := runApprovedScriptForTest(t, code, scriptrun.DefaultLimits(), true)
+	if approved.Status != scriptrun.RunStatusSucceeded || string(approved.Result.Result) != `["a","b","c","SafetyDenied"]` {
+		t.Fatalf("approved run = %s / %+v / %s", approved.Status, approved.Error, approved.Result.Result)
+	}
+	if got := actions(); got != "DescribeInstances,DescribeInstances,RunInstances,RunInstances,RunInstances" {
+		t.Fatalf("approved run sent %s", got)
+	}
+}
+
+// A deny shows the matched rule to CLI users, who own the policy, but not to
+// a model: a catch-all pattern such as *:* reads as if every API were blocked.
+func TestSafetyDeniedMessagesLeaveOutRuleForModels(t *testing.T) {
+	dir, cleanup := withTestConfigDir(t)
+	defer cleanup()
+	policy := &safety.Policy{Enabled: true, Rules: []safety.Rule{{Pattern: "*:*", Action: safety.ActionDeny}}}
+	if err := safety.SavePolicy(dir, policy); err != nil {
+		t.Fatalf("save safety policy: %v", err)
+	}
+	cli := enforceSafetyPolicy("vpc", "CreateVpc", true, false, "")
+	if cli == nil || !strings.Contains(cli.Error(), "vpc CreateVpc (rule: *:*)") {
+		t.Fatalf("CLI deny = %v", cli)
+	}
+	invoker, err := newVolcengineMCPInvoker(&Configure{Profiles: map[string]*Profile{}}, "", "cn-beijing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages := map[string]string{}
+	if _, err := invoker.CallAPI(context.Background(), "vpc", "CreateVpc", "", map[string]interface{}{}, true); err != nil {
+		messages["call_api"] = err.Error()
+	}
+	if scriptErr := checkScriptSafetyPolicy("vpc", "CreateVpc", true); scriptErr != nil {
+		messages["run_script"] = scriptErr.Message
+	}
+	for _, source := range []string{"call_api", "run_script"} {
+		message := messages[source]
+		if !strings.Contains(message, "blocked by safety policy: vpc CreateVpc") || strings.Contains(message, "*:*") || strings.Contains(message, "%!") {
+			t.Fatalf("%s deny = %q", source, message)
+		}
 	}
 }

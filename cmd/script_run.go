@@ -45,9 +45,11 @@ type scriptAPIInvoker struct {
 	base     *volcengineMCPInvoker
 	metadata mcpRequestMetadata
 	binding  scriptRunBinding
+	// approved is set when the user approved the whole script.
+	approved bool
 }
 
-func newScriptAPIInvoker(base *volcengineMCPInvoker, metadata mcpRequestMetadata) (*scriptAPIInvoker, error) {
+func newScriptAPIInvoker(base *volcengineMCPInvoker, metadata mcpRequestMetadata, approved bool) (*scriptAPIInvoker, error) {
 	if base == nil {
 		return nil, fmt.Errorf("API invoker is not configured")
 	}
@@ -56,7 +58,7 @@ func newScriptAPIInvoker(base *volcengineMCPInvoker, metadata mcpRequestMetadata
 		return nil, err
 	}
 	return &scriptAPIInvoker{
-		base: base, metadata: metadata,
+		base: base, metadata: metadata, approved: approved,
 		binding: scriptRunBinding{
 			Profile: client.profileName, CredentialSource: client.credentialSource,
 			Region: client.region, identity: client.identity,
@@ -81,7 +83,7 @@ func (s *scriptAPIInvoker) Invoke(ctx context.Context, call scriptrun.Call) (map
 	if !rootSupport.IsValidAction(call.Service, call.API) {
 		return nil, rejected(scriptErrorUnsupportedAPI, fmt.Sprintf(tr("unsupported API %s.%s; use search_api to find supported service codes and actions"), call.Service, call.API))
 	}
-	if callErr := checkScriptSafetyPolicy(call.Service, call.API); callErr != nil {
+	if callErr := checkScriptSafetyPolicy(call.Service, call.API, s.approved); callErr != nil {
 		return nil, callErr
 	}
 	client, err := s.base.resolveClient(region, s.metadata)
@@ -110,10 +112,13 @@ func (s *scriptAPIInvoker) Invoke(ctx context.Context, call scriptrun.Call) (map
 }
 
 // checkScriptSafetyPolicy applies the safety policy to one script request.
-// Unlike call_api, a script has no approval input: confirm rules always
-// reject the request and VOLCENGINE_SAFETY_SKIP_CONFIRM is deliberately not
-// honored, so protected operations need a separate, approved call_api.
-func checkScriptSafetyPolicy(service, action string) *scriptrun.CallError {
+// A script is approved as a whole: without approval the first call that a
+// confirm rule protects is not sent and stops the run, so the user approves
+// the script and it runs again with approved set, which lets every confirm
+// call through. Performing the protected calls one by one instead could
+// repeat operations the script already did. Deny rules always reject, and
+// VOLCENGINE_SAFETY_SKIP_CONFIRM is deliberately not honored.
+func checkScriptSafetyPolicy(service, action string, approved bool) *scriptrun.CallError {
 	_, policy, err := loadEffectiveSafetyPolicy()
 	if err != nil {
 		return &scriptrun.CallError{Code: scriptErrorSafetyPolicy, Status: scriptrun.CallStatusRejected, Message: err.Error()}
@@ -122,10 +127,13 @@ func checkScriptSafetyPolicy(service, action string) *scriptrun.CallError {
 	switch result.Action {
 	case safety.ActionDeny:
 		return &scriptrun.CallError{Code: scriptErrorSafetyDenied, Status: scriptrun.CallStatusRejected,
-			Message: fmt.Sprintf(tr("operation blocked by safety policy: %s %s (rule: %s)"), service, action, result.Rule.Pattern)}
+			Message: fmt.Sprintf(safetyDeniedForModel(), service, action)}
 	case safety.ActionConfirm:
-		return &scriptrun.CallError{Code: scriptErrorSafetyConfirmation, Status: scriptrun.CallStatusRejected,
-			Message: fmt.Sprintf(tr("safety policy requires confirmation for: %s %s. run_script cannot approve protected operations and was not sent. Do not rerun the script: review its call journal, explain the target and impact, wait for a NEW user reply approving this one operation, then perform only it with call_api and yes=true once."), service, action)}
+		if approved {
+			return nil
+		}
+		return &scriptrun.CallError{Code: scriptErrorSafetyConfirmation, Status: scriptrun.CallStatusRejected, Fatal: true,
+			Message: fmt.Sprintf(tr("safety policy requires confirmation for: %s %s. The call was not sent and the run was stopped; the script needs approval as a whole.\nSTOP: Briefly explain what the whole script does, including every operation it may change, ask to continue, then end this turn and wait for a NEW user reply. Do not perform the operations another way, such as one by one with call_api.\nOnly after approval, run the same script with unchanged code and args and yes=true (ve script run: --yes) ONCE. If the journal shows calls that changed resources before the stop, tell the user the approved run repeats them. Discard approval after that run, even on failure."), service, action)}
 	}
 	return nil
 }
@@ -162,7 +170,7 @@ func (r *localScriptRunner) RunScript(ctx context.Context, request scriptrun.Req
 	if info, err := os.Stat(r.interpreter.Path); err != nil || info.IsDir() {
 		return nil, fmt.Errorf(tr("the selected Python interpreter %s is no longer available; restart the MCP server or rerun the command to select an interpreter again"), r.interpreter.Path)
 	}
-	invoker, err := newScriptAPIInvoker(r.invoker, mcpRequestMetadataFromContext(ctx))
+	invoker, err := newScriptAPIInvoker(r.invoker, mcpRequestMetadataFromContext(ctx), request.Approved)
 	if err != nil {
 		return nil, err
 	}

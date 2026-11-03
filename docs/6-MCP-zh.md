@@ -172,7 +172,7 @@ result = {"instances": len(instances), "types": len(details)}
 
 ### 安全策略
 
-脚本发起的每个 API 调用都会重新加载并评估安全策略，运行期间新增的规则会作用于下一个调用。`deny` 规则以 `SafetyDenied` 拒绝该调用。`confirm` 规则以 `SafetyConfirmationRequired` 拒绝该调用。脚本没有批准输入，脚本也刻意不遵循 `VOLCENGINE_SAFETY_SKIP_CONFIRM`。允许的 API（包括写操作）正常执行。如需执行受 `confirm` 规则保护的操作，Agent 应说明目标和影响，等待用户的新回复批准，然后仅对该操作使用 `call_api` 并设置 `yes: true` 执行一次。目前不支持在运行中的脚本内进行可恢复的逐操作审批。
+脚本发起的每个 API 调用都会重新加载并评估安全策略，运行期间新增的规则会作用于下一个调用。`deny` 规则以 `SafetyDenied` 拒绝该调用。允许的 API（包括写操作）正常执行。脚本按整体确认：未批准时，第一个受 `confirm` 规则保护的调用不会发送，并且整个运行停止（状态为 `aborted`，错误码为 `SafetyConfirmationRequired`），即使脚本捕获了 `APIError` 也是如此。Agent 说明整个脚本做什么，等待用户的新回复批准，然后用相同的代码和参数并设置 `yes: true`（`ve script run` 使用 `--yes`）重新运行该脚本。这次运行会发送所有受 `confirm` 规则保护的调用；`deny` 规则仍然生效，运行结束后即丢弃批准。改用 `call_api` 逐个执行受保护操作，可能重复执行脚本已经做过的操作。停止前已执行、由 `allow` 规则放行的调用，会在批准后的运行中再次执行。脚本刻意不遵循 `VOLCENGINE_SAFETY_SKIP_CONFIRM`。
 
 ### 身份绑定
 
@@ -205,7 +205,7 @@ result = {"instances": len(instances), "types": len(details)}
 
 ### 命令行
 
-`ve script run --file script.py [--args '{"key":"value"}' | --args-file args.json]` 在不经过 MCP 的情况下按相同约定运行脚本，并输出 JSON 报告。支持 `--profile`、`--region`、`--python`、`--max-calls`、`--max-concurrency`、`--timeout-seconds` 和 `--call-timeout-seconds`；状态不是 `succeeded` 时以非零码退出。由于它会执行本地代码，环境中必须设置 `VOLCENGINE_SCRIPT_RUN_ENABLED=true`。只用命令行参数不够：仅被允许执行 `ve` 命令的 Agent 可以自行添加参数。Ctrl-C 会像 MCP 取消一样取消运行。
+`ve script run --file script.py [--args '{"key":"value"}' | --args-file args.json]` 在不经过 MCP 的情况下按相同约定运行脚本，并输出 JSON 报告。支持 `--profile`、`--region`、`--python`、`--max-calls`、`--max-concurrency`、`--timeout-seconds`、`--call-timeout-seconds` 和 `--yes`（整体批准脚本，等同于 `yes: true`）；状态不是 `succeeded` 时以非零码退出。由于它会执行本地代码，环境中必须设置 `VOLCENGINE_SCRIPT_RUN_ENABLED=true`。只用命令行参数不够：仅被允许执行 `ve` 命令的 Agent 可以自行添加参数。Ctrl-C 会像 MCP 取消一样取消运行。
 
 ### 托管执行约定
 

@@ -88,6 +88,9 @@ type Request struct {
 	Code   string
 	Args   json.RawMessage
 	Limits Limits
+	// Approved means the user approved the script as a whole, so calls that
+	// the safety policy marks confirm are sent; deny rules still apply.
+	Approved bool
 }
 
 // ScriptError is an exception raised by the script itself.

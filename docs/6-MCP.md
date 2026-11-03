@@ -172,7 +172,7 @@ The result has `status` (`succeeded`, `failed`, `cancelled`, `timed_out`, `abort
 
 ### Safety policy
 
-Every API call made by a script reloads and evaluates the safety policy, so a rule added while the script runs applies to its next call. A `deny` rule rejects the call with `SafetyDenied`. A `confirm` rule rejects the call with `SafetyConfirmationRequired`. A script has no approval input, and `VOLCENGINE_SAFETY_SKIP_CONFIRM` is deliberately not honored for scripts. Allowed APIs, including writes, run normally. To perform an operation protected by a `confirm` rule, the agent explains the target and impact, waits for a new user reply approving it, and then performs only that operation with `call_api` and `yes: true` once. Resumable per-operation approval inside a running script is not supported yet.
+Every API call made by a script reloads and evaluates the safety policy, so a rule added while the script runs applies to its next call. A `deny` rule rejects the call with `SafetyDenied`. Allowed APIs, including writes, run normally. A script is approved as a whole: without approval, the first call that a `confirm` rule protects is not sent and stops the run (status `aborted`, error code `SafetyConfirmationRequired`), even if the script catches `APIError`. The agent explains what the whole script does, waits for a new user reply approving it, and runs the same script again unchanged with `yes: true` (`--yes` for `ve script run`). That run sends every call that `confirm` rules protect; `deny` rules still apply, and the approval is discarded after the run. Performing the protected operations one by one with `call_api` instead could repeat operations the script already did. Calls that `allow` rules permit and that ran before the stop run again in the approved run. `VOLCENGINE_SAFETY_SKIP_CONFIRM` is deliberately not honored for scripts.
 
 ### Identity binding
 
@@ -205,7 +205,7 @@ If none is usable, the error lists why each local candidate was rejected. The `r
 
 ### Command line
 
-`ve script run --file script.py [--args '{"key":"value"}' | --args-file args.json]` runs the same contract without MCP and prints the JSON report. It accepts `--profile`, `--region`, `--python`, `--max-calls`, `--max-concurrency`, `--timeout-seconds` and `--call-timeout-seconds`, and exits non-zero unless the status is `succeeded`. Because it executes local code, it requires `VOLCENGINE_SCRIPT_RUN_ENABLED=true` in the environment. A flag would not be enough: an agent that is only allowed to run `ve` commands could add a flag itself. Ctrl-C cancels the run like an MCP cancellation.
+`ve script run --file script.py [--args '{"key":"value"}' | --args-file args.json]` runs the same contract without MCP and prints the JSON report. It accepts `--profile`, `--region`, `--python`, `--max-calls`, `--max-concurrency`, `--timeout-seconds`, `--call-timeout-seconds` and `--yes` (approves the whole script, like `yes: true`), and exits non-zero unless the status is `succeeded`. Because it executes local code, it requires `VOLCENGINE_SCRIPT_RUN_ENABLED=true` in the environment. A flag would not be enough: an agent that is only allowed to run `ve` commands could add a flag itself. Ctrl-C cancels the run like an MCP cancellation.
 
 ### Hosted execution contract
 

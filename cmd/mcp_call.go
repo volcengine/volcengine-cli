@@ -71,7 +71,11 @@ func (i *volcengineMCPInvoker) CallAPI(ctx context.Context, serviceName, action,
 	if !rootSupport.IsValidAction(serviceName, action) {
 		return nil, fmt.Errorf("unsupported API %s.%s", serviceName, action)
 	}
-	if err := enforceSafetyPolicy(serviceName, action, yes, false, tr("call the same MCP tool again with yes=true")); err != nil {
+	_, policy, err := loadEffectiveSafetyPolicy()
+	if err != nil {
+		return nil, err
+	}
+	if err := enforceGivenSafetyPolicy(policy, serviceName, action, yes, false, tr("call the same MCP tool again with yes=true"), safetyDeniedForModel()); err != nil {
 		return nil, err
 	}
 	client, err := i.resolveClient(callRegion, mcpRequestMetadataFromContext(ctx))

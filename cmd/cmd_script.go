@@ -46,6 +46,7 @@ type scriptRunCommandOptions struct {
 	MaxConcurrency     int
 	TimeoutSeconds     int
 	CallTimeoutSeconds int
+	Yes                bool
 }
 
 func newScriptRunCommand() *cobra.Command {
@@ -110,7 +111,7 @@ The JSON report, including the call journal, is written to stdout.`),
 				return err
 			}
 			runner := &localScriptRunner{invoker: invoker, interpreter: interpreter}
-			report, err := runner.RunScript(ctx, scriptrun.Request{Code: code, Args: args, Limits: limits})
+			report, err := runner.RunScript(ctx, scriptrun.Request{Code: code, Args: args, Limits: limits, Approved: options.Yes})
 			if err != nil {
 				return err
 			}
@@ -135,6 +136,7 @@ The JSON report, including the call journal, is written to stdout.`),
 	command.Flags().IntVar(&options.MaxConcurrency, "max-concurrency", defaults.MaxConcurrency, tr("Maximum API calls in flight at once"))
 	command.Flags().IntVar(&options.TimeoutSeconds, "timeout-seconds", int(defaults.Timeout.Seconds()), tr("Wall-clock limit for the whole run"))
 	command.Flags().IntVar(&options.CallTimeoutSeconds, "call-timeout-seconds", int(defaults.CallTimeout.Seconds()), tr("Limit for each API call"))
+	command.Flags().BoolVar(&options.Yes, "yes", false, tr("Approve the whole script: calls that safety policy confirm rules protect are sent (deny rules still apply)"))
 	_ = command.MarkFlagRequired("file")
 	return command
 }
