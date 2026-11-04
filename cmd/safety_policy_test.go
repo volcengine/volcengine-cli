@@ -564,3 +564,85 @@ func TestSafetyPolicyAddOrdersDenyBeforeConfirm(t *testing.T) {
 		t.Fatalf("rules start with %+v and end with %+v", first, last)
 	}
 }
+
+// A new confirm rule is placed by the deny rules for the same APIs only, so
+// an unrelated deny in the middle of a policy cannot push it behind allow
+// rules, and an updated rule moves when its old position would hide it or
+// let it hide a deny.
+func TestSafetyPolicyAddPlacesRulesByOverlap(t *testing.T) {
+	newPolicy := func(t *testing.T) (string, func(string) safety.Action) {
+		dir, cleanup := withTestConfigDir(t)
+		t.Cleanup(cleanup)
+		return dir, func(api string) safety.Action {
+			t.Helper()
+			policy, err := safety.LoadPolicy(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			service, action, _ := strings.Cut(api, ":")
+			return policy.Check(safety.CommandInfo{Product: service, ProductAliases: safetyServiceAliases(service), Action: action}).Action
+		}
+	}
+	run := func(t *testing.T, args ...string) string {
+		t.Helper()
+		output, err := runSafetyPolicyCommandForTest(t, args...)
+		if err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		return output
+	}
+
+	t.Run("preset rule updated to deny", func(t *testing.T) {
+		_, check := newPolicy(t)
+		run(t, "preset", "confirm-deletes", "--overwrite")
+		run(t, "add", "--pattern", "*:BatchReset*", "--action", "deny")
+		run(t, "add", "--pattern", "ecs:DescribeInstances", "--action", "confirm")
+		if got := check("ecs:DescribeInstances"); got != safety.ActionConfirm {
+			t.Fatalf("ecs:DescribeInstances = %s, want confirm", got)
+		}
+		if got := check("ecs:BatchResetInstances"); got != safety.ActionDeny {
+			t.Fatalf("ecs:BatchResetInstances = %s, want deny", got)
+		}
+	})
+	t.Run("appended preset", func(t *testing.T) {
+		_, check := newPolicy(t)
+		run(t, "preset", "confirm-deletes", "--overwrite")
+		run(t, "preset", "deny-writes", "--append")
+		run(t, "add", "--pattern", "ecs:DescribeInstances", "--action", "confirm")
+		if got := check("ecs:DescribeInstances"); got != safety.ActionConfirm {
+			t.Fatalf("ecs:DescribeInstances = %s, want confirm", got)
+		}
+	})
+	t.Run("rule updated to deny behind a broader confirm", func(t *testing.T) {
+		_, check := newPolicy(t)
+		run(t, "add", "--pattern", "ecs:StopInstance", "--action", "deny")
+		run(t, "enable")
+		run(t, "add", "--pattern", "ecs:DeleteInstance", "--action", "confirm")
+		run(t, "add", "--pattern", "ecs:*", "--action", "confirm")
+		run(t, "add", "--pattern", "ecs:DeleteInstance", "--action", "deny")
+		if got := check("ecs:DeleteInstance"); got != safety.ActionDeny {
+			t.Fatalf("ecs:DeleteInstance = %s, want deny", got)
+		}
+	})
+	t.Run("service spellings", func(t *testing.T) {
+		_, check := newPolicy(t)
+		run(t, "add", "--pattern", "cloud_trail:DeleteTrail", "--action", "deny")
+		run(t, "enable")
+		run(t, "add", "--pattern", "cloudtrail:*", "--action", "confirm")
+		if got := check("cloudtrail:DeleteTrail"); got != safety.ActionDeny {
+			t.Fatalf("cloudtrail:DeleteTrail = %s, want deny", got)
+		}
+	})
+	t.Run("hidden rule warns", func(t *testing.T) {
+		_, _ = newPolicy(t)
+		run(t, "preset", "confirm-deletes", "--overwrite")
+		run(t, "preset", "deny-writes", "--append")
+		// kms:GetSecretValue is denied by the appended preset, behind the
+		// first preset's *:Get* allow; a kms:* confirm must stay behind
+		// that deny, so the allow matches some of its APIs first.
+		output := run(t, "add", "--pattern", "kms:*", "--action", "confirm")
+		if !strings.Contains(output, "Warning") && !strings.Contains(output, "警告") {
+			t.Fatalf("add printed %q, want a warning about the earlier allow rule", output)
+		}
+	})
+}

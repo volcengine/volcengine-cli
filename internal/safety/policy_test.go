@@ -225,3 +225,27 @@ func TestLoadEffectivePolicyRejectsInvalidEnvironment(t *testing.T) {
 		}
 	})
 }
+
+func TestPatternsOverlap(t *testing.T) {
+	for _, tt := range []struct {
+		a, b string
+		want bool
+	}{
+		{"ecs:*", "ecs:DeleteInstance", true},
+		{"ECS:delete*", "ecs:*Instance", true},
+		{"*:Describe*", "ecs:DescribeInstances", true},
+		{"*:BatchReset*", "ecs:DescribeInstances", false},
+		{"ecs:Delete*", "vpc:Delete*", false},
+		{"*:*", "kms:GetSecretValue", true},
+		{"*Secret*", "kms:Get*", true},
+		{"ecs:RunInstances", "ecs:RunInstance", false},
+		{"", "*:*", false},
+	} {
+		if got := PatternsOverlap(tt.a, tt.b); got != tt.want {
+			t.Errorf("PatternsOverlap(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
+		}
+		if got := PatternsOverlap(tt.b, tt.a); got != tt.want {
+			t.Errorf("PatternsOverlap(%q, %q) = %v, want %v", tt.b, tt.a, got, tt.want)
+		}
+	}
+}

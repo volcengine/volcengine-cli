@@ -90,7 +90,7 @@ func newSafetyPolicyAddCommand() *cobra.Command {
 		Use:   "add",
 		Short: tr("Add or update a safety policy rule"),
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(added *cobra.Command, _ []string) error {
 			pattern = strings.TrimSpace(pattern)
 			action := safety.Action(strings.ToLower(strings.TrimSpace(actionValue)))
 			if pattern == "" {
@@ -103,14 +103,33 @@ func newSafetyPolicyAddCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			for i := range policy.Rules {
-				if strings.EqualFold(policy.Rules[i].Pattern, pattern) {
-					policy.Rules[i].Action = action
-					return safety.SavePolicy(dir, policy)
+			// A rule for the same pattern keeps its spelling, and its position
+			// when the new action is safe and effective there; otherwise it
+			// moves as a new rule would.
+			rule := safety.Rule{Pattern: pattern, Action: action}
+			kept := policy.Rules[:0:0]
+			existing := -1
+			for i, current := range policy.Rules {
+				if strings.EqualFold(current.Pattern, pattern) {
+					existing = i
+					rule.Pattern = current.Pattern
+					continue
 				}
+				kept = append(kept, current)
 			}
-			policy.Rules = insertSafetyRule(policy.Rules, safety.Rule{Pattern: pattern, Action: action})
-			return safety.SavePolicy(dir, policy)
+			var shadow *safety.Rule
+			if existing >= 0 && safetyRulePositionValid(kept, existing, rule) {
+				policy.Rules[existing].Action = action
+			} else {
+				policy.Rules, shadow = insertSafetyRule(kept, rule)
+			}
+			if err := safety.SavePolicy(dir, policy); err != nil {
+				return err
+			}
+			if shadow != nil {
+				fmt.Fprintf(added.ErrOrStderr(), tr("Warning: the earlier rule %s -> %s matches some of the same APIs first, so %s -> %s does not apply to them\n"), shadow.Pattern, shadow.Action, pattern, action)
+			}
+			return nil
 		},
 	}
 	command.Flags().StringVar(&pattern, "pattern", "", tr("Case-insensitive service:action pattern with * wildcard"))
@@ -119,12 +138,15 @@ func newSafetyPolicyAddCommand() *cobra.Command {
 }
 
 // insertSafetyRule places a new rule where it applies without loosening
-// the policy. The first matching rule wins, so a rule appended after a
+// the policy, and returns the earlier rule, if any, that matches some of the
+// same APIs first. The first matching rule wins, so a rule appended after a
 // catch-all such as a preset's trailing *:* would never apply, and a confirm
-// rule placed before a deny rule would let approval unlock what the deny
-// blocked. A deny rule goes first; a confirm rule goes after the last deny
-// rule; both stay before a trailing *:* rule.
-func insertSafetyRule(rules []safety.Rule, rule safety.Rule) []safety.Rule {
+// rule placed before a deny rule for the same APIs would let approval unlock
+// what the deny blocked. A deny rule goes first. A confirm rule goes right
+// after the last deny rule that matches some of the same APIs, or first when
+// none does, so an unrelated deny cannot push it behind allow rules. A
+// trailing *:* rule is a catch-all and stays last.
+func insertSafetyRule(rules []safety.Rule, rule safety.Rule) ([]safety.Rule, *safety.Rule) {
 	position := 0
 	if rule.Action == safety.ActionConfirm {
 		end := len(rules)
@@ -132,15 +154,81 @@ func insertSafetyRule(rules []safety.Rule, rule safety.Rule) []safety.Rule {
 			end--
 		}
 		for i := 0; i < end; i++ {
-			if rules[i].Action == safety.ActionDeny {
+			if rules[i].Action == safety.ActionDeny && safetyRulesOverlap(rules[i].Pattern, rule.Pattern) {
 				position = i + 1
 			}
+		}
+	}
+	var shadow *safety.Rule
+	for i := 0; i < position; i++ {
+		if safetyRuleHides(rules[i], rule) && safetyRulesOverlap(rules[i].Pattern, rule.Pattern) {
+			shadow = &rules[i]
+			break
 		}
 	}
 	inserted := make([]safety.Rule, 0, len(rules)+1)
 	inserted = append(inserted, rules[:position]...)
 	inserted = append(inserted, rule)
-	return append(inserted, rules[position:]...)
+	return append(inserted, rules[position:]...), shadow
+}
+
+// safetyRulePositionValid reports whether rule, placed at position among
+// the other rules, neither hides a deny rule for the same APIs (a confirm
+// rule ahead of one) nor sits behind an allow or confirm rule that matches
+// the same APIs first.
+func safetyRulePositionValid(others []safety.Rule, position int, rule safety.Rule) bool {
+	for i, other := range others {
+		if !safetyRulesOverlap(other.Pattern, rule.Pattern) {
+			continue
+		}
+		if i < position && safetyRuleHides(other, rule) {
+			return false
+		}
+		trailing := i == len(others)-1 && other.Pattern == "*:*"
+		if i >= position && rule.Action == safety.ActionConfirm && other.Action == safety.ActionDeny && !trailing {
+			return false
+		}
+	}
+	return true
+}
+
+// safetyRuleHides reports whether earlier, matching some of the same APIs
+// first, gives them a weaker action than rule: an allow ahead of a confirm,
+// or an allow or confirm ahead of a deny.
+func safetyRuleHides(earlier, rule safety.Rule) bool {
+	switch rule.Action {
+	case safety.ActionDeny:
+		return earlier.Action != safety.ActionDeny
+	case safety.ActionConfirm:
+		return earlier.Action == safety.ActionAllow
+	}
+	return false
+}
+
+// safetyRulesOverlap reports whether two rule patterns match some of the
+// same API calls. A pattern that names its service is compared under every
+// spelling of that service, as Check matches them.
+func safetyRulesOverlap(a, b string) bool {
+	for _, left := range safetyPatternSpellings(a) {
+		for _, right := range safetyPatternSpellings(b) {
+			if safety.PatternsOverlap(left, right) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func safetyPatternSpellings(pattern string) []string {
+	service, action, found := strings.Cut(strings.TrimSpace(pattern), ":")
+	if !found || strings.Contains(service, "*") {
+		return []string{pattern}
+	}
+	spellings := []string{pattern}
+	for _, alias := range safetyServiceAliases(service) {
+		spellings = append(spellings, alias+":"+action)
+	}
+	return spellings
 }
 
 func newSafetyPolicyPresetCommand() *cobra.Command {
