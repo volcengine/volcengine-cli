@@ -659,7 +659,7 @@ func TestSafetyPolicyAddKeepsDenyConfirmCatchAllOrder(t *testing.T) {
 		mustRun(t, e, "add", "--pattern", "ecs:*", "--action", "deny")
 		mustRun(t, e, "enable")
 		output := mustRun(t, e, "add", "--pattern", "ecs:DescribeInstances", "--action", "confirm")
-		if strings.Contains(output, "no longer denied") || !strings.Contains(output, "1 deny") {
+		if !strings.Contains(output, "once approved") || !strings.Contains(output, "1 deny") {
 			t.Fatalf("deny to confirm printed %q", output)
 		}
 		want(t, e, "ecs:DescribeInstances", safety.ActionDeny)
@@ -675,6 +675,23 @@ func TestSafetyPolicyAddKeepsDenyConfirmCatchAllOrder(t *testing.T) {
 			t.Fatalf("rules = %+v, want one *:* deny last", rules)
 		}
 		want(t, e, "vpc:CreateVpc", safety.ActionDeny)
+	})
+	t.Run("legacy catch-all spelling saved as *:*", func(t *testing.T) {
+		e := setup(t)
+		if err := safety.SavePolicy(e.dir, &safety.Policy{Enabled: true, Rules: []safety.Rule{{Pattern: "*:**", Action: safety.ActionConfirm}}}); err != nil {
+			t.Fatal(err)
+		}
+		mustRun(t, e, "add", "--pattern", "*:*", "--action", "deny")
+		if rules := e.rules(); len(rules) != 1 || rules[0].Pattern != "*:*" || rules[0].Action != safety.ActionDeny {
+			t.Fatalf("rules = %+v", rules)
+		}
+	})
+	t.Run("disabled policy notice", func(t *testing.T) {
+		e := setup(t)
+		output := mustRun(t, e, "add", "--pattern", "ecs:*", "--action", "deny")
+		if !strings.Contains(output, "safety-policy enable") {
+			t.Fatalf("add on a disabled policy printed %q", output)
+		}
 	})
 	t.Run("misplaced catch-all", func(t *testing.T) {
 		e := setup(t)

@@ -115,10 +115,13 @@ func newSafetyPolicyAddCommand() *cobra.Command {
 				fmt.Fprintf(added.ErrOrStderr(), tr("Merged %d rules with the pattern %s into one\n"), edit.merged, edit.pattern)
 			}
 			if edit.loosened {
-				fmt.Fprintf(added.ErrOrStderr(), tr("Warning: %s -> confirm replaces the deny rule for this pattern; deny rules before it still apply first\n"), edit.pattern)
+				fmt.Fprintf(added.ErrOrStderr(), tr("Warning: %s was deny and is now confirm; calls it matches can run once approved\n"), edit.pattern)
 			}
 			if edit.afterDeny > 0 {
 				fmt.Fprintf(added.ErrOrStderr(), tr("%s -> confirm is placed after %d deny rules; calls those rules match stay denied\n"), edit.pattern, edit.afterDeny)
+			}
+			if !policy.Enabled {
+				fmt.Fprintln(added.ErrOrStderr(), tr("The safety policy is disabled; run 've configure safety-policy enable' for its rules to apply"))
 			}
 			return nil
 		},
@@ -181,8 +184,8 @@ func addSafetyRule(rules []safety.Rule, rule safety.Rule) (safetyRuleEdit, error
 			return safetyRuleEdit{rules: append(updated, rule), pattern: rule.Pattern}, nil
 		case len(found) == 1 && found[0] == len(rules)-1:
 			last := &updated[found[0]]
-			edit := safetyRuleEdit{rules: updated, merged: 1, pattern: last.Pattern, loosened: last.Action == safety.ActionDeny && rule.Action == safety.ActionConfirm}
-			last.Action = rule.Action
+			edit := safetyRuleEdit{rules: updated, merged: 1, pattern: rule.Pattern, loosened: last.Action == safety.ActionDeny && rule.Action == safety.ActionConfirm}
+			*last = rule
 			return edit, nil
 		default:
 			return safetyRuleEdit{}, fmt.Errorf(tr("the policy has a *:* rule that is not the last rule (rule %d); remove it or reapply a preset with --overwrite before changing *:*"), firstMisplacedCatchAll(found, len(rules))+1)
