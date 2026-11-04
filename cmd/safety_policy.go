@@ -115,13 +115,17 @@ func newSafetyPolicyAddCommand() *cobra.Command {
 				fmt.Fprintf(added.ErrOrStderr(), tr("Merged %d rules with the pattern %s into one\n"), edit.merged, edit.pattern)
 			}
 			if edit.loosened {
-				fmt.Fprintf(added.ErrOrStderr(), tr("Warning: %s was deny and is now confirm; calls it matches can run once approved\n"), edit.pattern)
+				fmt.Fprintf(added.ErrOrStderr(), tr("Warning: %s was deny and is now confirm; approval can now unlock the calls it matches, except those an earlier deny rule matches first\n"), edit.pattern)
 			}
 			if edit.afterDeny > 0 {
 				fmt.Fprintf(added.ErrOrStderr(), tr("%s -> confirm is placed after %d deny rules; calls those rules match stay denied\n"), edit.pattern, edit.afterDeny)
 			}
-			if !policy.Enabled {
-				fmt.Fprintln(added.ErrOrStderr(), tr("The safety policy is disabled; run 've configure safety-policy enable' for its rules to apply"))
+			// The environment can override what the file says.
+			if _, effective, err := loadEffectiveSafetyPolicy(); err == nil && !effective.Enabled {
+				fmt.Fprintln(added.ErrOrStderr(), tr("The safety policy is disabled, so its rules do not apply yet; enable it with 've configure safety-policy enable' or VOLCENGINE_SAFETY_POLICY_ENABLED=true"))
+			}
+			if _, overridden := os.LookupEnv(safety.EnvPolicyRules); overridden {
+				fmt.Fprintln(added.ErrOrStderr(), tr("VOLCENGINE_SAFETY_POLICY_RULES is set, so the rules stored in the policy file are not used"))
 			}
 			return nil
 		},

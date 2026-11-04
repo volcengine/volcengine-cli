@@ -659,7 +659,7 @@ func TestSafetyPolicyAddKeepsDenyConfirmCatchAllOrder(t *testing.T) {
 		mustRun(t, e, "add", "--pattern", "ecs:*", "--action", "deny")
 		mustRun(t, e, "enable")
 		output := mustRun(t, e, "add", "--pattern", "ecs:DescribeInstances", "--action", "confirm")
-		if !strings.Contains(output, "once approved") || !strings.Contains(output, "1 deny") {
+		if !strings.Contains(output, "except those an earlier deny rule matches first") || !strings.Contains(output, "1 deny") {
 			t.Fatalf("deny to confirm printed %q", output)
 		}
 		want(t, e, "ecs:DescribeInstances", safety.ActionDeny)
@@ -686,11 +686,20 @@ func TestSafetyPolicyAddKeepsDenyConfirmCatchAllOrder(t *testing.T) {
 			t.Fatalf("rules = %+v", rules)
 		}
 	})
-	t.Run("disabled policy notice", func(t *testing.T) {
+	t.Run("effective state notices", func(t *testing.T) {
 		e := setup(t)
 		output := mustRun(t, e, "add", "--pattern", "ecs:*", "--action", "deny")
 		if !strings.Contains(output, "safety-policy enable") {
 			t.Fatalf("add on a disabled policy printed %q", output)
+		}
+		// Enabled by the environment: no disabled notice.
+		t.Setenv(safety.EnvPolicyEnabled, "true")
+		if output := mustRun(t, e, "add", "--pattern", "vpc:*", "--action", "deny"); strings.Contains(output, "safety-policy enable") {
+			t.Fatalf("add with %s=true printed %q", safety.EnvPolicyEnabled, output)
+		}
+		t.Setenv(safety.EnvPolicyRules, "*:*=deny")
+		if output := mustRun(t, e, "add", "--pattern", "kms:*", "--action", "deny"); !strings.Contains(output, safety.EnvPolicyRules) {
+			t.Fatalf("add with %s set printed %q", safety.EnvPolicyRules, output)
 		}
 	})
 	t.Run("misplaced catch-all", func(t *testing.T) {
