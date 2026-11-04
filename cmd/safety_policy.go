@@ -103,31 +103,19 @@ func newSafetyPolicyAddCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// A rule for the same pattern keeps its spelling, and its position
-			// when the new action is safe and effective there; otherwise it
-			// moves as a new rule would.
-			rule := safety.Rule{Pattern: pattern, Action: action}
-			kept := policy.Rules[:0:0]
-			existing := -1
-			for i, current := range policy.Rules {
-				if strings.EqualFold(current.Pattern, pattern) {
-					existing = i
-					rule.Pattern = current.Pattern
-					continue
-				}
-				kept = append(kept, current)
+			edit, err := addSafetyRule(policy.Rules, safety.Rule{Pattern: pattern, Action: action})
+			if err != nil {
+				return err
 			}
-			var shadow *safety.Rule
-			if existing >= 0 && safetyRulePositionValid(kept, existing, rule) {
-				policy.Rules[existing].Action = action
-			} else {
-				policy.Rules, shadow = insertSafetyRule(kept, rule)
-			}
+			policy.Rules = edit.rules
 			if err := safety.SavePolicy(dir, policy); err != nil {
 				return err
 			}
-			if shadow != nil {
-				fmt.Fprintf(added.ErrOrStderr(), tr("Warning: the earlier rule %s -> %s matches some of the same APIs first, so %s -> %s does not apply to them\n"), shadow.Pattern, shadow.Action, pattern, action)
+			if edit.merged > 1 {
+				fmt.Fprintf(added.ErrOrStderr(), tr("Merged %d rules with the pattern %s into one\n"), edit.merged, pattern)
+			}
+			if edit.loosened {
+				fmt.Fprintf(added.ErrOrStderr(), tr("Warning: %s -> confirm replaces a deny rule for the same pattern; approved calls are no longer denied\n"), pattern)
 			}
 			return nil
 		},
@@ -137,98 +125,111 @@ func newSafetyPolicyAddCommand() *cobra.Command {
 	return command
 }
 
-// insertSafetyRule places a new rule where it applies without loosening
-// the policy, and returns the earlier rule, if any, that matches some of the
-// same APIs first. The first matching rule wins, so a rule appended after a
-// catch-all such as a preset's trailing *:* would never apply, and a confirm
-// rule placed before a deny rule for the same APIs would let approval unlock
-// what the deny blocked. A deny rule goes first. A confirm rule goes right
-// after the last deny rule that matches some of the same APIs, or first when
-// none does, so an unrelated deny cannot push it behind allow rules. A
-// trailing *:* rule is a catch-all and stays last.
-func insertSafetyRule(rules []safety.Rule, rule safety.Rule) ([]safety.Rule, *safety.Rule) {
-	position := 0
-	if rule.Action == safety.ActionConfirm {
-		end := len(rules)
-		if end > 0 && rules[end-1].Pattern == "*:*" {
-			end--
-		}
-		for i := 0; i < end; i++ {
-			if rules[i].Action == safety.ActionDeny && safetyRulesOverlap(rules[i].Pattern, rule.Pattern) {
-				position = i + 1
-			}
-		}
-	}
-	var shadow *safety.Rule
-	for i := 0; i < position; i++ {
-		if safetyRuleHides(rules[i], rule) && safetyRulesOverlap(rules[i].Pattern, rule.Pattern) {
-			shadow = &rules[i]
-			break
-		}
-	}
-	inserted := make([]safety.Rule, 0, len(rules)+1)
-	inserted = append(inserted, rules[:position]...)
-	inserted = append(inserted, rule)
-	return append(inserted, rules[position:]...), shadow
+// safetyRuleEdit is a policy after one add, with what the add changed.
+type safetyRuleEdit struct {
+	rules []safety.Rule
+	// merged counts the existing rules for the same pattern, which the add
+	// replaced with one rule.
+	merged int
+	// loosened reports that a deny for the same pattern became confirm.
+	loosened bool
 }
 
-// safetyRulePositionValid reports whether rule, placed at position among
-// the other rules, neither hides a deny rule for the same APIs (a confirm
-// rule ahead of one) nor sits behind an allow or confirm rule that matches
-// the same APIs first.
-func safetyRulePositionValid(others []safety.Rule, position int, rule safety.Rule) bool {
-	for i, other := range others {
-		if !safetyRulesOverlap(other.Pattern, rule.Pattern) {
+// addSafetyRule adds a deny or confirm rule, or updates the rules for the
+// same pattern (compared case-insensitively), keeping the policy in the
+// order deny rules, then allow and confirm rules, then a *:* catch-all.
+// The first matching rule wins, so the placement alone guarantees that the
+// rule applies and that a confirm rule never overrides a deny:
+//   - A deny rule goes first, so it applies to every call it matches.
+//   - A confirm rule goes right after the leading deny rules. Only deny
+//     rules come before it, so no allow rule hides it; when a deny rule
+//     follows the allow and confirm rules, or the catch-all is a deny, no
+//     place satisfies both, and the add is refused.
+//   - The *:* catch-all is the default for calls no other rule matches; it
+//     stays last and is updated in place.
+//
+// It does not compare what two patterns match, so it needs no knowledge of
+// service spellings or of which APIs exist.
+func addSafetyRule(rules []safety.Rule, rule safety.Rule) (safetyRuleEdit, error) {
+	isCatchAll := func(pattern string) bool { return strings.TrimSpace(pattern) == "*:*" }
+	if isCatchAll(rule.Pattern) {
+		var found []int
+		for i, current := range rules {
+			if isCatchAll(current.Pattern) {
+				found = append(found, i)
+			}
+		}
+		updated := append([]safety.Rule(nil), rules...)
+		switch {
+		case len(found) == 0:
+			return safetyRuleEdit{rules: append(updated, rule)}, nil
+		case len(found) == 1 && found[0] == len(rules)-1:
+			last := &updated[found[0]]
+			edit := safetyRuleEdit{rules: updated, merged: 1, loosened: last.Action == safety.ActionDeny && rule.Action == safety.ActionConfirm}
+			last.Action = rule.Action
+			return edit, nil
+		default:
+			return safetyRuleEdit{}, fmt.Errorf(tr("the policy has a *:* rule that is not the last rule (rule %d); remove it or reapply a preset with --overwrite before changing *:*"), firstMisplacedCatchAll(found, len(rules))+1)
+		}
+	}
+
+	type numbered struct {
+		safety.Rule
+		number int // 1-based position in the stored policy
+	}
+	var kept []numbered
+	edit := safetyRuleEdit{}
+	for i, current := range rules {
+		if strings.EqualFold(strings.TrimSpace(current.Pattern), rule.Pattern) {
+			if edit.merged == 0 {
+				rule.Pattern = current.Pattern // keep the stored spelling
+			}
+			edit.merged++
+			edit.loosened = edit.loosened || current.Action == safety.ActionDeny
 			continue
 		}
-		if i < position && safetyRuleHides(other, rule) {
-			return false
-		}
-		trailing := i == len(others)-1 && other.Pattern == "*:*"
-		if i >= position && rule.Action == safety.ActionConfirm && other.Action == safety.ActionDeny && !trailing {
-			return false
-		}
+		kept = append(kept, numbered{current, i + 1})
 	}
-	return true
-}
-
-// safetyRuleHides reports whether earlier, matching some of the same APIs
-// first, gives them a weaker action than rule: an allow ahead of a confirm,
-// or an allow or confirm ahead of a deny.
-func safetyRuleHides(earlier, rule safety.Rule) bool {
-	switch rule.Action {
-	case safety.ActionDeny:
-		return earlier.Action != safety.ActionDeny
-	case safety.ActionConfirm:
-		return earlier.Action == safety.ActionAllow
-	}
-	return false
-}
-
-// safetyRulesOverlap reports whether two rule patterns match some of the
-// same API calls. A pattern that names its service is compared under every
-// spelling of that service, as Check matches them.
-func safetyRulesOverlap(a, b string) bool {
-	for _, left := range safetyPatternSpellings(a) {
-		for _, right := range safetyPatternSpellings(b) {
-			if safety.PatternsOverlap(left, right) {
-				return true
+	position := 0
+	if rule.Action == safety.ActionConfirm {
+		for position < len(kept) && kept[position].Action == safety.ActionDeny && !isCatchAll(kept[position].Pattern) {
+			position++
+		}
+		for i := position; i < len(kept); i++ {
+			if kept[i].Action != safety.ActionDeny {
+				continue
 			}
+			if isCatchAll(kept[i].Pattern) && i == len(kept)-1 {
+				return safetyRuleEdit{}, fmt.Errorf(tr("%s -> confirm would let approval unlock the default deny of the last rule *:* -> deny; the policy was not changed"), rule.Pattern)
+			}
+			return safetyRuleEdit{}, fmt.Errorf(tr("%s -> confirm cannot be placed safely: rule %d %s -> deny comes after rule %d %s -> %s, so a confirm rule ahead of that rule could override the deny; the policy was not changed. Move the deny rules to the top, or reapply a preset with --overwrite"),
+				rule.Pattern, kept[i].number, kept[i].Pattern, kept[position].number, kept[position].Pattern, kept[position].Action)
 		}
+	} else {
+		edit.loosened = false
 	}
-	return false
+	edit.rules = make([]safety.Rule, 0, len(kept)+1)
+	for i, current := range kept {
+		if i == position {
+			edit.rules = append(edit.rules, rule)
+		}
+		edit.rules = append(edit.rules, current.Rule)
+	}
+	if position == len(kept) {
+		edit.rules = append(edit.rules, rule)
+	}
+	return edit, nil
 }
 
-func safetyPatternSpellings(pattern string) []string {
-	service, action, found := strings.Cut(strings.TrimSpace(pattern), ":")
-	if !found || strings.Contains(service, "*") {
-		return []string{pattern}
+// firstMisplacedCatchAll returns the index of the first *:* rule that is
+// not the last rule.
+func firstMisplacedCatchAll(found []int, total int) int {
+	for _, index := range found {
+		if index != total-1 {
+			return index
+		}
 	}
-	spellings := []string{pattern}
-	for _, alias := range safetyServiceAliases(service) {
-		spellings = append(spellings, alias+":"+action)
-	}
-	return spellings
+	return found[0]
 }
 
 func newSafetyPolicyPresetCommand() *cobra.Command {

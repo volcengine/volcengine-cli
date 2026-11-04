@@ -300,39 +300,3 @@ func SavePolicy(configDir string, policy *Policy) error {
 	}
 	return os.Chmod(target, 0o600)
 }
-
-// PatternsOverlap reports whether some service:action identifier matches
-// both rule patterns, comparing case-insensitively like Check. A * matches
-// any run of characters, including ':'.
-func PatternsOverlap(a, b string) bool {
-	a = strings.ToLower(strings.TrimSpace(a))
-	b = strings.ToLower(strings.TrimSpace(b))
-	if a == "" || b == "" {
-		return false
-	}
-	type state struct{ i, j int }
-	seen := map[state]bool{}
-	var overlap func(i, j int) bool
-	overlap = func(i, j int) bool {
-		key := state{i, j}
-		if result, ok := seen[key]; ok {
-			return result
-		}
-		seen[key] = false
-		var result bool
-		switch {
-		case i == len(a) && j == len(b):
-			result = true
-		case i < len(a) && a[i] == '*':
-			// The star matches nothing more, or takes the next character of b.
-			result = overlap(i+1, j) || (j < len(b) && overlap(i, j+1))
-		case j < len(b) && b[j] == '*':
-			result = overlap(i, j+1) || (i < len(a) && overlap(i+1, j))
-		case i < len(a) && j < len(b) && a[i] == b[j]:
-			result = overlap(i+1, j+1)
-		}
-		seen[key] = result
-		return result
-	}
-	return overlap(0, 0)
-}

@@ -76,7 +76,7 @@ func TestReviewSafetyPolicyRemoveMissingRemainsSuccessful(t *testing.T) {
 	}
 }
 
-func TestSafetyPolicyCaseUpdatePreservesOrderAndSpelling(t *testing.T) {
+func TestSafetyPolicyCaseUpdatePreservesSpelling(t *testing.T) {
 	dir := reviewSafetyEnvironment(t)
 	policy := &safety.Policy{Enabled: true, Rules: []safety.Rule{
 		{Pattern: "ecs:Describe*", Action: safety.ActionAllow},
@@ -93,9 +93,14 @@ func TestSafetyPolicyCaseUpdatePreservesOrderAndSpelling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy.Rules[1].Action = safety.ActionDeny
+	// The updated rule keeps its stored spelling and, as a deny, goes first.
+	policy.Rules = []safety.Rule{
+		{Pattern: "ecs:delete*", Action: safety.ActionDeny},
+		{Pattern: "ecs:Describe*", Action: safety.ActionAllow},
+		{Pattern: "ecs:*", Action: safety.ActionDeny},
+	}
 	if !reflect.DeepEqual(got, policy) {
-		t.Fatalf("case update changed rule order or spelling: got=%v want=%v", got.Rules, policy.Rules)
+		t.Fatalf("case update changed spelling or did not put the deny first: got=%v want=%v", got.Rules, policy.Rules)
 	}
 }
 

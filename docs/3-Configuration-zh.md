@@ -166,7 +166,7 @@ ve configure safety-policy list
 - `deny`：在本地拒绝，不发送 API 请求。
 - `confirm`：发送请求前必须获得明确确认。
 
-规则格式为 `service:action`，匹配不区分大小写，支持 `*` 通配符，并采用第一条匹配优先（first-match-wins）；`add` 会把新的 `deny` 规则放在最前面；新的 `confirm` 规则放在与它会命中相同 API 的最后一条 `deny` 规则之后（没有这样的规则时放在最前面），并始终排在末尾兜底的 `*:*` 之前。因此即使已应用带兜底规则的预设，新规则也会生效，且 `confirm` 规则不会覆盖同一批 API 的 `deny`。更新已有规则时保留原位置，除非原位置会让它失效或覆盖 `deny`。如果前面仍有 `allow` 或 `confirm` 规则会先命中部分相同的 API，`add` 会打印警告。未命中任何规则时默认允许。同一服务的所有写法视为同一服务，包括带版本号的命令名、带下划线的兼容命令名和 SDK 服务名。例如 `cloudtrail:Delete*`、`cloudtrail20180101:Delete*` 与 `cloud_trail:Delete*` 等价，对 `ve cloudtrail`、`ve cloudtrail20180101` 和 MCP `call_api` 同时生效；`rds_mysql:*` 同样覆盖 `ve rdsmysql`、`ve rdsmysqlv2` 和 `ve rds_mysql_v2`。API 名称按原样匹配，不做其他写法转换。
+规则格式为 `service:action`，匹配不区分大小写，支持 `*` 通配符，并采用第一条匹配优先（first-match-wins）；`add` 让策略始终保持“`deny` 规则在前，`allow` 与 `confirm` 规则居中，末尾兜底 `*:*`”的顺序：新增或更新的 `deny` 规则放在最前面；`confirm` 规则放在开头的 `deny` 规则之后；`*:*` 保持在末尾并原地更新。因此即使已应用预设，新规则也会生效，且 `confirm` 规则不会覆盖 `deny`。更新某个模式时，会把该模式（不区分大小写）的所有规则替换为放在新位置的一条规则，并保留原有写法。当 `allow` 或 `confirm` 规则之后还有 `deny` 规则（例如 `preset --append` 之后），或兜底规则是 `*:* -> deny`（如 `deny-writes`）时，任何位置都无法同时保住所有 `deny`，`add` 会拒绝添加 `confirm` 规则且不修改策略；`*:*` 规则不在末尾时，也会拒绝修改 `*:*`。未命中任何规则时默认允许。同一服务的所有写法视为同一服务，包括带版本号的命令名、带下划线的兼容命令名和 SDK 服务名。例如 `cloudtrail:Delete*`、`cloudtrail20180101:Delete*` 与 `cloud_trail:Delete*` 等价，对 `ve cloudtrail`、`ve cloudtrail20180101` 和 MCP `call_api` 同时生效；`rds_mysql:*` 同样覆盖 `ve rdsmysql`、`ve rdsmysqlv2` 和 `ve rds_mysql_v2`。API 名称按原样匹配，不做其他写法转换。
 
 pattern 必须且只能包含一个冒号，service 和 action 均不能为空，内部不能包含空白字符；首尾空白会被忽略。例如 `sts:GetCallerIdentity`、`sts:*`、`*:GetCallerIdentity`、`*:*` 均合法；只写 API 名、只写服务名、用点或空格分隔，以及单独的 `*` 都会被拒绝。这里只校验格式，允许配置未收录服务及通过 `--force` 调用的新 API。
 
