@@ -219,11 +219,12 @@ func sdkCallInput(built invocationInput) (interface{}, error) {
 var executeInvocationHook func(ctx *Context, p invocationParams, buildInput func() (invocationInput, error)) error
 
 func executeInvocation(ctx *Context, p invocationParams, buildInput func() (invocationInput, error)) (err error) {
-	if err := enforceCLISafetyPolicy(ctx, p.serviceName, p.action); err != nil {
+	// 已下线版本在发请求前直接阻断（普通与 --force 路径都汇聚于此，无绕过开关）。
+	// 必须先于安全策略：命中 deny/confirm 规则时也要返回退役错误，避免迁移提示被掩盖。
+	if err := rejectDeprecatedServiceCall(p.serviceName, p.version); err != nil {
 		return err
 	}
-	// 已下线版本在发请求前直接阻断（普通与 --force 路径都汇聚于此，无绕过开关）。
-	if err := rejectDeprecatedServiceCall(p.serviceName, p.version); err != nil {
+	if err := enforceCLISafetyPolicy(ctx, p.serviceName, p.action); err != nil {
 		return err
 	}
 	if executeInvocationHook != nil {
