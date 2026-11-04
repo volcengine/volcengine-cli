@@ -152,20 +152,31 @@ func detectLibc(goos, loaders string) string {
 	return "glibc"
 }
 
+// artifactLibc returns the C library an artifact was built for. A Linux
+// artifact that does not say is taken as glibc, which is what
+// python-build-standalone's default Linux builds use, so an older or custom
+// manifest without the field is not offered on musl systems.
+func artifactLibc(artifact Artifact) string {
+	if artifact.Libc == "" && strings.HasPrefix(artifact.Platform, "linux-") {
+		return "glibc"
+	}
+	return artifact.Libc
+}
+
 // Select returns the artifact for platform and libc (empty outside Linux) or
 // an explicit unsupported error. An artifact built for another C library is
 // not selected.
 func (m *Manifest) Select(platform, libc string) (Artifact, error) {
 	for _, artifact := range m.Runtimes {
-		if artifact.Platform == platform && (artifact.Libc == "" || libc == "" || artifact.Libc == libc) {
+		if artifact.Platform == platform && (libc == "" || artifactLibc(artifact) == "" || artifactLibc(artifact) == libc) {
 			return artifact, nil
 		}
 	}
 	supported := make([]string, 0, len(m.Runtimes))
 	for _, artifact := range m.Runtimes {
 		name := artifact.Platform
-		if artifact.Libc != "" {
-			name += " (" + artifact.Libc + ")"
+		if libc := artifactLibc(artifact); libc != "" {
+			name += " (" + libc + ")"
 		}
 		supported = append(supported, name)
 	}

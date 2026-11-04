@@ -134,6 +134,15 @@ func TestDefaultManifestPinsFiveVerifiedPlatforms(t *testing.T) {
 			t.Fatalf("%s musl: expected an explicit unsupported error, got %v", platform, err)
 		}
 	}
+	// A Linux artifact without a libc field, as in an older or custom
+	// manifest, is a glibc build: it is offered on glibc but not on musl.
+	untagged := &Manifest{Runtimes: []Artifact{{Platform: "linux-arm64", Version: "3.12.15"}}}
+	if _, err := untagged.Select("linux-arm64", "glibc"); err != nil {
+		t.Fatalf("untagged artifact on glibc: %v", err)
+	}
+	if _, err := untagged.Select("linux-arm64", "musl"); err == nil || !strings.Contains(err.Error(), "linux-arm64 (glibc)") {
+		t.Fatalf("untagged artifact on musl: expected an unsupported error naming glibc, got %v", err)
+	}
 	for _, platform := range []string{"linux-386", "linux-arm", "freebsd-amd64", "windows-arm64", "windows-386"} {
 		if _, err := manifest.Select(platform, ""); err == nil || !strings.Contains(err.Error(), "VOLCENGINE_SCRIPT_PYTHON") {
 			t.Fatalf("%s: expected an explicit unsupported-platform error, got %v", platform, err)
