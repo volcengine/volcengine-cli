@@ -653,12 +653,44 @@ func TestSafetyPolicyAddKeepsDenyConfirmCatchAllOrder(t *testing.T) {
 		mustRun(t, e, "add", "--pattern", "ecs:DescribeInstances", "--action", "deny")
 		want(t, e, "ecs:DescribeInstances", safety.ActionDeny)
 	})
+	t.Run("notices describe what changed", func(t *testing.T) {
+		e := setup(t)
+		mustRun(t, e, "add", "--pattern", "ecs:DescribeInstances", "--action", "deny")
+		mustRun(t, e, "add", "--pattern", "ecs:*", "--action", "deny")
+		mustRun(t, e, "enable")
+		output := mustRun(t, e, "add", "--pattern", "ecs:DescribeInstances", "--action", "confirm")
+		if strings.Contains(output, "no longer denied") || !strings.Contains(output, "1 deny") {
+			t.Fatalf("deny to confirm printed %q", output)
+		}
+		want(t, e, "ecs:DescribeInstances", safety.ActionDeny)
+	})
+	t.Run("catch-all spellings", func(t *testing.T) {
+		e := setup(t)
+		mustRun(t, e, "add", "--pattern", "*:**", "--action", "confirm")
+		mustRun(t, e, "add", "--pattern", "ecs:RunInstances", "--action", "deny")
+		mustRun(t, e, "add", "--pattern", "**:*", "--action", "deny")
+		mustRun(t, e, "enable")
+		rules := e.rules()
+		if len(rules) != 2 || rules[len(rules)-1].Pattern != "*:*" || rules[len(rules)-1].Action != safety.ActionDeny {
+			t.Fatalf("rules = %+v, want one *:* deny last", rules)
+		}
+		want(t, e, "vpc:CreateVpc", safety.ActionDeny)
+	})
 	t.Run("misplaced catch-all", func(t *testing.T) {
 		e := setup(t)
 		mustRun(t, e, "preset", "deny-writes", "--overwrite")
 		mustRun(t, e, "preset", "confirm-deletes", "--append")
 		if _, err := e.run("add", "--pattern", "*:*", "--action", "confirm"); err == nil || !strings.Contains(err.Error(), "*:*") {
 			t.Fatalf("add *:* error = %v", err)
+		}
+	})
+	t.Run("misplaced catch-all deny refuses a confirm", func(t *testing.T) {
+		e := setup(t)
+		mustRun(t, e, "add", "--pattern", "*:*", "--action", "deny")
+		mustRun(t, e, "preset", "confirm-deletes", "--append")
+		_, err := e.run("add", "--pattern", "ecs:RunInstances", "--action", "confirm")
+		if err == nil || !strings.Contains(err.Error(), "rule 1 *:* -> deny is not the last rule") {
+			t.Fatalf("add error = %v", err)
 		}
 	})
 }

@@ -112,10 +112,13 @@ func newSafetyPolicyAddCommand() *cobra.Command {
 				return err
 			}
 			if edit.merged > 1 {
-				fmt.Fprintf(added.ErrOrStderr(), tr("Merged %d rules with the pattern %s into one\n"), edit.merged, pattern)
+				fmt.Fprintf(added.ErrOrStderr(), tr("Merged %d rules with the pattern %s into one\n"), edit.merged, edit.pattern)
 			}
 			if edit.loosened {
-				fmt.Fprintf(added.ErrOrStderr(), tr("Warning: %s -> confirm replaces a deny rule for the same pattern; approved calls are no longer denied\n"), pattern)
+				fmt.Fprintf(added.ErrOrStderr(), tr("Warning: %s -> confirm replaces the deny rule for this pattern; deny rules before it still apply first\n"), edit.pattern)
+			}
+			if edit.afterDeny > 0 {
+				fmt.Fprintf(added.ErrOrStderr(), tr("%s -> confirm is placed after %d deny rules; calls those rules match stay denied\n"), edit.pattern, edit.afterDeny)
 			}
 			return nil
 		},
@@ -133,6 +136,18 @@ type safetyRuleEdit struct {
 	merged int
 	// loosened reports that a deny for the same pattern became confirm.
 	loosened bool
+	// pattern is the stored spelling of the added or updated rule.
+	pattern string
+	// afterDeny counts the deny rules placed before a confirm rule.
+	afterDeny int
+}
+
+// isSafetyCatchAll reports whether pattern matches every call: its service
+// and action parts consist only of *, as in *:* or *:**.
+func isSafetyCatchAll(pattern string) bool {
+	service, action, found := strings.Cut(strings.TrimSpace(pattern), ":")
+	onlyStars := func(part string) bool { return part != "" && strings.Trim(part, "*") == "" }
+	return found && onlyStars(service) && onlyStars(action)
 }
 
 // addSafetyRule adds a deny or confirm rule, or updates the rules for the
@@ -151,8 +166,9 @@ type safetyRuleEdit struct {
 // It does not compare what two patterns match, so it needs no knowledge of
 // service spellings or of which APIs exist.
 func addSafetyRule(rules []safety.Rule, rule safety.Rule) (safetyRuleEdit, error) {
-	isCatchAll := func(pattern string) bool { return strings.TrimSpace(pattern) == "*:*" }
+	isCatchAll := isSafetyCatchAll
 	if isCatchAll(rule.Pattern) {
+		rule.Pattern = "*:*"
 		var found []int
 		for i, current := range rules {
 			if isCatchAll(current.Pattern) {
@@ -162,10 +178,10 @@ func addSafetyRule(rules []safety.Rule, rule safety.Rule) (safetyRuleEdit, error
 		updated := append([]safety.Rule(nil), rules...)
 		switch {
 		case len(found) == 0:
-			return safetyRuleEdit{rules: append(updated, rule)}, nil
+			return safetyRuleEdit{rules: append(updated, rule), pattern: rule.Pattern}, nil
 		case len(found) == 1 && found[0] == len(rules)-1:
 			last := &updated[found[0]]
-			edit := safetyRuleEdit{rules: updated, merged: 1, loosened: last.Action == safety.ActionDeny && rule.Action == safety.ActionConfirm}
+			edit := safetyRuleEdit{rules: updated, merged: 1, pattern: last.Pattern, loosened: last.Action == safety.ActionDeny && rule.Action == safety.ActionConfirm}
 			last.Action = rule.Action
 			return edit, nil
 		default:
@@ -202,12 +218,17 @@ func addSafetyRule(rules []safety.Rule, rule safety.Rule) (safetyRuleEdit, error
 			if isCatchAll(kept[i].Pattern) && i == len(kept)-1 {
 				return safetyRuleEdit{}, fmt.Errorf(tr("%s -> confirm would let approval unlock the default deny of the last rule *:* -> deny; the policy was not changed"), rule.Pattern)
 			}
+			if isCatchAll(kept[i].Pattern) {
+				return safetyRuleEdit{}, fmt.Errorf(tr("%s -> confirm cannot be placed safely: rule %d %s -> deny is not the last rule, so it decides every call that reaches it; the policy was not changed. Remove it, or reapply a preset with --overwrite"), rule.Pattern, kept[i].number, kept[i].Pattern)
+			}
 			return safetyRuleEdit{}, fmt.Errorf(tr("%s -> confirm cannot be placed safely: rule %d %s -> deny comes after rule %d %s -> %s, so a confirm rule ahead of that rule could override the deny; the policy was not changed. Move the deny rules to the top, or reapply a preset with --overwrite"),
 				rule.Pattern, kept[i].number, kept[i].Pattern, kept[position].number, kept[position].Pattern, kept[position].Action)
 		}
+		edit.afterDeny = position
 	} else {
 		edit.loosened = false
 	}
+	edit.pattern = rule.Pattern
 	edit.rules = make([]safety.Rule, 0, len(kept)+1)
 	for i, current := range kept {
 		if i == position {
