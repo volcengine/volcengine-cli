@@ -69,6 +69,12 @@ func newScriptMockAPI(t *testing.T) *scriptMockAPI {
 
 func (m *scriptMockAPI) serve(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
+	// Every API request names its Action; anything else, such as a local
+	// port scanner probing the mock, is not part of the test.
+	if r.Form.Get("Action") == "" {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
 	request := scriptAPIRequest{Action: r.Form.Get("Action"), Query: map[string]string{}, Token: r.Header.Get("X-Security-Token")}
 	for key := range r.Form {
 		request.Query[key] = r.Form.Get(key)
