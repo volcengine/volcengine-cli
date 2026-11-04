@@ -199,7 +199,7 @@ result = {"instances": len(instances), "types": len(details)}
 
 都不可用时，错误信息会列出每个本地候选被拒绝的原因。每次结果的 `runtime` 字段会给出选中的 `path`、`version` 和 `source`（`explicit`、`system` 或 `managed`）。使用 `ve mcp --enable-run-script` 时，解释器在启动时选择并校验一次；没有可用解释器时服务无法启动。之后每次 `run_script` 调用都复用该解释器，即使 `PATH` 或 ve 管理的运行时随后发生变化。如果该解释器被删除，调用会报错，需要重启服务。未指定 `--enable-run-script` 时不会查找 Python。`ve script run` 在运行前选择一次解释器。
 
-- `ve script runtime install` 下载 `ve` 内置清单中固定的 CPython 3.12.15 `install_only_stripped` 包，清单来源为 [python-build-standalone 发布版本 20261013](https://github.com/astral-sh/python-build-standalone/releases/tag/20261013)。解压前会校验包的大小和 SHA-256，解压时检查路径、符号链接和大小，解压到 `~/.volcengine/script-runtime/`，并在启用前校验解释器。已固定的平台为 darwin-arm64、darwin-amd64、linux-arm64（glibc）、linux-amd64（glibc）和 windows-amd64。其他平台（包括基于 musl 的 Linux）会明确报错，请改用指定的解释器。`--manifest <https 地址|文件>`（可选 `--manifest-sha256`）可以从格式相同的其他清单安装；制品地址必须为 HTTPS。
+- `ve script runtime install` 下载 `ve` 内置清单中固定的 CPython 3.12.15 `install_only_stripped` 包，清单来源为 [python-build-standalone 发布版本 20261013](https://github.com/astral-sh/python-build-standalone/releases/tag/20261013)。解压前会校验包的大小和 SHA-256，解压时检查路径、符号链接和大小，解压到 `~/.volcengine/script-runtime/`，并在启用前校验解释器。已固定的平台为 darwin-arm64、darwin-amd64、linux-arm64（glibc）、linux-amd64（glibc）和 windows-amd64。其他平台（包括基于 musl 的 Linux）会明确报错，请改用指定的解释器。`--manifest <https 地址|文件>`（可选 `--manifest-sha256`）可以从格式相同的其他清单安装；制品地址必须为 HTTPS。Linux 条目未填写 `libc` 时按 glibc 构建处理；musl 构建必须设置 `"libc": "musl"`。
 - 本地和显式指定的解释器会被校验，但版本不固定。ve 管理的运行时固定为 CPython 3.12.15。
 - `ve script runtime status` 显示将被选中的解释器及其来源。
 
