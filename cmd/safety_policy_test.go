@@ -697,6 +697,11 @@ func TestSafetyPolicyAddKeepsDenyConfirmCatchAllOrder(t *testing.T) {
 		if output := mustRun(t, e, "add", "--pattern", "vpc:*", "--action", "deny"); strings.Contains(output, "safety-policy enable") {
 			t.Fatalf("add with %s=true printed %q", safety.EnvPolicyEnabled, output)
 		}
+		t.Setenv(safety.EnvPolicyEnabled, "false")
+		if output := mustRun(t, e, "add", "--pattern", "rds:*", "--action", "deny"); !strings.Contains(output, safety.EnvPolicyEnabled+" disables") {
+			t.Fatalf("add with %s=false printed %q", safety.EnvPolicyEnabled, output)
+		}
+		t.Setenv(safety.EnvPolicyEnabled, "true")
 		t.Setenv(safety.EnvPolicyRules, "*:*=deny")
 		if output := mustRun(t, e, "add", "--pattern", "kms:*", "--action", "deny"); !strings.Contains(output, safety.EnvPolicyRules) {
 			t.Fatalf("add with %s set printed %q", safety.EnvPolicyRules, output)

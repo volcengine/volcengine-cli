@@ -122,7 +122,11 @@ func newSafetyPolicyAddCommand() *cobra.Command {
 			}
 			// The environment can override what the file says.
 			if _, effective, err := loadEffectiveSafetyPolicy(); err == nil && !effective.Enabled {
-				fmt.Fprintln(added.ErrOrStderr(), tr("The safety policy is disabled, so its rules do not apply yet; enable it with 've configure safety-policy enable' or VOLCENGINE_SAFETY_POLICY_ENABLED=true"))
+				if _, set := os.LookupEnv(safety.EnvPolicyEnabled); set {
+					fmt.Fprintln(added.ErrOrStderr(), tr("VOLCENGINE_SAFETY_POLICY_ENABLED disables the safety policy, so its rules do not apply; unset it or set it to true"))
+				} else {
+					fmt.Fprintln(added.ErrOrStderr(), tr("The safety policy is disabled, so its rules do not apply yet; enable it with 've configure safety-policy enable'"))
+				}
 			}
 			if _, overridden := os.LookupEnv(safety.EnvPolicyRules); overridden {
 				fmt.Fprintln(added.ErrOrStderr(), tr("VOLCENGINE_SAFETY_POLICY_RULES is set, so the rules stored in the policy file are not used"))
