@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,7 +24,7 @@ func expandFlatToJSON(flat map[string]string, apiMeta *ApiMeta) (map[string]inte
 	sort.Strings(keys)
 
 	for _, key := range keys {
-		segs := flatJSONKeySegments(apiMeta, key)
+		segs := strings.Split(key, ".")
 		if err := validateIndexSegments(key, segs); err != nil {
 			return nil, err
 		}
@@ -43,16 +44,6 @@ func expandFlatToJSON(flat map[string]string, apiMeta *ApiMeta) (map[string]inte
 	}
 	m, _ := out.(map[string]interface{})
 	return m, nil
-}
-
-func flatJSONKeySegments(apiMeta *ApiMeta, key string) []string {
-	if !strings.Contains(key, ".") {
-		return []string{key}
-	}
-	if _, _, ok := resolveRequestMetaType(apiMeta, key); !ok {
-		return []string{key}
-	}
-	return strings.Split(key, ".")
 }
 
 // validateIndexSegments rejects malformed array indices early so they cannot be
@@ -92,9 +83,15 @@ func convertLeaf(apiMeta *ApiMeta, fullKey, raw string) (interface{}, error) {
 
 	switch {
 	case tn == "object" || tn == "map" || isArrayType(tn):
-		// Whole composite passed as a JSON string.
+		// Whole composite passed as a JSON string. UseNumber keeps large integers
+		// and high-precision decimals intact, matching the --body path.
+		decoder := json.NewDecoder(strings.NewReader(raw))
+		decoder.UseNumber()
 		var v interface{}
-		if err := json.Unmarshal([]byte(raw), &v); err != nil {
+		if err := decoder.Decode(&v); err != nil {
+			return nil, fmt.Errorf("parameter %q: expected JSON for %s, got %q", fullKey, tn, raw)
+		}
+		if err := decoder.Decode(&struct{}{}); err != io.EOF {
 			return nil, fmt.Errorf("parameter %q: expected JSON for %s, got %q", fullKey, tn, raw)
 		}
 		return v, nil

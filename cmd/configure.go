@@ -3,6 +3,7 @@ package cmd
 // Copyright 2022 Beijing Volcanoengine Technology Ltd.  All Rights Reserved.
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -87,40 +88,71 @@ type SsoSession struct {
 
 // LoadConfig from CONFIG_FILE_DIR(default ~/.volcengine)
 func LoadConfig() *Configure {
+	cfg, _ := loadConfig()
+	return cfg
+}
+
+// Keep configuration values out of error text while preserving the cause.
+type configLoadError struct {
+	operation string
+	path      string
+	err       error
+}
+
+// Error names the file but omits parser details that may contain
+// configuration values.
+func (e *configLoadError) Error() string {
+	if e.path == "" {
+		return "failed to " + e.operation + " configuration"
+	}
+	return "failed to " + e.operation + " configuration file " + e.path
+}
+
+func (e *configLoadError) Unwrap() error {
+	return e.err
+}
+
+// loadConfig returns (nil, nil) when the config file is absent or empty.
+// Older releases created an empty config.json on every start, so an empty
+// file means "not configured yet" rather than a damaged configuration.
+func loadConfig() (*Configure, error) {
 	configFileMu.Lock()
 	defer configFileMu.Unlock()
 
 	configFileDir, err := configFileDirFunc()
 	if err != nil {
-		return nil
+		return nil, &configLoadError{operation: "locate", err: err}
 	}
 
-	if err := os.MkdirAll(configFileDir, 0700); err != nil {
-		return nil
-	}
+	// Reading must not create the directory or the file: read-only commands
+	// such as --help load the config on startup. WriteConfigToFile creates both.
 	_ = os.Chmod(configFileDir, 0700)
-
 	configFilePath := filepath.Join(configFileDir, ConfigFile)
-	file, err := os.OpenFile(configFilePath, os.O_CREATE|os.O_RDWR, 0600)
+	file, err := os.Open(configFilePath)
 	if err != nil {
-		fmt.Println(err)
-		return nil
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, &configLoadError{operation: "open", path: configFilePath, err: err}
 	}
 	defer file.Close()
 	_ = file.Chmod(0600)
 
 	fileContent, err := ioutil.ReadAll(file)
 	if err != nil {
-		return nil
+		return nil, &configLoadError{operation: "read", path: configFilePath, err: err}
+	}
+	if len(bytes.TrimSpace(fileContent)) == 0 {
+		return nil, nil
 	}
 
 	cfg := &Configure{}
 	err = json.Unmarshal(fileContent, cfg)
 	if err != nil {
-		return nil
+		return nil, &configLoadError{operation: "parse", path: configFilePath, err: err}
 	}
 
-	return cfg
+	return cfg, nil
 }
 
 // runtimeConfig returns the in-memory config used by the current CLI process.
@@ -141,6 +173,28 @@ func setRuntimeConfig(cfg *Configure) {
 	config = cfg
 }
 
+// setEnableColor persists the color preference, initializing the config when
+// no config file exists yet (e.g. a fresh install).
+func setEnableColor(enabled bool) error {
+	cfg := runtimeConfig()
+	if cfg == nil {
+		var err error
+		cfg, err = loadConfig()
+		if err != nil {
+			return err
+		}
+		if cfg == nil {
+			cfg = &Configure{Profiles: make(map[string]*Profile)}
+		}
+	}
+	cfg.EnableColor = enabled
+	if err := WriteConfigToFile(cfg); err != nil {
+		return err
+	}
+	setRuntimeConfig(cfg)
+	return nil
+}
+
 // WriteConfigToFile store config
 func WriteConfigToFile(config *Configure) error {
 	configFileMu.Lock()
@@ -157,6 +211,9 @@ func WriteConfigToFile(config *Configure) error {
 	_ = os.Chmod(configFileDir, 0700)
 
 	targetPath := filepath.Join(configFileDir, ConfigFile)
+	if err := ensureConfigReplaceable(targetPath); err != nil {
+		return err
+	}
 
 	dir := filepath.Dir(targetPath)
 	tempFile, err := os.CreateTemp(dir, ".tmp-config-*")
@@ -177,18 +234,50 @@ func WriteConfigToFile(config *Configure) error {
 	if _, err := tempFile.Write(data); err != nil {
 		return err
 	}
+	// Flush before the rename so a crash cannot leave an empty config behind.
+	if err := tempFile.Sync(); err != nil {
+		return err
+	}
 	if err := tempFile.Close(); err != nil {
 		return err
 	}
 
+	// os.Rename replaces the target atomically (also on Windows). Never delete
+	// the existing config to retry: a second failure would lose it.
 	if err := os.Rename(tempName, targetPath); err != nil {
-		_ = os.Remove(targetPath)
-		if err2 := os.Rename(tempName, targetPath); err2 != nil {
-			return err2
-		}
+		return err
 	}
 	_ = os.Chmod(targetPath, 0600)
 	return nil
+}
+
+// ensureConfigReplaceable refuses to replace a config file that exists but
+// cannot be read or parsed. Such a file was never loaded, so the config being
+// written does not contain its profiles and replacing it would lose them.
+func ensureConfigReplaceable(path string) error {
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("refusing to overwrite: %w; fix or remove the file", &configLoadError{operation: "read", path: path, err: err})
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(data, &Configure{}); err != nil {
+		return fmt.Errorf("refusing to overwrite: %w; fix or remove the file", &configLoadError{operation: "parse", path: path, err: err})
+	}
+	return nil
+}
+
+// warnConfigLoadError reports a config file that exists but could not be used,
+// so later "no profile" or "credentials not configured" messages are not
+// mistaken for a missing configuration.
+func warnConfigLoadError(err error) {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: %v; continuing without it. Fix or remove the file.\n", err)
+	}
 }
 
 func marshalConfig(config *Configure) ([]byte, error) {

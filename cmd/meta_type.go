@@ -48,7 +48,7 @@ func (m *Meta) GetReqBody() map[string]interface{} {
 			}
 		case "array":
 			if v.TypeOf != "object" {
-				r[k] = v.TypeName
+				r[k] = []interface{}{m.getDefaultValue(v.TypeOf)}
 			} else {
 				if len(m.ChildMetas) > 0 {
 					if _, ok := m.ChildMetas[k]; ok {

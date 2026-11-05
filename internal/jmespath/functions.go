@@ -772,7 +772,8 @@ func jpfValues(arguments []interface{}) (interface{}, error) {
 }
 func jpfSort(arguments []interface{}) (interface{}, error) {
 	if items, ok := arrayNumberValues(arguments[0]); ok {
-		sorted := append([]interface{}(nil), items...)
+		sorted := make([]interface{}, len(items))
+		copy(sorted, items)
 		sort.SliceStable(sorted, func(i, j int) bool {
 			cmp, ok := compareNumbers(sorted[i], sorted[j])
 			return ok && cmp < 0

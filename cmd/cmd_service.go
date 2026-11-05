@@ -81,6 +81,13 @@ func runServiceCmd(cmd *cobra.Command, svc string, validActions []string, args [
 			break
 		}
 	}
+	// Report an unsupported action before complaining about leftover arguments:
+	// it is the more fundamental mistake.
+	if known || isForceEnabled(ctx) {
+		if err := checkActionPositionals(positional); err != nil {
+			return err
+		}
+	}
 	return dispatchServiceAction(ctx, svc, action, known)
 }
 

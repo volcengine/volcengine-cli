@@ -208,6 +208,9 @@ func tryExecuteGenericInvoke(args []string) error {
 	if !isForceEnabled(ctx) {
 		return trErrorf("unknown service %q: use --force with --version, and a fixed endpoint via --endpoint or profile/VOLCENGINE_ENDPOINT (endpoint-resolver=standard alone is not enough)", serviceName)
 	}
+	if err := checkActionPositionals(positional); err != nil {
+		return err
+	}
 
 	return doForceAction(ctx, serviceName, action)
 }

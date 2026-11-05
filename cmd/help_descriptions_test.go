@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io/ioutil"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -456,8 +457,8 @@ func TestPublicDocsOnlyAdvertiseDoubleDashSystemFlags(t *testing.T) {
 	}
 	repoRoot := filepath.Dir(filepath.Dir(currentFile))
 	publicDocs := []string{
-		"README.MD",
-		"README.EN.MD",
+		"README.md",
+		"README.EN.md",
 		"docs/1-GettingStarted-zh.md",
 		"docs/1-GettingStarted.md",
 		"docs/2-Authentication-zh.md",
@@ -490,6 +491,37 @@ func TestPublicDocsOnlyAdvertiseDoubleDashSystemFlags(t *testing.T) {
 			if strings.Contains(string(content), value) {
 				t.Errorf("public doc %s exposes internal compatibility syntax %q", name, value)
 			}
+		}
+	}
+}
+
+func TestReadmesAreTrackedWithDocumentedCase(t *testing.T) {
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve current test file")
+	}
+	repoRoot := filepath.Dir(filepath.Dir(currentFile))
+
+	// The working tree can hide a case mismatch on case-insensitive filesystems.
+	// Ask Git for the exact tracked spelling so Linux clones keep README links valid.
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is unavailable; exact tracked path cannot be checked")
+	}
+	insideWorkTree := exec.Command(gitPath, "-C", repoRoot, "rev-parse", "--is-inside-work-tree")
+	insideOutput, err := insideWorkTree.Output()
+	if err != nil || strings.TrimSpace(string(insideOutput)) != "true" {
+		t.Skip("source is not a Git worktree; exact tracked path cannot be checked")
+	}
+
+	for _, name := range []string{"README.md", "README.EN.md"} {
+		command := exec.Command(gitPath, "-C", repoRoot, "ls-files", "--error-unmatch", name)
+		output, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s is not tracked with the documented case: %v\n%s", name, err, output)
+		}
+		if got := strings.TrimSpace(string(output)); got != name {
+			t.Fatalf("tracked README path = %q, want %s", got, name)
 		}
 	}
 }

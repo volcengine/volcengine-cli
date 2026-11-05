@@ -80,7 +80,7 @@ func (intr *treeInterpreter) Execute(node ASTNode, value interface{}) (interface
 	case ASTFilterProjection:
 		left, err := intr.Execute(node.children[0], value)
 		if err != nil {
-			return nil, nil
+			return nil, err
 		}
 		sliceType, ok := left.([]interface{})
 		if !ok {
@@ -110,7 +110,7 @@ func (intr *treeInterpreter) Execute(node ASTNode, value interface{}) (interface
 	case ASTFlatten:
 		left, err := intr.Execute(node.children[0], value)
 		if err != nil {
-			return nil, nil
+			return nil, err
 		}
 		sliceType, ok := left.([]interface{})
 		if !ok {
@@ -285,7 +285,7 @@ func (intr *treeInterpreter) Execute(node ASTNode, value interface{}) (interface
 	case ASTValueProjection:
 		left, err := intr.Execute(node.children[0], value)
 		if err != nil {
-			return nil, nil
+			return nil, err
 		}
 		mapType, ok := left.(map[string]interface{})
 		if !ok {
