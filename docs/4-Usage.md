@@ -108,7 +108,7 @@ Multiple parameters:
 ve rdsmysqlv2 DescribeAllowLists --InstanceId mysql-xxxxxx --RegionId cn-beijing
 ```
 
-> The legacy `ve rdsmysql` and `ve rds_mysql` commands (API 2018-01-01) have been retired: calling them fails immediately with an incompatible-version error and no request is sent, including with `--force` or an explicit `--version 2018-01-01`. Migrate existing scripts to `ve rdsmysqlv2` (API 2022-01-01).
+> RDS MySQL API 2018-01-01 has been retired in the CLI: blocking is based on the final API version rather than the command name. Any call whose final version is 2018-01-01 fails immediately with an incompatible-version error and no request is sent, including default `ve rdsmysql` / `ve rds_mysql` calls, calls with `--force`, and any command with an explicit `--version 2018-01-01` (e.g. `ve rdsmysqlv2 ... --version 2018-01-01`). Calls that explicitly target `--version 2022-01-01` are unaffected. Migrate existing scripts to `ve rdsmysqlv2` (API 2022-01-01).
 
 Parameter names and values are separated by spaces. The supported syntax is:
 

@@ -108,7 +108,7 @@ ve ecs DescribeInstances --InstanceIds.1 i-1234567890abcdef0
 ve rdsmysqlv2 DescribeAllowLists --InstanceId mysql-xxxxxx --RegionId cn-beijing
 ```
 
-> 旧版 `ve rdsmysql` 和 `ve rds_mysql` 命令（API 2018-01-01）已下线：调用会立即报不兼容版本错误且不发起请求，使用 `--force` 或显式 `--version 2018-01-01` 同样被阻断。请将存量脚本迁移到 API 2022-01-01 的 `ve rdsmysqlv2`。
+> RDS MySQL API 2018-01-01 已在 CLI 下线：判定依据是最终请求的 API 版本，而非命令名。只要最终版本为 2018-01-01，调用会立即报不兼容版本错误且不发起请求，包括 `ve rdsmysql` / `ve rds_mysql` 的默认调用、带 `--force` 的调用，以及任意命令显式指定 `--version 2018-01-01`（如 `ve rdsmysqlv2 ... --version 2018-01-01`）。显式指定 `--version 2022-01-01` 的调用不受影响；请将存量脚本迁移到 API 2022-01-01 的 `ve rdsmysqlv2`。
 
 参数名和值使用空格分隔。当前 CLI 参数语法是：
 
