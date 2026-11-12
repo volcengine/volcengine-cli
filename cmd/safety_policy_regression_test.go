@@ -105,14 +105,16 @@ func TestSafetyDevNullMustUseNonInteractiveMessage(t *testing.T) {
 }
 
 func TestSafetyMatchesEnteredServiceSpelling(t *testing.T) {
-	actions := rootSupport.GetAllAction("rdsmysql")
+	// rdsmysql/rds_mysql (API 2018-01-01) is now retired before the safety
+	// policy runs; use the supported v2 spellings to exercise rule matching.
+	actions := rootSupport.GetAllAction("rdsmysqlv2")
 	sort.Strings(actions)
 	if len(actions) == 0 {
-		t.Fatal("rdsmysql has no bundled actions")
+		t.Fatal("rdsmysqlv2 has no bundled actions")
 	}
 	action := actions[0]
 	t.Logf("bundled action used for routing: %s", action)
-	for _, service := range []string{"rdsmysql", "rds_mysql"} {
+	for _, service := range []string{"rdsmysqlv2", "rds_mysql_v2"} {
 		t.Run(service, func(t *testing.T) {
 			dir := reviewSafetyEnvironment(t)
 			if err := safety.SavePolicy(dir, &safety.Policy{Enabled: true, Rules: []safety.Rule{{Pattern: service + ":*", Action: safety.ActionDeny}}}); err != nil {
@@ -132,6 +134,40 @@ func TestSafetyMatchesEnteredServiceSpelling(t *testing.T) {
 				t.Fatalf("entered service=%q: err=%v, execution calls=%d, service checked=%q", service, err, calls, seenService)
 			}
 		})
+	}
+}
+
+// TestSafetyRetiredServiceRejectionPrecedesPolicy 验证已下线版本（rds_mysql
+// 2018-01-01）即使命中安全策略规则，也先返回下线错误：deny/confirm 规则与
+// --yes 都不能掩盖迁移提示，且执行钩子不被调用（不发请求）。
+func TestSafetyRetiredServiceRejectionPrecedesPolicy(t *testing.T) {
+	dir := reviewSafetyEnvironment(t)
+	actions := rootSupport.GetAllAction("rdsmysql")
+	sort.Strings(actions)
+	if len(actions) == 0 {
+		t.Fatal("rdsmysql has no bundled actions")
+	}
+	action := actions[0]
+	for _, ruleAction := range []safety.Action{safety.ActionDeny, safety.ActionConfirm} {
+		for _, service := range []string{"rdsmysql", "rds_mysql"} {
+			t.Run(string(ruleAction)+"/"+service, func(t *testing.T) {
+				if err := safety.SavePolicy(dir, &safety.Policy{Enabled: true, Rules: []safety.Rule{{Pattern: service + ":*", Action: ruleAction}}}); err != nil {
+					t.Fatal(err)
+				}
+				withIsolatedInvocationFlags(t)
+				previousHook := executeInvocationHook
+				calls := 0
+				executeInvocationHook = func(_ *Context, _ invocationParams, _ func() (invocationInput, error)) error {
+					calls++
+					return nil
+				}
+				t.Cleanup(func() { executeInvocationHook = previousHook })
+				err := reviewRunAPICommand(t, service, action, "--yes")
+				if err == nil || !strings.Contains(err.Error(), "has been retired") || strings.Contains(err.Error(), "blocked by safety policy") || calls != 0 {
+					t.Fatalf("rule action=%s service=%s: err=%v, execution calls=%d; want retirement error ahead of safety policy", ruleAction, service, err, calls)
+				}
+			})
+		}
 	}
 }
 
@@ -197,7 +233,7 @@ func TestSafetyServiceAliasesShareRulesAcrossInvocationRoutes(t *testing.T) {
 		executeInvocationHook = previousHook
 	})
 	for _, service := range []struct{ canonical, alias, action string }{
-		{"rdsmysql", "rds_mysql", "AssociateAllowList"},
+		{"autoscaling", "auto_scaling", "AttachInstances"},
 		{"rdsmysqlv2", "rds_mysql_v2", "DeleteDBInstance"},
 	} {
 		for _, entered := range []string{service.canonical, service.alias} {

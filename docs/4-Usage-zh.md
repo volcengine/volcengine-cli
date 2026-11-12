@@ -105,8 +105,10 @@ ve ecs DescribeInstances --InstanceIds.1 i-1234567890abcdef0
 多个参数：
 
 ```shell
-ve rds_mysql ListDBInstanceIPLists --InstanceId mysql-xxxxxx --GroupName default
+ve rdsmysqlv2 DescribeAllowLists --InstanceId mysql-xxxxxx --RegionId cn-beijing
 ```
+
+> RDS MySQL API 2018-01-01 已在 CLI 下线：判定依据是最终请求的 API 版本，而非命令名。只要最终版本为 2018-01-01，调用会立即报不兼容版本错误且不发起请求，包括 `ve rdsmysql` / `ve rds_mysql` 的默认调用、带 `--force` 的调用，以及任意命令显式指定 `--version 2018-01-01`（如 `ve rdsmysqlv2 ... --version 2018-01-01`）。显式指定 `--version 2022-01-01` 的调用不受影响；请将存量脚本迁移到 API 2022-01-01 的 `ve rdsmysqlv2`。
 
 参数名和值使用空格分隔。当前 CLI 参数语法是：
 
@@ -246,13 +248,12 @@ ve login --lang zh-CN
 
 ## JSON 参数
 
-对于 query/form 风格 API，参数值如果是 JSON object 或 JSON array，CLI 会尝试解析成 JSON：
+以参数形式传参时，如果参数值是 JSON object 或 JSON array，CLI 会尝试解析成 JSON：
 
 ```shell
-ve rds_mysql ModifyDBInstanceIPList \
-  --InstanceId mysql-xxxxxx \
-  --GroupName default \
-  --IPList '["10.20.30.40","50.60.70.80"]'
+ve rdsmysqlv2 AssociateAllowList \
+  --InstanceIds '["mysql-xxxxxx"]' \
+  --AllowListIds '["acl-xxxxxx"]'
 ```
 
 字符串类型参数会按字符串保留，不会因为内容看起来像 JSON 就强行解析。
@@ -262,15 +263,15 @@ ve rds_mysql ModifyDBInstanceIPList \
 对于 `ContentType` 为 `application/json` 的接口，可以直接传 `--body`：
 
 ```shell
-ve rds_mysql ModifyDBInstanceIPList \
-  --body '{"InstanceId":"mysql-xxxxxx","GroupName":"default","IPList":["10.20.30.40","50.60.70.80"]}'
+ve rdsmysqlv2 ModifyAllowList \
+  --body '{"AllowListId":"acl-xxxxxx","AllowListName":"default","UserAllowList":"10.20.30.40,50.60.70.80"}'
 ```
 
 `--body` 必须是 JSON object 或 JSON array。它不能和展开参数混用：
 
 ```shell
 # 错误：--body 不能和其它 API 参数同时使用
-ve rds_mysql ModifyDBInstanceIPList --body '{"InstanceId":"mysql-xxxxxx"}' --GroupName default
+ve rdsmysqlv2 ModifyAllowList --body '{"AllowListId":"acl-xxxxxx"}' --AllowListName default
 ```
 
 application/json 接口也支持把参数展开为 dotted key，CLI 会根据 metadata 组装嵌套 JSON：

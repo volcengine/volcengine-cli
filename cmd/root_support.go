@@ -104,6 +104,32 @@ func (r *RootSupport) GetAllSvc() []string {
 	return r.SupportSvc
 }
 
+// GetVisibleSvcCompatible 返回默认发现可见的服务写法（含兼容别名），过滤已废弃
+// 服务的默认入口。完整可调用集合仍使用 GetAllSvcCompatible，显式旧版调用不受影响。
+func (r *RootSupport) GetVisibleSvcCompatible() []string {
+	all := r.GetAllSvcCompatible()
+	visible := make([]string, 0, len(all))
+	for _, svc := range all {
+		if isDefaultHiddenService(svc) {
+			continue
+		}
+		visible = append(visible, svc)
+	}
+	return visible
+}
+
+// GetVisibleSvc 返回默认发现可见的规范服务列表，用于 MCP list_services 等发现路径。
+func (r *RootSupport) GetVisibleSvc() []string {
+	visible := make([]string, 0, len(r.SupportSvc))
+	for _, svc := range r.SupportSvc {
+		if isDefaultHiddenService(svc) {
+			continue
+		}
+		visible = append(visible, svc)
+	}
+	return visible
+}
+
 func (r *RootSupport) GetAllAction(svc string) []string {
 	var as []string
 	for k, _ := range r.SupportAction[svc] {

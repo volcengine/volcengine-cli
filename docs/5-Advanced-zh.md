@@ -255,10 +255,7 @@ CLI 内置了部分云产品的元数据，正常调用时会校验 service 和 
 常规元数据校验调用：
 
 ```shell
-ve rds_mysql ModifyDBInstanceIPList \
-  --InstanceId mysql-xxxxxx \
-  --GroupName default \
-  --IPList '["10.20.30.40"]'
+ve rdsmysqlv2 DescribeAllowLists --InstanceId mysql-xxxxxx
 ```
 
 强制调用未收录 service 的新接口：
@@ -427,8 +424,8 @@ Console Login 统一使用设备码授权。加上 `--no-browser` 后，CLI 只�
 `--body` 只接受 JSON object 或 JSON array。检查引号和 shell 转义：
 
 ```shell
-ve rds_mysql ModifyDBInstanceIPList \
-  --body '{"InstanceId":"mysql-xxxxxx","GroupName":"default","IPList":["10.20.30.40"]}'
+ve rdsmysqlv2 ModifyAllowList \
+  --body '{"AllowListId":"acl-xxxxxx","AllowListName":"default","UserAllowList":"10.20.30.40"}'
 ```
 
 不要把 `--body` 和其它 API 参数混用。

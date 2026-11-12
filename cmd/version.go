@@ -13,7 +13,7 @@ import (
 
 const clientName = "volcengine-cli"
 
-var clientVersion = "1.2.3"
+var clientVersion = "2.0.0"
 
 type envGetter func(string) (string, bool)
 
