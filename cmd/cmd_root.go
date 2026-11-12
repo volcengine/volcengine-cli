@@ -20,7 +20,7 @@ var rootCmd = &cobra.Command{
 		cmd.Usage()
 		return nil
 	},
-	ValidArgs:     rootSupport.GetAllSvcCompatible(),
+	ValidArgs:     rootSupport.GetVisibleSvcCompatible(),
 	SilenceErrors: true,
 	SilenceUsage:  true,
 }

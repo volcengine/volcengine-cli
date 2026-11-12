@@ -4,8 +4,8 @@ import "testing"
 
 func TestMCPListServicesReturnsEveryService(t *testing.T) {
 	results := listMCPServices(rootSupport)
-	if len(results) != len(rootSupport.GetAllSvc()) {
-		t.Fatalf("service count = %d, want %d", len(results), len(rootSupport.GetAllSvc()))
+	if len(results) != len(rootSupport.GetVisibleSvc()) {
+		t.Fatalf("service count = %d, want %d", len(results), len(rootSupport.GetVisibleSvc()))
 	}
 	for i := 1; i < len(results); i++ {
 		if results[i-1].Service >= results[i].Service {

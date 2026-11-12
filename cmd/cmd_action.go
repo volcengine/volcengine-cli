@@ -26,10 +26,15 @@ func generateActionCmd(serviceName string, actionMeta map[string]*VolcengineMeta
 		}
 		params := exposedActionParams(meta, apiMeta)
 		publicParameters := exposedActionParameterNames(meta, apiMeta)
+		long := formatActionLong(serviceName, action)
+		if deprecated, ok := deprecatedServiceByCanonical(serviceName); ok {
+			// 旧服务 action 帮助顶部同样展示废弃与迁移提示；Short 保持简洁，不污染动作列表。
+			long = deprecated.helpNotice() + long
+		}
 		actionCmd := &cobra.Command{
 			Use:                action,
 			Short:              formatActionShort(serviceName, action),
-			Long:               formatActionLong(serviceName, action),
+			Long:               long,
 			DisableFlagParsing: true,
 			RunE: func(cmd *cobra.Command, args []string) error {
 				if wantHelp, detail := parseActionHelpArgs(args); wantHelp {
@@ -214,6 +219,11 @@ func sdkCallInput(built invocationInput) (interface{}, error) {
 var executeInvocationHook func(ctx *Context, p invocationParams, buildInput func() (invocationInput, error)) error
 
 func executeInvocation(ctx *Context, p invocationParams, buildInput func() (invocationInput, error)) (err error) {
+	// 已下线版本在发请求前直接阻断（普通与 --force 路径都汇聚于此，无绕过开关）。
+	// 必须先于安全策略：命中 deny/confirm 规则时也要返回退役错误，避免迁移提示被掩盖。
+	if err := rejectDeprecatedServiceCall(p.serviceName, p.version); err != nil {
+		return err
+	}
 	if err := enforceCLISafetyPolicy(ctx, p.serviceName, p.action); err != nil {
 		return err
 	}

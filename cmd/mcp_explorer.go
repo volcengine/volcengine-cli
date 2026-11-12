@@ -41,8 +41,9 @@ func listMCPServices(support *RootSupport) []mcpServiceResult {
 		return nil
 	}
 	seen := make(map[string]struct{})
-	results := make([]mcpServiceResult, 0, len(support.GetAllSvc()))
-	for _, service := range support.GetAllSvc() {
+	visible := support.GetVisibleSvc()
+	results := make([]mcpServiceResult, 0, len(visible))
+	for _, service := range visible {
 		if _, ok := seen[service]; ok {
 			continue
 		}
@@ -60,6 +61,9 @@ func listMCPAPIs(support *RootSupport, service string) ([]mcpAPIResult, error) {
 	if support == nil || !support.IsValidSvc(service) {
 		return nil, fmt.Errorf("unsupported service %q", service)
 	}
+	if d, ok := deprecatedServiceByCanonical(service); ok {
+		return nil, d.retiredCallError()
+	}
 	results := make([]mcpAPIResult, 0, len(support.GetAllAction(service)))
 	for _, api := range support.GetAllAction(service) {
 		description := getApiDescription(service, api)
@@ -75,6 +79,9 @@ func listMCPAPIs(support *RootSupport, service string) ([]mcpAPIResult, error) {
 func getMCPAPIParameters(support *RootSupport, service, api string) (*mcpAPIParameters, error) {
 	if support == nil || !support.IsValidAction(service, api) {
 		return nil, fmt.Errorf("unsupported API %s.%s", service, api)
+	}
+	if d, ok := deprecatedServiceByCanonical(service); ok {
+		return nil, d.retiredCallError()
 	}
 	info := support.GetApiInfo(service, api)
 	method := "GET"

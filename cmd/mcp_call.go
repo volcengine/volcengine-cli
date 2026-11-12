@@ -71,6 +71,10 @@ func (i *volcengineMCPInvoker) CallAPI(ctx context.Context, serviceName, action,
 	if !rootSupport.IsValidAction(serviceName, action) {
 		return nil, fmt.Errorf("unsupported API %s.%s", serviceName, action)
 	}
+	// 已下线版本直接阻断，不发起请求；MCP 以工具错误返回，不污染业务 JSON。
+	if err := rejectDeprecatedServiceCall(serviceName, rootSupport.GetVersion(serviceName)); err != nil {
+		return nil, err
+	}
 	if err := enforceSafetyPolicy(serviceName, action, yes, false, tr("call the same MCP tool again with yes=true")); err != nil {
 		return nil, err
 	}
