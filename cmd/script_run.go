@@ -20,6 +20,7 @@ const (
 	scriptPythonEnvironment = "VOLCENGINE_SCRIPT_PYTHON"
 
 	scriptErrorUnsupportedAPI       = "UnsupportedAPI"
+	scriptErrorRetiredAPI           = "RetiredAPI"
 	scriptErrorSafetyDenied         = "SafetyDenied"
 	scriptErrorSafetyConfirmation   = "SafetyConfirmationRequired"
 	scriptErrorSafetyPolicy         = "SafetyPolicyError"
@@ -82,6 +83,10 @@ func (s *scriptAPIInvoker) Invoke(ctx context.Context, call scriptrun.Call) (map
 	}
 	if !rootSupport.IsValidAction(call.Service, call.API) {
 		return nil, rejected(scriptErrorUnsupportedAPI, fmt.Sprintf(tr("unsupported API %s.%s; use search_api to find supported service codes and actions"), call.Service, call.API))
+	}
+	// Retired API versions are blocked before any request, as for the CLI and call_api.
+	if err := rejectDeprecatedServiceCall(call.Service, rootSupport.GetVersion(call.Service)); err != nil {
+		return nil, rejected(scriptErrorRetiredAPI, err.Error())
 	}
 	if callErr := checkScriptSafetyPolicy(call.Service, call.API, s.approved); callErr != nil {
 		return nil, callErr

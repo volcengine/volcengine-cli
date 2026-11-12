@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -990,5 +991,47 @@ func TestScriptRunUsesGlobalProfileAndRegion(t *testing.T) {
 	output, err = run("--region", "cn-shanghai", "script", "run", "--region", "cn-guangzhou", "--file", file, "--python", python)
 	if err != nil || !strings.Contains(output, `"region": "cn-guangzhou"`) {
 		t.Fatalf("subcommand --region: error = %v, output = %s", err, output)
+	}
+}
+
+// TestScriptRunRejectsRetiredAPIVersions checks that a script cannot reach a
+// retired API version (rds_mysql 2018-01-01): the call is rejected with
+// RetiredAPI before any request, whatever the safety policy allows.
+func TestScriptRunRejectsRetiredAPIVersions(t *testing.T) {
+	mock := newScriptMockAPI(t)
+	dir, _ := setupScriptProfile(t, mock.server.URL)
+	if err := safety.SavePolicy(dir, &safety.Policy{Enabled: true, Rules: []safety.Rule{{Pattern: "*:*", Action: safety.ActionAllow}}}); err != nil {
+		t.Fatal(err)
+	}
+	actions := rootSupport.GetAllAction("rdsmysql")
+	sort.Strings(actions)
+	if len(actions) == 0 {
+		t.Fatal("rdsmysql has no bundled actions")
+	}
+	code := fmt.Sprintf(`
+codes = []
+for service in ("rdsmysql", "rds_mysql"):
+    try:
+        await call_api(service, %q)
+        codes.append("sent")
+    except APIError as error:
+        codes.append(error.code)
+result = codes
+`, actions[0])
+	report := runScriptForTest(t, code, scriptrun.DefaultLimits())
+	if report.Status != scriptrun.RunStatusSucceeded {
+		t.Fatalf("run = %s / %+v", report.Status, report.Error)
+	}
+	var codes []string
+	if err := json.Unmarshal(report.Result.Result, &codes); err != nil {
+		t.Fatalf("result %s: %v", report.Result.Result, err)
+	}
+	// rdsmysql is the retired 2018-01-01 service; rds_mysql is not a service code
+	// call_api accepts, so it is already rejected as UnsupportedAPI. Neither is sent.
+	if len(codes) != 2 || codes[0] != scriptErrorRetiredAPI || codes[1] == "sent" {
+		t.Fatalf("result = %v, want [%s, <not sent>]", codes, scriptErrorRetiredAPI)
+	}
+	if requests := mock.snapshot(); len(requests) != 0 {
+		t.Fatalf("retired API calls reached the API: %+v", requests)
 	}
 }
