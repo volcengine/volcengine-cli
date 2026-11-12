@@ -29,54 +29,64 @@ func NewParser(args []string, actionParameters ...map[string]struct{}) *Parser {
 	return p
 }
 
+// ReadArgs parses invocation arguments with a single left-to-right pass, so
+// the result never depends on how many arguments are given or where
+// presence-only switches appear.
+//
+// A flag token opens a value slot (presence-only system switches excepted).
+// The next token fills the slot verbatim unless it unambiguously starts another
+// flag, in which case the open flag is reported as missing its value. Tokens
+// outside a value slot that are not flags are returned as positional arguments.
 func (p *Parser) ReadArgs(ctx *Context) ([]string, error) {
 	if ctx == nil || ctx.fixedFlags == nil || ctx.dynamicFlags == nil {
 		return nil, fmt.Errorf("invalid context for parsing arguments")
 	}
-	var (
-		args []string
-		err  error
-	)
-	if p.hasPairedFlagSyntax() {
-		args, err = p.readPairedArgs(ctx)
-	} else {
-		args, err = p.readLegacyArgs(ctx)
+	var positional []string
+	for p.currentIndex < len(p.args) {
+		arg := p.args[p.currentIndex]
+		p.currentIndex++
+
+		if p.currentFlag != nil {
+			if p.startsFlag(arg) {
+				return positional, p.currentFlagValueError(ctx)
+			}
+			// Values are opaque: empty strings, PEM text and flag-like literals
+			// such as "--value", "--A=1" or "--yes" are stored unchanged.
+			p.currentFlag.SetValue(arg)
+			p.currentFlag = nil
+			continue
+		}
+
+		flag, value, err := p.parseArg(arg, ctx)
+		if err != nil {
+			return positional, err
+		}
+		if flag == nil {
+			if value != "" {
+				positional = append(positional, value)
+			}
+			continue
+		}
+		if ctx.fixedFlags.GetByName(flag.Name) == flag && isPresenceOnlyFixedFlag(flag.Name) {
+			// Presence-only switches are enabled by appearing and take no value.
+			flag.SetValue("true")
+			continue
+		}
+		p.currentFlag = flag
 	}
-	if err != nil {
-		return args, err
+	if p.currentFlag != nil {
+		err := p.currentFlagValueError(ctx)
+		p.currentFlag = nil
+		return positional, err
 	}
 	if flag := ctx.fixedFlags.GetByName(customUserAgentFlagName); flag != nil {
 		value, normalizeErr := normalizeCustomUserAgent(flag.GetValue())
 		if normalizeErr != nil {
-			return args, normalizeErr
+			return positional, normalizeErr
 		}
 		flag.SetValue(value)
 	}
-	return args, nil
-}
-
-// hasPairedFlagSyntax recognizes flag/value pairs interleaved with system
-// switches. Values remain opaque, including PEM text and flag-like strings.
-func (p *Parser) hasPairedFlagSyntax() bool {
-	for i := 0; i < len(p.args); {
-		a := p.args[i]
-		if !strings.HasPrefix(a, "--") && a != "-y" {
-			return false
-		}
-		name, _ := flagNameFromToken(a)
-		if name == "" {
-			return false
-		}
-		if isSystemPresenceOnlyToken(a, p.actionParameters) {
-			i++
-			continue
-		}
-		if i+1 >= len(p.args) {
-			return false
-		}
-		i += 2
-	}
-	return true
+	return positional, nil
 }
 
 func flagNameFromToken(arg string) (name string, legacy bool) {
@@ -96,97 +106,60 @@ func flagNameFromToken(arg string) (name string, legacy bool) {
 	return name, legacy
 }
 
-func (p *Parser) readPairedArgs(ctx *Context) ([]string, error) {
-	for p.currentIndex < len(p.args) {
-		name := p.args[p.currentIndex]
-		p.currentIndex++
-
-		flag, positional, err := p.parseArg(name, ctx)
-		if err != nil {
-			return nil, err
-		}
-		if flag == nil {
-			return nil, fmt.Errorf("%q is not a valid flag", positional)
-		}
-		if ctx.fixedFlags.GetByName(flag.Name) == flag && isPresenceOnlyFixedFlag(flag.Name) {
-			flag.SetValue("true")
-			continue
-		}
-
-		// Explicit empty string is a valid API value (shell: --Name "").
-		// hasPairedFlagSyntax has already checked that this value exists.
-		flag.SetValue(p.args[p.currentIndex])
-		p.currentIndex++
-		p.currentFlag = nil
+// startsFlag reports whether a token in value position must be read as the
+// next flag instead of a literal value. Only names this invocation actually
+// recognises qualify: API parameters from the action metadata, reserved CLI
+// controls (--body, --header), value-taking system flags, and explicit
+// ---system escapes. Presence-only switches and unknown names stay literal,
+// so values such as "--yes" or "--value" survive.
+func (p *Parser) startsFlag(arg string) bool {
+	if strings.HasPrefix(arg, "---") {
+		_, ok := systemFlags.legacyEscapes[arg[3:]]
+		return ok
 	}
-	return nil, nil
+	if !strings.HasPrefix(arg, "--") {
+		return false
+	}
+	name := arg[2:]
+	if name == "" || strings.Contains(name, "=") {
+		return false
+	}
+	if p.isActionParameterName(name) {
+		return true
+	}
+	if _, ok := reservedDynamicFlags[name]; ok {
+		return true
+	}
+	if _, ok := systemFlags.public[name]; ok {
+		return !isPresenceOnlyFixedFlag(name)
+	}
+	return false
 }
 
-func (p *Parser) readLegacyArgs(ctx *Context) ([]string, error) {
-	var r []string
-	for {
-		arg, _, more, err := p.readArg(ctx)
-		if err != nil {
-			return r, err
-		}
-		if arg != "" {
-			r = append(r, arg)
-		}
-		if !more {
-			return r, nil
+// isActionParameterName matches name against the action's parameter names.
+// Metadata spells array indices as "N" (Tags.N.Key) and JSON actions list only
+// top-level fields, so indexed and nested spellings are matched as well.
+func (p *Parser) isActionParameterName(name string) bool {
+	if len(p.actionParameters) == 0 {
+		return false
+	}
+	if _, ok := p.actionParameters[name]; ok {
+		return true
+	}
+	segs := strings.Split(name, ".")
+	if len(segs) == 1 {
+		return false
+	}
+	if _, ok := p.actionParameters[segs[0]]; ok {
+		return true
+	}
+	for i, seg := range segs {
+		if isNumericSeg(seg) {
+			segs[i] = "N"
 		}
 	}
-}
-
-func (p *Parser) readArg(ctx *Context) (arg string, flag *Flag, more bool, err error) {
-	//跳出条件
-	if len(p.args) <= p.currentIndex {
-		if p.currentFlag != nil {
-			err = p.currentFlagValueError(ctx)
-			p.currentFlag = nil
-		}
-		more = false
-		return
-	}
-	//设置下一跳
-	more = true
-	//获取当前位置的入参
-	_arg := p.args[p.currentIndex]
-	p.currentIndex++
-	//计算是参数还是flag
-	var (
-		value string
-	)
-	flag, value, err = p.parseArg(_arg, ctx)
-	if err != nil {
-		return
-	}
-
-	//不允许两个连续的空--
-	if p.currentFlag != nil && flag != nil {
-		err = p.currentFlagValueError(ctx)
-	}
-
-	if flag == nil { //解析普通参数（含显式空字符串 ""，与「未提供 value」区分）
-		if p.currentFlag != nil {
-			// 空字符串是合法参数值；缺失 value 由「连续 flag」或 ReadArgs 收尾检查报错。
-			p.currentFlag.SetValue(value)
-			p.currentFlag = nil
-		} else {
-			arg = value
-		}
-	} else { //解析flag
-		// presence-only 语义适用于 force / yes 等纯开关系统参数。
-		isFixedFlag := ctx != nil && ctx.fixedFlags != nil && ctx.fixedFlags.GetByName(flag.Name) == flag
-		if isFixedFlag && isPresenceOnlyFixedFlag(flag.Name) {
-			// 纯开关固定参数：出现即启用，不消费后续 token。
-			flag.SetValue("true")
-			p.currentFlag = nil
-		} else {
-			p.currentFlag = flag
-		}
-	}
-	return
+	_, ok := p.actionParameters[strings.Join(segs, ".")]
+	return ok
 }
 
 func (p *Parser) currentFlagValueError(ctx *Context) error {
@@ -225,8 +198,8 @@ func (p *Parser) parseArg(arg string, ctx *Context) (flag *Flag, value string, e
 			err = fmt.Errorf("-- is not support command")
 		} else {
 			name := arg[2:]
-			if strings.HasPrefix(name, customUserAgentFlagName+"=") {
-				err = fmt.Errorf("--user-agent does not support '=' syntax; use '--user-agent <value>'")
+			if j := strings.IndexByte(name, '='); j >= 0 {
+				err = fmt.Errorf("--%s does not support '=' syntax; use '--%s <value>'", name[:j], name[:j])
 				return
 			}
 			_, isSystemFlag := systemFlags.public[name]

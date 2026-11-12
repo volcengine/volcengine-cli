@@ -7,7 +7,7 @@
 
 ---
 
-中文 | [English](README.EN.MD)
+中文 | [English](README.EN.md)
 
 ### 特别说明
 

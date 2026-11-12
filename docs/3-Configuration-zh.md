@@ -50,6 +50,21 @@ ve configure get
 no profile name specified, show current profile: [prod]
 ```
 
+默认情况下，凭证值会被脱敏：
+
+| 字段 | 默认显示 |
+| ---- | -------- |
+| `secret-key`、`session-token` | 完全替换为 `***MASKED***` |
+| `access-key` | 只保留末尾 4 位，例如 `****************ABCD`，便于区分不同的 profile。值过短、无法安全遮盖时，会完全替换为 `***MASKED***` |
+
+如需明确显示原始值，请使用：
+
+```shell
+ve configure get --show-sensitive
+```
+
+`login-session` 是会话标识而非凭证，因此始终正常显示。
+
 ## 查看指定 Profile
 
 ```shell
@@ -71,6 +86,12 @@ ve configure list
 ```
 
 然后逐个输出配置文件中的 profile。
+
+凭证值默认会被脱敏，规则与 `ve configure get` 相同。如需明确显示原始值，请使用：
+
+```shell
+ve configure list --show-sensitive
+```
 
 ## 切换 Current Profile
 

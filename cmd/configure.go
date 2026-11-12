@@ -3,11 +3,13 @@ package cmd
 // Copyright 2022 Beijing Volcanoengine Technology Ltd.  All Rights Reserved.
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/volcengine/volcengine-cli/util"
@@ -19,14 +21,34 @@ var configFileDirFunc = util.GetConfigFileDir
 
 // 定义模式枚举常量
 const (
-	ModeSSO          = "sso"
-	ModeConsoleLogin = "console-login"
-	ModeAK           = "ak"
-	ModeRamRoleArn   = "ramrolearn"
-	ModeOIDC         = "oidc"
-	ModeEcsRole      = "ecsrole"
-	ConfigFile       = "config.json"
+	ModeSSO           = "sso"
+	ModeConsoleLogin  = "console-login"
+	ModeAK            = "ak"
+	ModeRamRoleArn    = "ramrolearn"
+	ModeOIDC          = "oidc"
+	ModeEcsRole       = "ecsrole"
+	ConfigFile        = "config.json"
+	maskedConfigValue = "***MASKED***"
+
+	// maskedConfigPadding 是部分遮盖时固定输出的星号个数，不随真实长度变化，避免泄露值的长度。
+	maskedConfigPadding = 16
 )
+
+// maskRule 描述 `configure get/list` 展示 profile 时某个字段的遮盖方式。
+type maskRule struct {
+	// Field 是 profile 的 JSON key，例如 "secret-key"。
+	Field string
+	// KeepLast 为 0 表示完全遮盖；大于 0 表示保留末尾 KeepLast 个字符，其余用星号代替。
+	KeepLast int
+}
+
+// profileMaskRules 声明默认需要遮盖的 profile 字段。
+// 新增敏感字段时只需在此追加一行，并按需指定保留的末尾位数。
+var profileMaskRules = []maskRule{
+	{Field: "secret-key", KeepLast: 0},
+	{Field: "session-token", KeepLast: 0},
+	{Field: "access-key", KeepLast: 4},
+}
 
 type Configure struct {
 	Current     string                 `json:"current"`
@@ -66,40 +88,71 @@ type SsoSession struct {
 
 // LoadConfig from CONFIG_FILE_DIR(default ~/.volcengine)
 func LoadConfig() *Configure {
+	cfg, _ := loadConfig()
+	return cfg
+}
+
+// Keep configuration values out of error text while preserving the cause.
+type configLoadError struct {
+	operation string
+	path      string
+	err       error
+}
+
+// Error names the file but omits parser details that may contain
+// configuration values.
+func (e *configLoadError) Error() string {
+	if e.path == "" {
+		return "failed to " + e.operation + " configuration"
+	}
+	return "failed to " + e.operation + " configuration file " + e.path
+}
+
+func (e *configLoadError) Unwrap() error {
+	return e.err
+}
+
+// loadConfig returns (nil, nil) when the config file is absent or empty.
+// Older releases created an empty config.json on every start, so an empty
+// file means "not configured yet" rather than a damaged configuration.
+func loadConfig() (*Configure, error) {
 	configFileMu.Lock()
 	defer configFileMu.Unlock()
 
 	configFileDir, err := configFileDirFunc()
 	if err != nil {
-		return nil
+		return nil, &configLoadError{operation: "locate", err: err}
 	}
 
-	if err := os.MkdirAll(configFileDir, 0700); err != nil {
-		return nil
-	}
+	// Reading must not create the directory or the file: read-only commands
+	// such as --help load the config on startup. WriteConfigToFile creates both.
 	_ = os.Chmod(configFileDir, 0700)
-
 	configFilePath := filepath.Join(configFileDir, ConfigFile)
-	file, err := os.OpenFile(configFilePath, os.O_CREATE|os.O_RDWR, 0600)
+	file, err := os.Open(configFilePath)
 	if err != nil {
-		fmt.Println(err)
-		return nil
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, &configLoadError{operation: "open", path: configFilePath, err: err}
 	}
 	defer file.Close()
 	_ = file.Chmod(0600)
 
 	fileContent, err := ioutil.ReadAll(file)
 	if err != nil {
-		return nil
+		return nil, &configLoadError{operation: "read", path: configFilePath, err: err}
+	}
+	if len(bytes.TrimSpace(fileContent)) == 0 {
+		return nil, nil
 	}
 
 	cfg := &Configure{}
 	err = json.Unmarshal(fileContent, cfg)
 	if err != nil {
-		return nil
+		return nil, &configLoadError{operation: "parse", path: configFilePath, err: err}
 	}
 
-	return cfg
+	return cfg, nil
 }
 
 // runtimeConfig returns the in-memory config used by the current CLI process.
@@ -120,6 +173,28 @@ func setRuntimeConfig(cfg *Configure) {
 	config = cfg
 }
 
+// setEnableColor persists the color preference, initializing the config when
+// no config file exists yet (e.g. a fresh install).
+func setEnableColor(enabled bool) error {
+	cfg := runtimeConfig()
+	if cfg == nil {
+		var err error
+		cfg, err = loadConfig()
+		if err != nil {
+			return err
+		}
+		if cfg == nil {
+			cfg = &Configure{Profiles: make(map[string]*Profile)}
+		}
+	}
+	cfg.EnableColor = enabled
+	if err := WriteConfigToFile(cfg); err != nil {
+		return err
+	}
+	setRuntimeConfig(cfg)
+	return nil
+}
+
 // WriteConfigToFile store config
 func WriteConfigToFile(config *Configure) error {
 	configFileMu.Lock()
@@ -136,6 +211,9 @@ func WriteConfigToFile(config *Configure) error {
 	_ = os.Chmod(configFileDir, 0700)
 
 	targetPath := filepath.Join(configFileDir, ConfigFile)
+	if err := ensureConfigReplaceable(targetPath); err != nil {
+		return err
+	}
 
 	dir := filepath.Dir(targetPath)
 	tempFile, err := os.CreateTemp(dir, ".tmp-config-*")
@@ -156,18 +234,50 @@ func WriteConfigToFile(config *Configure) error {
 	if _, err := tempFile.Write(data); err != nil {
 		return err
 	}
+	// Flush before the rename so a crash cannot leave an empty config behind.
+	if err := tempFile.Sync(); err != nil {
+		return err
+	}
 	if err := tempFile.Close(); err != nil {
 		return err
 	}
 
+	// os.Rename replaces the target atomically (also on Windows). Never delete
+	// the existing config to retry: a second failure would lose it.
 	if err := os.Rename(tempName, targetPath); err != nil {
-		_ = os.Remove(targetPath)
-		if err2 := os.Rename(tempName, targetPath); err2 != nil {
-			return err2
-		}
+		return err
 	}
 	_ = os.Chmod(targetPath, 0600)
 	return nil
+}
+
+// ensureConfigReplaceable refuses to replace a config file that exists but
+// cannot be read or parsed. Such a file was never loaded, so the config being
+// written does not contain its profiles and replacing it would lose them.
+func ensureConfigReplaceable(path string) error {
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("refusing to overwrite: %w; fix or remove the file", &configLoadError{operation: "read", path: path, err: err})
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(data, &Configure{}); err != nil {
+		return fmt.Errorf("refusing to overwrite: %w; fix or remove the file", &configLoadError{operation: "parse", path: path, err: err})
+	}
+	return nil
+}
+
+// warnConfigLoadError reports a config file that exists but could not be used,
+// so later "no profile" or "credentials not configured" messages are not
+// mistaken for a missing configuration.
+func warnConfigLoadError(err error) {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: %v; continuing without it. Fix or remove the file.\n", err)
+	}
 }
 
 func marshalConfig(config *Configure) ([]byte, error) {
@@ -330,7 +440,7 @@ func cloneProfile(p *Profile) *Profile {
 	return &clone
 }
 
-func getConfigProfile(profileName string) error {
+func getConfigProfile(profileName string, showSensitive bool) error {
 	var (
 		exist          bool
 		currentProfile *Profile
@@ -353,15 +463,11 @@ func getConfigProfile(profileName string) error {
 		currentProfile = &Profile{}
 	}
 
-	if config == nil || !config.EnableColor {
-		util.ShowJson(currentProfile.ToMap(), false)
-	} else {
-		util.ShowJson(currentProfile.ToMap(), true)
-	}
+	util.ShowJson(currentProfile.ToDisplayMap(showSensitive), cfg.EnableColor)
 	return nil
 }
 
-func listConfigProfiles() error {
+func listConfigProfiles(showSensitive bool) error {
 	var (
 		cfg *Configure
 	)
@@ -374,7 +480,7 @@ func listConfigProfiles() error {
 
 	fmt.Printf(tr("*** current profile: %v ***\n"), ctx.config.Current)
 	for _, profile := range ctx.config.Profiles {
-		util.ShowJson(profile.ToMap(), config.EnableColor)
+		util.ShowJson(profile.ToDisplayMap(showSensitive), cfg.EnableColor)
 	}
 	return nil
 }
@@ -439,6 +545,39 @@ func (p *Profile) ToMap() map[string]interface{} {
 	json.Unmarshal(data, &m)
 
 	return m
+}
+
+// ToDisplayMap 返回用于展示的 profile map。
+// showSensitive 为 false 时，按 profileMaskRules 遮盖敏感字段；该方法只改动返回的副本，不影响 profile 本身。
+func (p *Profile) ToDisplayMap(showSensitive bool) map[string]interface{} {
+	m := p.ToMap()
+	if showSensitive {
+		return m
+	}
+
+	for _, rule := range profileMaskRules {
+		if value, ok := m[rule.Field].(string); ok && value != "" {
+			m[rule.Field] = maskConfigValue(value, rule.KeepLast)
+		}
+	}
+	return m
+}
+
+// maskConfigValue 按 keepLast 遮盖 value。
+//   - keepLast <= 0：完全遮盖，返回 maskedConfigValue。
+//   - keepLast > 0：返回固定个数的星号加末尾 keepLast 个字符。
+//
+// 当值的长度不超过 2*keepLast 时，保留末尾字符会暴露过半内容，此时退回完全遮盖。
+// 按 rune 截取，避免切断多字节字符。空字符串原样返回。
+func maskConfigValue(value string, keepLast int) string {
+	if value == "" {
+		return ""
+	}
+	runes := []rune(value)
+	if keepLast <= 0 || len(runes) <= keepLast*2 {
+		return maskedConfigValue
+	}
+	return strings.Repeat("*", maskedConfigPadding) + string(runes[len(runes)-keepLast:])
 }
 
 func (p *Profile) String() string {

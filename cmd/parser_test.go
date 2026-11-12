@@ -382,7 +382,7 @@ func TestParserAcceptsPEMValuesStartingWithHyphens(t *testing.T) {
 	}
 }
 
-func TestParserTreatsNextTokenAsValueRegardlessOfLeadingHyphens(t *testing.T) {
+func TestParserTreatsHyphenPrefixedNonFlagTokensAsValues(t *testing.T) {
 	parser := NewParser([]string{
 		"--SingleHyphen", "-value",
 		"--DoubleHyphen", "--value",
@@ -424,15 +424,20 @@ func TestParserTreatsNextTokenAsValueRegardlessOfLeadingHyphens(t *testing.T) {
 	}
 }
 
-func TestParserUsesLegacyDiagnosticsForOddArgumentCount(t *testing.T) {
+// A value slot followed by a flag this invocation recognises reports the open
+// flag as missing its value, independent of the argument count.
+func TestParserReportsMissingValueBeforeRecognisedFlag(t *testing.T) {
+	params := map[string]struct{}{"Foo": {}, "Bar": {}}
 	tests := []struct {
 		name    string
 		args    []string
+		params  map[string]struct{}
 		wantErr string
 	}{
 		{
 			name:    "dynamic flag before dynamic flag",
 			args:    []string{"--Foo", "--Bar", "1"},
+			params:  params,
 			wantErr: "--Foo must set value.",
 		},
 		{
@@ -443,6 +448,7 @@ func TestParserUsesLegacyDiagnosticsForOddArgumentCount(t *testing.T) {
 		{
 			name:    "fixed flag before dynamic flag",
 			args:    []string{"---profile", "--Foo", "1"},
+			params:  params,
 			wantErr: "---profile must set value.",
 		},
 		{
@@ -454,7 +460,7 @@ func TestParserUsesLegacyDiagnosticsForOddArgumentCount(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewParser(tt.args).ReadArgs(NewContext())
+			_, err := NewParser(tt.args, tt.params).ReadArgs(NewContext())
 			if err == nil {
 				t.Fatal("expected error, got nil")
 			}
@@ -540,60 +546,108 @@ func TestParserContinuesToRejectEqualsSyntax(t *testing.T) {
 
 	_, err := parser.ReadArgs(NewContext())
 	if err == nil {
-		t.Fatal("expected missing value error, got nil")
+		t.Fatal("expected equals syntax error, got nil")
 	}
-	if !strings.Contains(err.Error(), "--Description=value must set value.") {
-		t.Fatalf("error = %q, want missing value error", err.Error())
+	if !strings.Contains(err.Error(), "--Description does not support '=' syntax") {
+		t.Fatalf("error = %q, want equals syntax error", err.Error())
 	}
 }
 
-func TestParserTreatsEqualsAsLiteralFlagNameInPairedMode(t *testing.T) {
+// PARSER-EQUALS: --Param=value is not split or kept as a literal flag name.
+func TestParserRejectsEqualsSyntaxInPairedMode(t *testing.T) {
 	tests := []struct {
-		name      string
-		args      []string
-		wantName  string
-		wantValue string
+		name    string
+		args    []string
+		wantErr string
 	}{
 		{
-			name:      "two equals-style tokens",
-			args:      []string{"--A=1", "--B=2"},
-			wantName:  "A=1",
-			wantValue: "--B=2",
+			name:    "two equals-style tokens",
+			args:    []string{"--A=1", "--B=2"},
+			wantErr: "--A does not support '=' syntax",
 		},
 		{
-			name:      "equals-style name with plain value",
-			args:      []string{"--A=1", "value"},
-			wantName:  "A=1",
-			wantValue: "value",
+			name:    "equals-style name with plain value",
+			args:    []string{"--A=1", "value"},
+			wantErr: "--A does not support '=' syntax",
+		},
+		{
+			name:    "system flag before force",
+			args:    []string{"--region=cn-beijing", "--force"},
+			wantErr: "--region does not support '=' syntax",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := NewContext()
-			if _, err := NewParser(tt.args).ReadArgs(ctx); err != nil {
-				t.Fatalf("ReadArgs returned error: %v", err)
+			_, err := NewParser(tt.args).ReadArgs(NewContext())
+			if err == nil {
+				t.Fatal("expected error, got nil")
 			}
-			flag := ctx.dynamicFlags.GetByName(tt.wantName)
-			if flag == nil || flag.GetValue() != tt.wantValue {
-				t.Fatalf("dynamic flag %q = %#v, want value %q", tt.wantName, flag, tt.wantValue)
-			}
-			if splitFlag := ctx.dynamicFlags.GetByName("A"); splitFlag != nil {
-				t.Fatalf("unexpected split dynamic flag \"A\": %#v", splitFlag)
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %q, want to contain %q", err.Error(), tt.wantErr)
 			}
 		})
 	}
 }
 
-func TestParserAllowsEqualsSyntaxInPairedValuePosition(t *testing.T) {
-	ctx := NewContext()
-	if _, err := NewParser([]string{"--Description", "--A=1"}).ReadArgs(ctx); err != nil {
-		t.Fatalf("ReadArgs returned error: %v", err)
+// Paired values preserve the original literal-value contract. Incomplete
+// pairs still use the legacy missing-value diagnostics.
+func TestParserPairedValueCompatibility(t *testing.T) {
+	tests := []struct {
+		name      string
+		args      []string
+		wantErr   string
+		wantName  string
+		wantValue string
+		fixed     bool
+	}{
+		{
+			name:     "dynamic flag before dynamic flag",
+			args:     []string{"--Name", "--Other"},
+			wantName: "Name", wantValue: "--Other",
+		},
+		{
+			name:     "dynamic flag before equals-style token",
+			args:     []string{"--Description", "--A=1"},
+			wantName: "Description", wantValue: "--A=1",
+		},
+		{
+			name:    "dynamic flag before fixed flag",
+			args:    []string{"--Name", "---region", "cn-beijing", "--Other"},
+			wantErr: "--Name must set value.",
+		},
+		{
+			name:     "fixed flag before dynamic flag",
+			args:     []string{"---profile", "--Foo"},
+			wantName: "profile", wantValue: "--Foo", fixed: true,
+		},
 	}
 
-	flag := ctx.dynamicFlags.GetByName("Description")
-	if flag == nil || flag.GetValue() != "--A=1" {
-		t.Fatalf("dynamic flag \"Description\" = %#v, want value %q", flag, "--A=1")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := NewContext()
+			_, err := NewParser(tt.args).ReadArgs(c)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("literal value rejected: %v", err)
+				}
+				flags := c.dynamicFlags
+				if tt.fixed {
+					flags = c.fixedFlags
+				}
+				f := flags.GetByName(tt.wantName)
+				if f == nil || f.GetValue() != tt.wantValue {
+					t.Fatalf("literal value was not preserved for %s", tt.wantName)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %q, want to contain %q", err.Error(), tt.wantErr)
+			}
+		})
 	}
 }
 
@@ -628,5 +682,119 @@ func TestParserReadArgsRejectsInvalidContext(t *testing.T) {
 				t.Fatalf("error = %q, want to contain %q", err.Error(), "invalid context")
 			}
 		})
+	}
+}
+
+// Validate the complete parser-to-request boundary, not just stored flag values.
+func TestParserLiteralValuesReachRequest(t *testing.T) {
+	for _, value := range []string{"--value", "--A=1", "--yes", "-y", "", "-1", "-----BEGIN <REDACTED>"} {
+		for _, jsonBody := range []bool{false, true} {
+			t.Run(value+map[bool]string{true: "/json", false: "/query"}[jsonBody], func(t *testing.T) {
+				c := NewContext()
+				if _, err := NewParser([]string{"--Description", value, "--Name", "ordinary"}).ReadArgs(c); err != nil {
+					t.Fatalf("literal argument rejected: %v", err)
+				}
+				if len(c.fixedFlags.flags) != 0 {
+					t.Fatal("literal value activated a system flag")
+				}
+				input, fromBody, err := buildActionInput(c.dynamicFlags.flags, nil, jsonBody)
+				if err != nil || fromBody {
+					t.Fatal("literal input did not reach flattened request path")
+				}
+				m, ok := input.(map[string]interface{})
+				if !ok || len(m) != 2 || m["Description"] != value || m["Name"] != "ordinary" {
+					t.Fatal("literal request value changed")
+				}
+			})
+		}
+	}
+}
+
+// The same tokens must parse the same way whether or not a presence-only
+// switch is appended, i.e. regardless of the argument count.
+func TestParserResultDoesNotDependOnArgumentCount(t *testing.T) {
+	pem := "-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----"
+	for _, base := range [][]string{
+		{"--PublicKey", pem, "--Name", "n"},
+		{"--Description", "--yes", "--Name", "n"},
+		{"--Description", "--value", "--Name", "n"},
+		{"--Description", "-1", "--Name", "n"},
+	} {
+		for _, extra := range [][]string{nil, {"--force"}, {"---force"}} {
+			args := append(append([]string{}, base...), extra...)
+			c := NewContext()
+			if _, err := NewParser(args).ReadArgs(c); err != nil {
+				t.Fatalf("ReadArgs(%q) returned error: %v", args, err)
+			}
+			for i := 0; i < len(base); i += 2 {
+				name := base[i][2:]
+				if f := c.dynamicFlags.GetByName(name); f == nil || f.GetValue() != base[i+1] {
+					t.Fatalf("ReadArgs(%q): %s = %#v, want %q", args, name, f, base[i+1])
+				}
+			}
+			force := c.fixedFlags.GetByName("force")
+			if (force != nil) != (extra != nil) {
+				t.Fatalf("ReadArgs(%q): force flag presence = %t, want %t", args, force != nil, extra != nil)
+			}
+		}
+	}
+}
+
+// Flags the invocation recognises cannot be swallowed as the previous value:
+// action parameters (including indexed and nested spellings), value-taking
+// system flags and explicit ---system escapes.
+func TestParserRejectsRecognisedFlagInValuePosition(t *testing.T) {
+	params := map[string]struct{}{
+		"RoleTrn": {}, "RoleSessionName": {}, "Tags.N.Key": {}, "AccountIDs": {},
+	}
+	for _, args := range [][]string{
+		{"--RoleTrn", "--RoleSessionName"},
+		{"--RoleTrn", "--RoleSessionName", "s", "--force"},
+		{"--RoleTrn", "--Tags.1.Key", "k"},
+		{"--RoleTrn", "--AccountIDs.1", "1"},
+		{"--RoleTrn", "--region", "cn-beijing"},
+		{"--RoleTrn", "---region", "cn-beijing"},
+		{"--RoleTrn", "---force"},
+		{"--RoleTrn", "--header", "X-Test=1"},
+		{"--RoleTrn", "--body", "{}"},
+	} {
+		_, err := NewParser(args, params).ReadArgs(NewContext())
+		if err == nil || !strings.Contains(err.Error(), "--RoleTrn must set value.") {
+			t.Fatalf("ReadArgs(%q) error = %v, want --RoleTrn missing value", args, err)
+		}
+	}
+}
+
+// Anything that is not a recognised flag stays a literal value, even when the
+// action metadata is known.
+func TestParserKeepsUnrecognisedFlagLikeValuesWithMetadata(t *testing.T) {
+	params := map[string]struct{}{"RoleTrn": {}, "RoleSessionName": {}}
+	for _, value := range []string{"--yes", "--force", "--Unknown", "--A=1", "---value", "-y", "--", ""} {
+		c := NewContext()
+		args := []string{"--RoleTrn", value, "--RoleSessionName", "s"}
+		if _, err := NewParser(args, params).ReadArgs(c); err != nil {
+			t.Fatalf("ReadArgs(%q) returned error: %v", args, err)
+		}
+		if f := c.dynamicFlags.GetByName("RoleTrn"); f == nil || f.GetValue() != value {
+			t.Fatalf("ReadArgs(%q): RoleTrn = %#v, want %q", args, f, value)
+		}
+		if len(c.fixedFlags.flags) != 0 {
+			t.Fatalf("ReadArgs(%q): literal value activated a system flag", args)
+		}
+	}
+}
+
+// Reserved CLI controls are recognised even without action metadata (for
+// example in --force calls), so they cannot be swallowed as a value.
+func TestParserRejectsReservedControlInValuePositionWithoutMetadata(t *testing.T) {
+	for _, args := range [][]string{
+		{"--Foo", "--header", "X-Test=1"},
+		{"--Foo", "--body", "{}"},
+		{"---force", "--Foo", "--body", "{}"},
+	} {
+		_, err := NewParser(args).ReadArgs(NewContext())
+		if err == nil || !strings.Contains(err.Error(), "--Foo must set value.") {
+			t.Fatalf("ReadArgs(%q) error = %v, want --Foo missing value", args, err)
+		}
 	}
 }

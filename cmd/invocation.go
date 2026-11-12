@@ -31,11 +31,32 @@ func parseInvocationArgs(args []string, actionParameters ...map[string]struct{})
 	return parser.ReadArgs(ctx)
 }
 
-// parseInvocationFlags 与 parseInvocationArgs 相同，但只关心解析错误、丢弃位置参数。
-// 用于已知 action 子命令（位置参数已由 cobra 消费）的 flag 解析。
+// parseInvocationFlags 与 parseInvocationArgs 相同，用于已知 action 子命令（action 名已由 cobra 消费）。
+// 此时不应再有任何位置参数，有则报 unexpected argument，避免被静默丢弃。
 func parseInvocationFlags(args []string, actionParameters ...map[string]struct{}) error {
-	_, err := parseInvocationArgs(args, actionParameters...)
-	return err
+	positional, err := parseInvocationArgs(args, actionParameters...)
+	if err != nil {
+		return err
+	}
+	if len(positional) > 0 {
+		return unexpectedArgumentError(positional[0])
+	}
+	return nil
+}
+
+// checkActionPositionals 校验位置参数只有 action 名一个。
+// 解析器把未识别的 "--Name" 形态 token 当作字面值保留，所以漏写值的 flag 会把
+// 下一个 flag 名当成自己的值，而那个 flag 的值就落成了多余的位置参数。
+// 多余的位置参数在任何调用里都没有意义，直接报错，避免它被静默丢弃。
+func checkActionPositionals(positional []string) error {
+	if len(positional) > 1 {
+		return unexpectedArgumentError(positional[1])
+	}
+	return nil
+}
+
+func unexpectedArgumentError(arg string) error {
+	return trErrorf("unexpected argument %q: only one action name is allowed; check whether a preceding flag is missing its value (presence-only flags such as --force take no value)", arg)
 }
 
 // apiVersionForCall 返回本次调用使用的 API 版本：优先 ---version，否则回落到内置元数据。

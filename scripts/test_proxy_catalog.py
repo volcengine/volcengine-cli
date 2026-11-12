@@ -44,7 +44,7 @@ def main():
             assert p.returncode == code, (args, p.returncode, p.stdout, p.stderr)
             return p
         before = json.loads(run("proxycli", "list", "--output", "json").stdout)
-        assert len(before["catalog"]["tools"]) == 24
+        assert len(before["catalog"]["tools"]) == 29
         run("--help")
         run("proxycli", "info", "arkcli")
         run("completion", "bash")

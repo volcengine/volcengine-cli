@@ -7,7 +7,7 @@ To help us improve your experience with Volcengine SKILL & CLI, we invite you to
 
 ---
 
-[中文](README.MD) | English
+[中文](README.md) | English
 
 ### Special Note
 
