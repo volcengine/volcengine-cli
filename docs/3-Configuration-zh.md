@@ -170,7 +170,7 @@ ve configure delete --profile prod
 
 ## 安全策略（Safety Policy）
 
-安全策略是 `ve` 在客户端执行的 OpenAPI 操作防护，覆盖普通调用、`--force` 调用和 MCP `call_api`。它与火山引擎 IAM 互补，不能替代云端鉴权。`ve arkcli` 和 `ve tosutil` 属于参数原样透传的代理 CLI，不在拦截范围内。
+安全策略是 `ve` 在客户端执行的 OpenAPI 操作防护，覆盖普通调用、`--force` 调用、MCP `call_api`，以及 `run_script` 或 `ve script run` 发起的每个 API 调用。它与火山引擎 IAM 互补，不能替代云端鉴权。`ve arkcli` 和 `ve tosutil` 属于参数原样透传的代理 CLI，不在拦截范围内。
 
 安全策略默认关闭，独立保存在 `~/.volcengine/safety-policy.json`，文件权限为 `0600`。可执行：
 
@@ -187,11 +187,27 @@ ve configure safety-policy list
 - `deny`：在本地拒绝，不发送 API 请求。
 - `confirm`：发送请求前必须获得明确确认。
 
-规则格式为 `service:action`，匹配不区分大小写，支持 `*` 通配符，并采用第一条匹配优先（first-match-wins）。未命中任何规则时默认允许。同一服务的所有写法视为同一服务，包括带版本号的命令名、带下划线的兼容命令名和 SDK 服务名。例如 `cloudtrail:Delete*`、`cloudtrail20180101:Delete*` 与 `cloud_trail:Delete*` 等价，对 `ve cloudtrail`、`ve cloudtrail20180101` 和 MCP `call_api` 同时生效；`rds_mysql:*` 同样覆盖 `ve rdsmysql`、`ve rdsmysqlv2` 和 `ve rds_mysql_v2`。API 名称按原样匹配，不做其他写法转换。
+规则格式为 `service:action`，匹配不区分大小写，支持 `*` 通配符，并采用第一条匹配优先（first-match-wins）；`add` 让策略始终保持“`deny` 规则在前，`allow` 与 `confirm` 规则居中，末尾兜底 `*:*`”的顺序：新增或更新的 `deny` 规则放在最前面；`confirm` 规则放在开头的 `deny` 规则之后；`*:*` 保持在末尾并原地更新。因此即使已应用预设，新规则也会生效，且 `confirm` 规则不会覆盖 `deny`。更新某个模式时，会把该模式（不区分大小写）的所有规则替换为放在新位置的一条规则，并保留原有写法。当 `allow` 或 `confirm` 规则之后还有 `deny` 规则（例如 `preset --append` 之后），或兜底规则是 `*:* -> deny`（如 `deny-writes`）时，任何位置都无法同时保住所有 `deny`，`add` 会拒绝添加 `confirm` 规则且不修改策略；`*:*` 规则不在末尾时，也会拒绝修改 `*:*`。未命中任何规则时默认允许。同一服务的所有写法视为同一服务，包括带版本号的命令名、带下划线的兼容命令名和 SDK 服务名。例如 `cloudtrail:Delete*`、`cloudtrail20180101:Delete*` 与 `cloud_trail:Delete*` 等价，对 `ve cloudtrail`、`ve cloudtrail20180101` 和 MCP `call_api` 同时生效；`rds_mysql:*` 同样覆盖 `ve rdsmysql`、`ve rdsmysqlv2` 和 `ve rds_mysql_v2`。API 名称按原样匹配，不做其他写法转换。
 
 pattern 必须且只能包含一个冒号，service 和 action 均不能为空，内部不能包含空白字符；首尾空白会被忽略。例如 `sts:GetCallerIdentity`、`sts:*`、`*:GetCallerIdentity`、`*:*` 均合法；只写 API 名、只写服务名、用点或空格分隔，以及单独的 `*` 都会被拒绝。这里只校验格式，允许配置未收录服务及通过 `--force` 调用的新 API。
 
-管理规则时，`add` 和 `remove` 按完整 pattern 文本进行不区分大小写的比较。`add` 原位更新找到的第一条规则，保持其顺序；未找到时追加。`remove` 删除所有相同 pattern 的规则，未找到时仍返回成功。查找已保存的 pattern 时不展开通配符或服务别名。
+### 官方预设
+
+`ve configure safety-policy preset <name>` 写入官方策略并启用，可用 `ve configure safety-policy list` 查看规则。
+
+`confirm-writes`：读操作直接放行，其他操作都需要确认：
+
+- 放行读接口：以 `Describe`、`Desc`、`List`、`Get`、`Query`、`Search`、`Show`、`Detail`、`Lookup`、`Check`、`Calc`、`Stat`、`BatchGet`、`BatchList` 或 `Analysis` 开头的 API，以及名称不以读类动词开头的读接口（例如 `bmq:TopicExist`、`vms:NumberList`）。
+- 签发凭证或 Token、读取密钥或私钥、打开控制台会话或返回控制台输出、返回数据下载或上传地址的读接口（例如 `kms:GetSecretValue`、`id:GetRoleCredentials`、`pca:DownloadLeafInstance`、`vke:ListKubeconfigs`、`rdsmysqlv2:GetBackupDownloadLink`、`ecs:DescribeInstanceVncUrl`），以及名称像读、实际会生成内容或任务的接口（例如 `waf:QueryLLMGenerate`），需要确认。
+- 其他操作都需要确认（`*:*=confirm`），包括导出、下载以及之后新增的服务。无法确定是否只读的接口按写操作处理。
+
+`confirm-deletes`：只对破坏性或不可逆操作要求确认，包括名称中含 `Delet`、`Remove`、`Terminate`、`Destroy`、`Uninstall`、`Purge`、`Rollback` 或 `Restore` 的 API，以 `Del`、`Release`、`Drop`、`Truncate`、`Flush`、`Clean`、`Clear`、`Kill`、`Revoke`、`Reset`、`Unsubscribe`、`Deregister`、`Quit`、`ScaleIn`、`ScaleDown`、`Decrease` 或 `Execute` 开头的 API，名称中含 `Command` 的 API，以及会覆盖数据或执行任意命令的 `ReplaceSystemVolume` 和 `ForwardKubernetesApi`。读接口优先放行，因此 `DescribeDeletedDBInstances` 这类读接口不会要求确认；其他操作放行。
+
+`deny-writes`：名单与 `confirm-writes` 相同，但把所有需要确认的操作改为拒绝：只能调用只读 API，任何确认（`--yes`、`yes=true`）都无法放行写操作或敏感读。适用于必须保持只读的 Agent。
+
+已有规则时，使用 `--overwrite` 替换，或使用 `--append` 保留现有规则并把预设追加在其后；现有规则优先匹配，已有的 `*:*` 规则会使预设失效。两者都未指定时交互式终端会询问，非交互场景直接报错，不会替用户选择，因此启动脚本应使用 `--overwrite`。`run_script` 运行的脚本按整体确认：第一个受 `confirm` 规则保护的调用会停止运行，用户批准该脚本后，用 `yes: true` 原样重新运行。
+
+管理规则时，`add` 和 `remove` 按完整 pattern 文本进行不区分大小写的比较。`add` 把该 pattern 的所有规则替换为一条规则，保留原有写法，并按上文的顺序放置（`deny` 在最前，`confirm` 在开头的 `deny` 之后）；`*:*` 已在末尾时原地更新，不存在时追加到末尾。`remove` 删除所有相同 pattern 的规则，未找到时仍返回成功。查找已保存的 pattern 时不展开通配符或服务别名。
 
 ```json
 {
@@ -209,7 +225,7 @@ pattern 必须且只能包含一个冒号，service 和 action 均不能为空�
 ve ecs UpdateInstance --InstanceId i-xxxxx --yes
 ```
 
-`--yes` 只能跳过 `confirm`，不能绕过 `deny`。MCP 客户端在重试 `call_api` 时传入 `yes: true`，详见 [MCP 服务](6-MCP-zh.md#安全策略)。
+`--yes` 只能跳过 `confirm`，不能绕过 `deny`。MCP 客户端在重试 `call_api` 时传入 `yes: true`，详见 [MCP 服务](6-MCP-zh.md#安全策略)。脚本通过 `run_script` 的 `yes: true`（`ve script run` 使用 `--yes`）整体批准，不遵循 `VOLCENGINE_SAFETY_SKIP_CONFIRM`，详见 [run_script](6-MCP-zh.md#run_script)。
 
 环境变量优先级高于配置文件：
 

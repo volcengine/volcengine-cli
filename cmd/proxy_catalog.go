@@ -27,7 +27,7 @@ func loadProxyCatalog() *proxycli.Snapshot {
 // checks the actual Cobra tree. A regression test keeps both sets aligned.
 func reservedProxyCommand(name string) bool {
 	switch name {
-	case "ve", "help", "version", "enable-color", "disable-color", "completion", "__complete", "__completeNoDesc", "configure", "docs", "login", "logout", "proxycli", "mcp", "sso", "skills", "skill", "upgrade", internalProxyUpdateCommand, upgrade.InternalUpgradeHelperCommand, upgrade.InternalUpgradeCleanupCommand:
+	case "ve", "help", "version", "enable-color", "disable-color", "completion", "__complete", "__completeNoDesc", "configure", "docs", "login", "logout", "proxycli", "mcp", "script", "sso", "skills", "skill", "upgrade", internalProxyUpdateCommand, upgrade.InternalUpgradeHelperCommand, upgrade.InternalUpgradeCleanupCommand:
 		return true
 	}
 	return rootSupport.IsValidSvc(strings.ReplaceAll(name, "_", ""))

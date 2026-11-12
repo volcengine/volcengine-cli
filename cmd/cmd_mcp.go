@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 	"github.com/ThinkInAIXYZ/go-mcp/server"
 	"github.com/ThinkInAIXYZ/go-mcp/transport"
 	"github.com/spf13/cobra"
+	"github.com/volcengine/volcengine-cli/internal/apisearch"
 	"github.com/volcengine/volcengine-cli/internal/docs"
 )
 
@@ -28,16 +30,28 @@ const (
 )
 
 type mcpCommandOptions struct {
-	Transport     string
-	Profile       string
-	Region        string
-	Host          string
-	Port          int
-	BaseURL       string
-	OAuth         bool
-	OAuthIssuer   string
-	OAuthAudience string
-	OAuthScopes   []string
+	Transport   string
+	Profile     string
+	Region      string
+	Host        string
+	Port        int
+	BaseURL     string
+	OAuth       bool
+	OAuthIssuer string
+	// OAuthAuthorizationServer is where clients discover the authorization
+	// server when its metadata is not served under the issuer.
+	OAuthAuthorizationServer string
+	OAuthAudience            string
+	// OAuthUpstream makes ve mcp an OAuth proxy for an upstream OAuth
+	// application with a fixed client, such as GitHub or a company SSO.
+	OAuthUpstream mcpOAuthUpstreamOptions
+	// OAuthAllowInsecureBaseURL accepts a plain HTTP base URL on a
+	// non-loopback host for development deployments without TLS.
+	OAuthAllowInsecureBaseURL bool
+	OAuthScopes               []string
+	// EnableRunScript registers run_script: trusted local Python execution.
+	EnableRunScript bool
+	ScriptPython    string
 }
 
 func init() {
@@ -77,11 +91,56 @@ func newMCPCommand() *cobra.Command {
 			if !command.Flags().Changed("oauth-issuer") {
 				options.OAuthIssuer = strings.TrimSpace(os.Getenv("VOLCENGINE_MCP_OAUTH_ISSUER"))
 			}
+			if !command.Flags().Changed("oauth-authorization-server") {
+				options.OAuthAuthorizationServer = strings.TrimSpace(os.Getenv("VOLCENGINE_MCP_OAUTH_AUTHORIZATION_SERVER"))
+			}
+			for _, setting := range []struct {
+				flag, environment string
+				target            *string
+			}{
+				{"oauth-upstream-authorize-url", "VOLCENGINE_MCP_OAUTH_UPSTREAM_AUTHORIZE_URL", &options.OAuthUpstream.AuthorizeURL},
+				{"oauth-upstream-token-url", "VOLCENGINE_MCP_OAUTH_UPSTREAM_TOKEN_URL", &options.OAuthUpstream.TokenURL},
+				{"oauth-upstream-userinfo-url", "VOLCENGINE_MCP_OAUTH_UPSTREAM_USERINFO_URL", &options.OAuthUpstream.UserinfoURL},
+				{"oauth-upstream-client-id", "VOLCENGINE_MCP_OAUTH_UPSTREAM_CLIENT_ID", &options.OAuthUpstream.ClientID},
+				{"oauth-upstream-client-secret-file", "VOLCENGINE_MCP_OAUTH_UPSTREAM_CLIENT_SECRET_FILE", &options.OAuthUpstream.ClientSecretFile},
+				{"oauth-upstream-token-auth-method", "VOLCENGINE_MCP_OAUTH_UPSTREAM_TOKEN_AUTH_METHOD", &options.OAuthUpstream.TokenAuthMethod},
+			} {
+				if !command.Flags().Changed(setting.flag) {
+					*setting.target = os.Getenv(setting.environment)
+				}
+				*setting.target = strings.TrimSpace(*setting.target)
+			}
+			// The client secret is read from the environment or a file,
+			// never from a flag, so it does not appear in process listings.
+			options.OAuthUpstream.ClientSecret = strings.TrimSpace(os.Getenv("VOLCENGINE_MCP_OAUTH_UPSTREAM_CLIENT_SECRET"))
+			if !command.Flags().Changed("oauth-upstream-scopes") {
+				options.OAuthUpstream.Scopes = splitMCPScopes(os.Getenv("VOLCENGINE_MCP_OAUTH_UPSTREAM_SCOPES"))
+			}
+			if !command.Flags().Changed("oauth-redirect-uris") {
+				options.OAuthUpstream.RedirectURIs = splitMCPScopes(os.Getenv("VOLCENGINE_MCP_OAUTH_REDIRECT_URIS"))
+			}
+			if !command.Flags().Changed("oauth-allow-insecure-base-url") {
+				allowed, err := environmentBool("VOLCENGINE_MCP_OAUTH_ALLOW_INSECURE_BASE_URL", false)
+				if err != nil {
+					return err
+				}
+				options.OAuthAllowInsecureBaseURL = allowed
+			}
 			if !command.Flags().Changed("oauth-audience") {
 				options.OAuthAudience = strings.TrimSpace(os.Getenv("VOLCENGINE_MCP_OAUTH_AUDIENCE"))
 			}
 			if !command.Flags().Changed("oauth-scopes") {
 				options.OAuthScopes = splitMCPScopes(os.Getenv("VOLCENGINE_MCP_OAUTH_SCOPES"))
+			}
+			if !command.Flags().Changed("enable-run-script") {
+				enabled, err := environmentBool("VOLCENGINE_MCP_ENABLE_RUN_SCRIPT", false)
+				if err != nil {
+					return err
+				}
+				options.EnableRunScript = enabled
+			}
+			if !command.Flags().Changed("script-python") {
+				options.ScriptPython = strings.TrimSpace(os.Getenv(scriptPythonEnvironment))
 			}
 
 			transportName, err := resolveMCPTransport(options.Transport, command.Flags().Changed("transport") || options.Transport != "", options.OAuth)
@@ -100,8 +159,20 @@ func newMCPCommand() *cobra.Command {
 	command.Flags().StringVar(&options.BaseURL, "base-url", "", tr("Public base URL used in MCP and OAuth metadata"))
 	command.Flags().BoolVar(&options.OAuth, "oauth", false, tr("Require OAuth Bearer tokens"))
 	command.Flags().StringVar(&options.OAuthIssuer, "oauth-issuer", "", tr("OAuth authorization server issuer"))
+	command.Flags().StringVar(&options.OAuthAuthorizationServer, "oauth-authorization-server", "", tr("OAuth authorization server identifier for metadata discovery, when the metadata is not served under the issuer"))
 	command.Flags().StringVar(&options.OAuthAudience, "oauth-audience", "", tr("Required access token audience"))
+	command.Flags().StringVar(&options.OAuthUpstream.AuthorizeURL, "oauth-upstream-authorize-url", "", tr("Authorize URL of the upstream OAuth application the MCP server proxies logins to"))
+	command.Flags().StringVar(&options.OAuthUpstream.TokenURL, "oauth-upstream-token-url", "", tr("Token URL of the upstream OAuth application"))
+	command.Flags().StringVar(&options.OAuthUpstream.UserinfoURL, "oauth-upstream-userinfo-url", "", tr("Userinfo URL that validates upstream access tokens"))
+	command.Flags().StringVar(&options.OAuthUpstream.ClientID, "oauth-upstream-client-id", "", tr("Client ID of the upstream OAuth application"))
+	command.Flags().StringVar(&options.OAuthUpstream.ClientSecretFile, "oauth-upstream-client-secret-file", "", tr("File holding the upstream client secret (or set VOLCENGINE_MCP_OAUTH_UPSTREAM_CLIENT_SECRET)"))
+	command.Flags().StringSliceVar(&options.OAuthUpstream.Scopes, "oauth-upstream-scopes", nil, tr("Scopes requested from the upstream OAuth application"))
+	command.Flags().StringVar(&options.OAuthUpstream.TokenAuthMethod, "oauth-upstream-token-auth-method", "", tr("Client authentication at the upstream token URL: client_secret_post (default) or client_secret_basic"))
+	command.Flags().StringSliceVar(&options.OAuthUpstream.RedirectURIs, "oauth-redirect-uris", nil, tr("Client redirect URIs the OAuth proxy allows besides loopback ones"))
+	command.Flags().BoolVar(&options.OAuthAllowInsecureBaseURL, "oauth-allow-insecure-base-url", false, tr("Development only: allow a plain HTTP --base-url on a non-loopback host with OAuth; tokens then travel unencrypted"))
 	command.Flags().StringSliceVar(&options.OAuthScopes, "oauth-scopes", nil, tr("Required OAuth scopes"))
+	command.Flags().BoolVar(&options.EnableRunScript, "enable-run-script", false, tr("Enable run_script: trusted local Python execution with your OS privileges (stdio only, not a sandbox)"))
+	command.Flags().StringVar(&options.ScriptPython, "script-python", "", tr("Absolute path of the CPython 3.9+ interpreter for run_script"))
 	command.SetUsageTemplate(mcpUsageTemplate())
 	return command
 }
@@ -115,13 +186,26 @@ func mcpUsageTemplate() string {
 `
 }
 
+// mcpToolDependencies are optional tool backends.
+type mcpToolDependencies struct {
+	search       mcpAPISearchModule
+	scriptRunner mcpScriptRunner
+}
+
 func runMCP(parent context.Context, options mcpCommandOptions) error {
+	if err := validateMCPOAuthOptions(options); err != nil {
+		return err
+	}
 	invoker, err := newReloadingVolcengineMCPInvoker(runtimeConfig(), options.Profile, options.Region)
 	if err != nil {
 		return err
 	}
+	dependencies, err := newMCPToolDependencies(parent, options, invoker)
+	if err != nil {
+		return err
+	}
 	if options.Transport == mcpTransportStdio {
-		return runMCPStdio(invoker)
+		return runMCPStdio(invoker, dependencies)
 	}
 	if options.Port < 0 || options.Port > 65535 {
 		return fmt.Errorf("MCP port must be between 0 and 65535")
@@ -142,25 +226,49 @@ func runMCP(parent context.Context, options mcpCommandOptions) error {
 	if options.OAuth {
 		parsedBaseURL, _ := url.Parse(baseURL)
 		if parsedBaseURL.Scheme != "https" && !(parsedBaseURL.Scheme == "http" && isLoopbackMCPHostname(parsedBaseURL.Hostname())) {
-			return fmt.Errorf("--base-url must use HTTPS with OAuth unless it is loopback")
+			if !options.OAuthAllowInsecureBaseURL || parsedBaseURL.Scheme != "http" {
+				return fmt.Errorf("--base-url must use HTTPS with OAuth unless it is loopback")
+			}
+			fmt.Fprintln(os.Stderr, "WARNING: --oauth-allow-insecure-base-url: OAuth access tokens are sent over plain HTTP; use this for development only")
 		}
 	}
 
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return runMCPHTTP(ctx, listener, baseURL, options, invoker)
+	return runMCPHTTP(ctx, listener, baseURL, options, invoker, dependencies)
 }
 
-func runMCPStdio(invoker mcpAPIInvoker) error {
+func newMCPToolDependencies(ctx context.Context, options mcpCommandOptions, invoker *volcengineMCPInvoker) (mcpToolDependencies, error) {
+	dependencies := mcpToolDependencies{search: apisearch.New(clientUserAgent(os.LookupEnv))}
+	if !options.EnableRunScript {
+		return dependencies, nil
+	}
+	// Trust boundary: local run_script executes Python with this user's
+	// privileges. It is only offered to the local stdio client that started
+	// the server, never to network transports.
+	if options.Transport != mcpTransportStdio {
+		return mcpToolDependencies{}, errors.New(tr("--enable-run-script is only supported with the stdio transport; network transports would expose local code execution"))
+	}
+	// Select the interpreter once at startup and reuse it for every run;
+	// fail fast when none is usable. Nothing is downloaded.
+	interpreter, err := resolveScriptPython(ctx, options.ScriptPython)
+	if err != nil {
+		return mcpToolDependencies{}, err
+	}
+	dependencies.scriptRunner = &localScriptRunner{invoker: invoker, interpreter: interpreter}
+	return dependencies, nil
+}
+
+func runMCPStdio(invoker mcpAPIInvoker, dependencies mcpToolDependencies) error {
 	serverTransport := transport.NewStdioServerTransport(transport.WithStdioServerOptionLogger(quietMCPLogger{}))
-	mcpServer, err := newMCPServer(serverTransport, invoker)
+	mcpServer, err := newMCPServer(serverTransport, invoker, dependencies)
 	if err != nil {
 		return err
 	}
 	return mcpServer.Run()
 }
 
-func runMCPHTTP(ctx context.Context, listener net.Listener, baseURL string, options mcpCommandOptions, invoker mcpAPIInvoker) error {
+func runMCPHTTP(ctx context.Context, listener net.Listener, baseURL string, options mcpCommandOptions, invoker mcpAPIInvoker, dependencies mcpToolDependencies) error {
 	mux := http.NewServeMux()
 	var serverTransport transport.ServerTransport
 	endpoint := ""
@@ -199,7 +307,7 @@ func runMCPHTTP(ctx context.Context, listener net.Listener, baseURL string, opti
 		return fmt.Errorf("HTTP server cannot use transport %q", options.Transport)
 	}
 
-	mcpServer, err := newMCPServer(serverTransport, invoker)
+	mcpServer, err := newMCPServer(serverTransport, invoker, dependencies)
 	if err != nil {
 		return err
 	}
@@ -210,17 +318,35 @@ func runMCPHTTP(ctx context.Context, listener net.Listener, baseURL string, opti
 		return err
 	}
 	var oauthMiddleware func(http.Handler) http.Handler
+	var oauthProxy *mcpOAuthProxy
 	if options.OAuth {
-		verifier, authorizationServerMetadata, err := newMCPJWTVerifier(mcpOAuthConfig{
-			Issuer: options.OAuthIssuer, Audience: options.OAuthAudience,
-			Resource: resource,
-		})
-		if err != nil {
-			return err
+		var verifier mcpTokenVerifier
+		var authorizationServer string
+		if options.OAuthUpstream.configured() {
+			if options.OAuthIssuer != "" || options.OAuthAuthorizationServer != "" || options.OAuthAudience != "" || len(options.OAuthScopes) > 0 {
+				return fmt.Errorf("the OAuth proxy (--oauth-upstream-*) cannot be combined with --oauth-issuer, --oauth-authorization-server, --oauth-audience or --oauth-scopes")
+			}
+			oauthProxy, err = newMCPOAuthProxy(options.OAuthUpstream, baseURL, nil)
+			if err != nil {
+				return err
+			}
+			verifier, authorizationServer = oauthProxy.verifier, oauthProxy.issuer
+		} else {
+			jwtVerifier, authorizationServerMetadata, err := newMCPJWTVerifier(mcpOAuthConfig{
+				Issuer: options.OAuthIssuer, AuthorizationServer: options.OAuthAuthorizationServer,
+				Audience: options.OAuthAudience, Resource: resource,
+			})
+			if err != nil {
+				return err
+			}
+			verifier, authorizationServer = jwtVerifier, authorizationServerMetadata.Issuer
+			if options.OAuthAuthorizationServer != "" {
+				authorizationServer = options.OAuthAuthorizationServer
+			}
 		}
 		oauthMiddleware = mcpOAuthMiddleware(verifier, metadataURL, options.OAuthScopes)
 		mux.Handle(metadataPath, mcpProtectedResourceMetadataHandler(mcpProtectedResourceMetadata{
-			Resource: resource, AuthorizationServers: []string{authorizationServerMetadata.Issuer},
+			Resource: resource, AuthorizationServers: []string{authorizationServer},
 			ScopesSupported: options.OAuthScopes, BearerMethodsSupported: []string{"header"},
 		}))
 	}
@@ -239,7 +365,12 @@ func runMCPHTTP(ctx context.Context, listener net.Listener, baseURL string, opti
 		securedMux.Handle(route, handler)
 	}
 	if options.OAuth {
-		securedMux.Handle(metadataPath, mcpHTTPSecurityMiddleware(mux, baseURL))
+		// Protected Resource Metadata is public and read by browser-based
+		// clients cross-origin.
+		securedMux.Handle(metadataPath, mcpOAuthPublicMiddleware(mux))
+	}
+	if oauthProxy != nil {
+		oauthProxy.register(securedMux, basePath)
 	}
 
 	httpServer := &http.Server{
@@ -282,7 +413,21 @@ func runMCPHTTP(ctx context.Context, listener net.Listener, baseURL string, opti
 	return result
 }
 
-func newMCPServer(serverTransport transport.ServerTransport, invoker mcpAPIInvoker) (*server.Server, error) {
+// validateMCPOAuthOptions rejects OAuth settings without --oauth: the
+// server would otherwise start without any authentication although the
+// operator meant to require it.
+func validateMCPOAuthOptions(options mcpCommandOptions) error {
+	if options.OAuth {
+		return nil
+	}
+	if options.OAuthIssuer != "" || options.OAuthAuthorizationServer != "" || options.OAuthAudience != "" || len(options.OAuthScopes) > 0 ||
+		options.OAuthUpstream.configured() || len(options.OAuthUpstream.RedirectURIs) > 0 || options.OAuthAllowInsecureBaseURL {
+		return errors.New(tr("OAuth settings are configured but --oauth (VOLCENGINE_MCP_OAUTH) is not enabled; enable it or remove the OAuth settings"))
+	}
+	return nil
+}
+
+func newMCPServer(serverTransport transport.ServerTransport, invoker mcpAPIInvoker, dependencies mcpToolDependencies) (*server.Server, error) {
 	mcpServer, err := server.NewServer(
 		serverTransport,
 		server.WithServerInfo(protocol.Implementation{Name: "volcengine-cli", Version: clientVersion}),
@@ -292,7 +437,7 @@ func newMCPServer(serverTransport transport.ServerTransport, invoker mcpAPIInvok
 	if err != nil {
 		return nil, err
 	}
-	registerMCPTools(mcpServerRegistrar{server: mcpServer}, rootSupport, invoker, docs.New(docsUserAgent(os.LookupEnv)))
+	registerMCPTools(mcpServerRegistrar{server: mcpServer}, rootSupport, invoker, docs.New(docsUserAgent(os.LookupEnv)), dependencies.search, dependencies.scriptRunner)
 	return mcpServer, nil
 }
 

@@ -153,3 +153,85 @@ func TestMCPDiscoveryURLDoesNotDoubleEncodeIssuerPath(t *testing.T) {
 		t.Fatalf("discovery URL = %q, want %q", urls[0], want)
 	}
 }
+
+// An authorization server with dynamic client registration may serve its
+// metadata away from the issuer and issue tokens whose audience is the
+// registered client: the verifier discovers it from the authorization
+// server, takes the issuer from the metadata and checks no audience.
+func TestMCPJWTVerifierWithSeparateAuthorizationServer(t *testing.T) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate RSA key: %v", err)
+	}
+	const issuer = "https://signin.example.com"
+	var base string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/.well-known/oauth-authorization-server":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"issuer": issuer, "jwks_uri": base + "/jwks", "registration_endpoint": base + "/register"})
+		case "/jwks":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"keys": []interface{}{map[string]interface{}{
+				"kty": "RSA", "kid": "test-key", "use": "sig",
+				"n": base64.RawURLEncoding.EncodeToString(privateKey.PublicKey.N.Bytes()),
+				"e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(privateKey.PublicKey.E)).Bytes()),
+			}}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	base = server.URL
+
+	if _, _, err := newMCPJWTVerifier(mcpOAuthConfig{Issuer: issuer, Resource: "https://mcp.example.com/mcp", Client: server.Client()}); err == nil || !strings.Contains(err.Error(), "--oauth-audience") {
+		t.Fatalf("issuer without audience error = %v", err)
+	}
+	verifier, metadata, err := newMCPJWTVerifier(mcpOAuthConfig{AuthorizationServer: base, Resource: "https://mcp.example.com/mcp", Client: server.Client()})
+	if err != nil {
+		t.Fatalf("newMCPJWTVerifier() error = %v", err)
+	}
+	if metadata.Issuer != issuer {
+		t.Fatalf("issuer = %q", metadata.Issuer)
+	}
+	sign := func(tokenIssuer string) string {
+		token := jwt.NewWithClaims(jwt.SigningMethodRS256, mcpJWTClaims{RegisteredClaims: jwt.RegisteredClaims{
+			Issuer: tokenIssuer, Subject: "user-1", Audience: jwt.ClaimStrings{"dynamic-client-42"},
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		}})
+		token.Header["kid"] = "test-key"
+		signed, err := token.SignedString(privateKey)
+		if err != nil {
+			t.Fatalf("sign token: %v", err)
+		}
+		return signed
+	}
+	if claims, err := verifier.Verify(sign(issuer)); err != nil || claims.Subject != "user-1" {
+		t.Fatalf("Verify() = %+v, %v", claims, err)
+	}
+	if _, err := verifier.Verify(sign(base)); err == nil {
+		t.Fatal("expected a token from another issuer to be rejected")
+	}
+}
+
+func TestMCPOAuthSettingsRequireOAuth(t *testing.T) {
+	for name, options := range map[string]mcpCommandOptions{
+		"issuer":        {OAuthIssuer: "https://auth.example.com"},
+		"authorization": {OAuthAuthorizationServer: "https://auth.example.com"},
+		"upstream":      {OAuthUpstream: mcpOAuthUpstreamOptions{ClientID: "client"}},
+		"insecure":      {OAuthAllowInsecureBaseURL: true},
+		"redirect URIs": {OAuthUpstream: mcpOAuthUpstreamOptions{RedirectURIs: []string{"https://app.example.com/cb"}}},
+		"scopes":        {OAuthScopes: []string{"mcp:use"}},
+		"audience":      {OAuthAudience: "volcengine-mcp"},
+	} {
+		if err := validateMCPOAuthOptions(options); err == nil || !strings.Contains(err.Error(), "--oauth") {
+			t.Fatalf("%s without --oauth: %v", name, err)
+		}
+		options.OAuth = true
+		if err := validateMCPOAuthOptions(options); err != nil {
+			t.Fatalf("%s with --oauth: %v", name, err)
+		}
+	}
+	if err := validateMCPOAuthOptions(mcpCommandOptions{}); err != nil {
+		t.Fatalf("no OAuth settings: %v", err)
+	}
+}

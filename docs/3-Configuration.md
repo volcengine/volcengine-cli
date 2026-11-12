@@ -170,7 +170,7 @@ Deleting a profile does not delete SSO sessions or the global Console Login cach
 
 ## Safety Policy
 
-The safety policy is a local client-side guard for OpenAPI operations issued by `ve`, including normal calls, `--force` calls, and MCP `call_api`. It complements Volcengine IAM and does not replace cloud-side authorization. Delegated `ve arkcli` and `ve tosutil` commands are not intercepted because their arguments are forwarded unchanged.
+The safety policy is a local client-side guard for OpenAPI operations issued by `ve`, including normal calls, `--force` calls, MCP `call_api`, and every API call made by `run_script` or `ve script run`. It complements Volcengine IAM and does not replace cloud-side authorization. Delegated `ve arkcli` and `ve tosutil` commands are not intercepted because their arguments are forwarded unchanged.
 
 The policy is disabled by default and stored separately in `~/.volcengine/safety-policy.json` with `0600` permissions. Enable it and add rules with:
 
@@ -187,11 +187,27 @@ Actions:
 - `deny`: reject the operation locally without sending an API request.
 - `confirm`: require explicit approval before sending the request.
 
-Rules use `service:action`, are matched case-insensitively, support `*`, and use first-match-wins order. An unmatched operation is allowed. Every spelling of a service is treated as the same service, including versioned commands, underscore-compatible commands, and the SDK service name. For example, `cloudtrail:Delete*`, `cloudtrail20180101:Delete*`, and `cloud_trail:Delete*` are equivalent and apply to `ve cloudtrail`, `ve cloudtrail20180101`, and MCP `call_api`; `rds_mysql:*` likewise covers `ve rdsmysql`, `ve rdsmysqlv2`, and `ve rds_mysql_v2`. API names are matched as written, with no other spelling conversion.
+Rules use `service:action`, are matched case-insensitively, support `*`, and use first-match-wins order; `add` keeps the policy in the order `deny` rules, then `allow` and `confirm` rules, then a trailing `*:*` catch-all: a new or updated `deny` rule goes first, a `confirm` rule goes right after the leading `deny` rules, and `*:*` stays last and is updated in place. A new rule therefore applies even after a preset, and a `confirm` rule never overrides a `deny`. Updating a pattern replaces every rule with that pattern (case-insensitively) with one rule in the new place, keeping the stored spelling. `add` refuses a `confirm` rule, and leaves the policy unchanged, when a `deny` rule follows `allow` or `confirm` rules (for example after `preset --append`) or when the catch-all is `*:* -> deny` (as in `deny-writes`), because no place for it would keep every `deny`; it also refuses to change `*:*` when a `*:*` rule is not last. An unmatched operation is allowed. Every spelling of a service is treated as the same service, including versioned commands, underscore-compatible commands, and the SDK service name. For example, `cloudtrail:Delete*`, `cloudtrail20180101:Delete*`, and `cloud_trail:Delete*` are equivalent and apply to `ve cloudtrail`, `ve cloudtrail20180101`, and MCP `call_api`; `rds_mysql:*` likewise covers `ve rdsmysql`, `ve rdsmysqlv2`, and `ve rds_mysql_v2`. API names are matched as written, with no other spelling conversion.
 
 Patterns must contain exactly one colon, with a non-empty service and action and no internal whitespace. Surrounding whitespace is ignored. For example, use `sts:GetCallerIdentity`, `sts:*`, `*:GetCallerIdentity`, or `*:*`; API-only names, service-only names, dot/space separators, and a lone `*` are rejected. Validation checks syntax only, so rules may cover unlisted services and future APIs used with `--force`.
 
-For rule management, `add` and `remove` compare the complete pattern text case-insensitively. `add` updates the first matching pattern in place, preserving its position; otherwise, it appends a rule. `remove` deletes all matching patterns and still succeeds if none exist. Wildcards and service aliases are not expanded when locating stored patterns.
+### Official presets
+
+`ve configure safety-policy preset <name>` writes an official policy and enables it. Inspect the rules with `ve configure safety-policy list`.
+
+`confirm-writes` lets an agent read freely and asks before anything else:
+
+- Read APIs are allowed: actions starting with `Describe`, `Desc`, `List`, `Get`, `Query`, `Search`, `Show`, `Detail`, `Lookup`, `Check`, `Calc`, `Stat`, `BatchGet`, `BatchList` or `Analysis`, plus read APIs whose names do not start with a read verb (for example `bmq:TopicExist` or `vms:NumberList`).
+- Reads that issue credentials or tokens, reveal secrets or private keys, open console sessions or return console output, or hand out download or upload URLs for data (for example `kms:GetSecretValue`, `id:GetRoleCredentials`, `pca:DownloadLeafInstance`, `vke:ListKubeconfigs`, `rdsmysqlv2:GetBackupDownloadLink`, `ecs:DescribeInstanceVncUrl`), and APIs named like reads that generate content or tasks (for example `waf:QueryLLMGenerate`), require confirmation.
+- Everything else requires confirmation (`*:*=confirm`), including exports, downloads and services added later. When in doubt an API is treated as a write.
+
+`confirm-deletes` asks only before destructive or irreversible operations: names containing `Delet`, `Remove`, `Terminate`, `Destroy`, `Uninstall`, `Purge`, `Rollback` or `Restore`, actions starting with `Del`, `Release`, `Drop`, `Truncate`, `Flush`, `Clean`, `Clear`, `Kill`, `Revoke`, `Reset`, `Unsubscribe`, `Deregister`, `Quit`, `ScaleIn`, `ScaleDown`, `Decrease` or `Execute`, names containing `Command`, and `ReplaceSystemVolume` and `ForwardKubernetesApi`, which overwrite data or run arbitrary commands. Read APIs are allowed first, so reads such as `DescribeDeletedDBInstances` never ask; everything else is allowed.
+
+`deny-writes` uses the same list as `confirm-writes` but turns every confirmation into a denial: only read APIs run, and no approval (`--yes`, `yes=true`) unlocks a write or a sensitive read. Use it for agents that must stay read-only.
+
+If the policy already has rules, pass `--overwrite` to replace them or `--append` to keep them and add the preset after them; existing rules keep precedence, and an existing `*:*` rule shadows the preset. An interactive terminal asks when neither flag is given; non-interactive runs fail instead of guessing, so startup scripts use `--overwrite`. A script run by `run_script` is approved as a whole: the first call that a `confirm` rule protects stops the run, and after the user approves the script it runs again unchanged with `yes: true`.
+
+For rule management, `add` and `remove` compare the complete pattern text case-insensitively. `add` replaces every rule with that pattern by one rule, keeping the stored spelling, and places it as described above (`deny` first, `confirm` right after the leading `deny` rules); `*:*` is updated in place when it is last and appended when absent. `remove` deletes all matching patterns and still succeeds if none exist. Wildcards and service aliases are not expanded when locating stored patterns.
 
 ```json
 {
@@ -209,7 +225,7 @@ In an interactive terminal, a `confirm` match prompts for `yes`. Agents must sta
 ve ecs UpdateInstance --InstanceId i-xxxxx --yes
 ```
 
-`--yes` skips only `confirm`; it never bypasses `deny`. MCP clients use `yes: true` on the repeated `call_api` request. See [MCP Server](6-MCP.md#safety-policy).
+`--yes` skips only `confirm`; it never bypasses `deny`. MCP clients use `yes: true` on the repeated `call_api` request. Scripts are approved as a whole with `yes: true` on `run_script` (`--yes` on `ve script run`) and ignore `VOLCENGINE_SAFETY_SKIP_CONFIRM`; see [MCP Server](6-MCP.md#safety-policy) and [run_script](6-MCP.md#run_script).
 
 Environment overrides have higher priority than the file:
 

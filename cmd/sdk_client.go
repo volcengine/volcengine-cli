@@ -2,11 +2,14 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
 
+	"github.com/volcengine/volcengine-cli/internal/scriptrun"
 	"github.com/volcengine/volcengine-go-sdk/volcengine"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/client"
 	"github.com/volcengine/volcengine-go-sdk/volcengine/client/metadata"
@@ -294,7 +297,11 @@ func newSimpleClient(ctx *Context, credentialOverride *credentials.Credentials) 
 		return nil, fmt.Errorf("region not set, please set it via profile, --region flag, or VOLCENGINE_REGION environment variable")
 	}
 
+	// Each client owns its http.Client: the SDK session writes the transport
+	// and proxy into it, so a shared http.DefaultClient races between
+	// concurrent API calls (MCP requests and run_script calls).
 	config := volcengine.NewConfig().
+		WithHTTPClient(&http.Client{}).
 		WithRegion(region).
 		WithCredentials(creds).
 		WithDisableSSL(disableSSl).
@@ -505,9 +512,32 @@ func (s *SdkClient) CallSdkWithContext(ctx context.Context, info SdkClientInfo, 
 			applyClientID(built)
 		},
 	})
+	// A script call runs under a context its run cancels when it stops, so
+	// a request in flight is abandoned and no retry, redirect or transport
+	// replay follows. A request signed after the stop (credentials can take
+	// a while to fetch) is not sent at all, and is reported as not sent.
+	stoppedBeforeSend := false
+	req.Handlers.Send.PushFrontNamed(request.NamedHandler{
+		Name: "volcengine-cli.stop-sending-after-script-run",
+		Fn: func(sending *request.Request) {
+			if scriptrun.DispatchStopped(sending.Context()) {
+				stoppedBeforeSend = sending.RetryCount == 0
+				stopped, cancel := context.WithCancel(sending.HTTPRequest.Context())
+				cancel()
+				sending.HTTPRequest = sending.HTTPRequest.WithContext(stopped)
+			}
+		},
+	})
 	err = req.Send()
+	if stoppedBeforeSend {
+		return output, errScriptCallNotSent
+	}
 	return output, err
 }
+
+// errScriptCallNotSent reports a script call whose run stopped before its
+// request was sent.
+var errScriptCallNotSent = errors.New("the run ended before this call was sent")
 
 func applySdkRequestHeaders(req *request.Request, info SdkClientInfo) {
 	if req == nil || req.HTTPRequest == nil {

@@ -36,6 +36,7 @@ The first matching rule wins; unmatched commands are allowed.`),
 		newSafetyPolicyAddCommand(),
 		newSafetyPolicyRemoveCommand(),
 		newSafetyPolicyListCommand(),
+		newSafetyPolicyPresetCommand(),
 	)
 	return command
 }
@@ -89,7 +90,7 @@ func newSafetyPolicyAddCommand() *cobra.Command {
 		Use:   "add",
 		Short: tr("Add or update a safety policy rule"),
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(added *cobra.Command, _ []string) error {
 			pattern = strings.TrimSpace(pattern)
 			action := safety.Action(strings.ToLower(strings.TrimSpace(actionValue)))
 			if pattern == "" {
@@ -102,19 +103,258 @@ func newSafetyPolicyAddCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			for i := range policy.Rules {
-				if strings.EqualFold(policy.Rules[i].Pattern, pattern) {
-					policy.Rules[i].Action = action
-					return safety.SavePolicy(dir, policy)
+			edit, err := addSafetyRule(policy.Rules, safety.Rule{Pattern: pattern, Action: action})
+			if err != nil {
+				return err
+			}
+			policy.Rules = edit.rules
+			if err := safety.SavePolicy(dir, policy); err != nil {
+				return err
+			}
+			if edit.merged > 1 {
+				fmt.Fprintf(added.ErrOrStderr(), tr("Merged %d rules with the pattern %s into one\n"), edit.merged, edit.pattern)
+			}
+			if edit.loosened {
+				fmt.Fprintf(added.ErrOrStderr(), tr("Warning: %s was deny and is now confirm; approval can now unlock the calls it matches, except those an earlier deny rule matches first\n"), edit.pattern)
+			}
+			if edit.afterDeny > 0 {
+				fmt.Fprintf(added.ErrOrStderr(), tr("%s -> confirm is placed after %d deny rules; calls those rules match stay denied\n"), edit.pattern, edit.afterDeny)
+			}
+			// The environment can override what the file says.
+			if _, effective, err := loadEffectiveSafetyPolicy(); err == nil && !effective.Enabled {
+				if _, set := os.LookupEnv(safety.EnvPolicyEnabled); set {
+					fmt.Fprintln(added.ErrOrStderr(), tr("VOLCENGINE_SAFETY_POLICY_ENABLED disables the safety policy, so its rules do not apply; unset it or set it to true"))
+				} else {
+					fmt.Fprintln(added.ErrOrStderr(), tr("The safety policy is disabled, so its rules do not apply yet; enable it with 've configure safety-policy enable'"))
 				}
 			}
-			policy.Rules = append(policy.Rules, safety.Rule{Pattern: pattern, Action: action})
-			return safety.SavePolicy(dir, policy)
+			if _, overridden := os.LookupEnv(safety.EnvPolicyRules); overridden {
+				fmt.Fprintln(added.ErrOrStderr(), tr("VOLCENGINE_SAFETY_POLICY_RULES is set, so the rules stored in the policy file are not used"))
+			}
+			return nil
 		},
 	}
 	command.Flags().StringVar(&pattern, "pattern", "", tr("Case-insensitive service:action pattern with * wildcard"))
 	command.Flags().StringVar(&actionValue, "action", "", tr("Rule action: deny or confirm"))
 	return command
+}
+
+// safetyRuleEdit is a policy after one add, with what the add changed.
+type safetyRuleEdit struct {
+	rules []safety.Rule
+	// merged counts the existing rules for the same pattern, which the add
+	// replaced with one rule.
+	merged int
+	// loosened reports that a deny for the same pattern became confirm.
+	loosened bool
+	// pattern is the stored spelling of the added or updated rule.
+	pattern string
+	// afterDeny counts the deny rules placed before a confirm rule.
+	afterDeny int
+}
+
+// isSafetyCatchAll reports whether pattern matches every call: its service
+// and action parts consist only of *, as in *:* or *:**.
+func isSafetyCatchAll(pattern string) bool {
+	service, action, found := strings.Cut(strings.TrimSpace(pattern), ":")
+	onlyStars := func(part string) bool { return part != "" && strings.Trim(part, "*") == "" }
+	return found && onlyStars(service) && onlyStars(action)
+}
+
+// addSafetyRule adds a deny or confirm rule, or updates the rules for the
+// same pattern (compared case-insensitively), keeping the policy in the
+// order deny rules, then allow and confirm rules, then a *:* catch-all.
+// The first matching rule wins, so the placement alone guarantees that the
+// rule applies and that a confirm rule never overrides a deny:
+//   - A deny rule goes first, so it applies to every call it matches.
+//   - A confirm rule goes right after the leading deny rules. Only deny
+//     rules come before it, so no allow rule hides it; when a deny rule
+//     follows the allow and confirm rules, or the catch-all is a deny, no
+//     place satisfies both, and the add is refused.
+//   - The *:* catch-all is the default for calls no other rule matches; it
+//     stays last and is updated in place.
+//
+// It does not compare what two patterns match, so it needs no knowledge of
+// service spellings or of which APIs exist.
+func addSafetyRule(rules []safety.Rule, rule safety.Rule) (safetyRuleEdit, error) {
+	isCatchAll := isSafetyCatchAll
+	if isCatchAll(rule.Pattern) {
+		rule.Pattern = "*:*"
+		var found []int
+		for i, current := range rules {
+			if isCatchAll(current.Pattern) {
+				found = append(found, i)
+			}
+		}
+		updated := append([]safety.Rule(nil), rules...)
+		switch {
+		case len(found) == 0:
+			return safetyRuleEdit{rules: append(updated, rule), pattern: rule.Pattern}, nil
+		case len(found) == 1 && found[0] == len(rules)-1:
+			last := &updated[found[0]]
+			edit := safetyRuleEdit{rules: updated, merged: 1, pattern: rule.Pattern, loosened: last.Action == safety.ActionDeny && rule.Action == safety.ActionConfirm}
+			*last = rule
+			return edit, nil
+		default:
+			return safetyRuleEdit{}, fmt.Errorf(tr("the policy has a *:* rule that is not the last rule (rule %d); remove it or reapply a preset with --overwrite before changing *:*"), firstMisplacedCatchAll(found, len(rules))+1)
+		}
+	}
+
+	type numbered struct {
+		safety.Rule
+		number int // 1-based position in the stored policy
+	}
+	var kept []numbered
+	edit := safetyRuleEdit{}
+	for i, current := range rules {
+		if strings.EqualFold(strings.TrimSpace(current.Pattern), rule.Pattern) {
+			if edit.merged == 0 {
+				rule.Pattern = current.Pattern // keep the stored spelling
+			}
+			edit.merged++
+			edit.loosened = edit.loosened || current.Action == safety.ActionDeny
+			continue
+		}
+		kept = append(kept, numbered{current, i + 1})
+	}
+	position := 0
+	if rule.Action == safety.ActionConfirm {
+		for position < len(kept) && kept[position].Action == safety.ActionDeny && !isCatchAll(kept[position].Pattern) {
+			position++
+		}
+		for i := position; i < len(kept); i++ {
+			if kept[i].Action != safety.ActionDeny {
+				continue
+			}
+			if isCatchAll(kept[i].Pattern) && i == len(kept)-1 {
+				return safetyRuleEdit{}, fmt.Errorf(tr("%s -> confirm would let approval unlock the default deny of the last rule *:* -> deny; the policy was not changed"), rule.Pattern)
+			}
+			if isCatchAll(kept[i].Pattern) {
+				return safetyRuleEdit{}, fmt.Errorf(tr("%s -> confirm cannot be placed safely: rule %d %s -> deny is not the last rule, so it decides every call that reaches it; the policy was not changed. Remove it, or reapply a preset with --overwrite"), rule.Pattern, kept[i].number, kept[i].Pattern)
+			}
+			return safetyRuleEdit{}, fmt.Errorf(tr("%s -> confirm cannot be placed safely: rule %d %s -> deny comes after rule %d %s -> %s, so a confirm rule ahead of that rule could override the deny; the policy was not changed. Move the deny rules to the top, or reapply a preset with --overwrite"),
+				rule.Pattern, kept[i].number, kept[i].Pattern, kept[position].number, kept[position].Pattern, kept[position].Action)
+		}
+		edit.afterDeny = position
+	} else {
+		edit.loosened = false
+	}
+	edit.pattern = rule.Pattern
+	edit.rules = make([]safety.Rule, 0, len(kept)+1)
+	for i, current := range kept {
+		if i == position {
+			edit.rules = append(edit.rules, rule)
+		}
+		edit.rules = append(edit.rules, current.Rule)
+	}
+	if position == len(kept) {
+		edit.rules = append(edit.rules, rule)
+	}
+	return edit, nil
+}
+
+// firstMisplacedCatchAll returns the index of the first *:* rule that is
+// not the last rule.
+func firstMisplacedCatchAll(found []int, total int) int {
+	for _, index := range found {
+		if index != total-1 {
+			return index
+		}
+	}
+	return found[0]
+}
+
+func newSafetyPolicyPresetCommand() *cobra.Command {
+	var overwrite, appendRules bool
+	command := &cobra.Command{
+		Use:   "preset <name>",
+		Short: tr("Apply an official safety policy preset"),
+		Long: tr(`Apply an official safety policy preset and enable the policy.
+confirm-writes allows read APIs (Describe, List, Get, Query and other read verbs) and requires confirmation for everything else, including reads that issue credentials, reveal secrets, open consoles or return upload URLs.
+confirm-deletes requires confirmation for destructive or irreversible operations (Delete, Remove, Terminate, Release, Restore, Reset and similar) and allows everything else.
+deny-writes is confirm-writes with every confirmation turned into a denial: only read APIs run, and no approval unlocks anything else.
+When rules already exist, choose --overwrite to replace them or --append to add the preset after them; an interactive terminal asks when neither is given.`),
+		Args:      cobra.ExactArgs(1),
+		ValidArgs: safety.PresetNames(),
+		RunE: func(_ *cobra.Command, args []string) error {
+			name := strings.ToLower(strings.TrimSpace(args[0]))
+			rules, ok := safety.PresetRules(name)
+			if !ok {
+				return trErrorf("unknown safety policy preset %q; available presets: %s", args[0], strings.Join(safety.PresetNames(), ", "))
+			}
+			if overwrite && appendRules {
+				return trErrorf("--overwrite and --append cannot be used together")
+			}
+			dir, policy, err := loadStoredSafetyPolicy()
+			if err != nil {
+				return err
+			}
+			if len(policy.Rules) > 0 && !overwrite && !appendRules {
+				choice, err := askSafetyPolicyPresetMerge(len(policy.Rules))
+				if err != nil {
+					return err
+				}
+				overwrite, appendRules = choice == "overwrite", choice == "append"
+				if !overwrite && !appendRules {
+					fmt.Fprintln(safetyPolicyOutput, tr("Cancelled; the safety policy was not changed."))
+					return nil
+				}
+			}
+			if appendRules {
+				rules = appendSafetyPolicyPreset(policy.Rules, rules)
+			}
+			policy.Rules = rules
+			policy.Enabled = true
+			if err := safety.SavePolicy(dir, policy); err != nil {
+				return err
+			}
+			fmt.Fprintf(safetyPolicyOutput, tr("Applied the %s safety policy preset: %d rules, policy enabled.\n"), name, len(policy.Rules))
+			return nil
+		},
+	}
+	command.Flags().BoolVar(&overwrite, "overwrite", false, tr("Replace existing rules with the preset"))
+	command.Flags().BoolVar(&appendRules, "append", false, tr("Keep existing rules and add the preset after them"))
+	return command
+}
+
+// askSafetyPolicyPresetMerge asks whether to overwrite or append to the
+// existing rules, and returns "overwrite", "append" or "" to cancel. Without
+// a terminal it fails, so scripts and agents must choose explicitly.
+func askSafetyPolicyPresetMerge(existing int) (string, error) {
+	if !safety.IsInteractive(safetyPolicyInput) {
+		return "", trErrorf("the safety policy already has %d rules; rerun with --overwrite to replace them or --append to keep them", existing)
+	}
+	fmt.Fprintf(safetyPolicyOutput, tr("The safety policy already has %d rules. [o]verwrite, [a]ppend or [c]ancel? "), existing)
+	var answer string
+	_, _ = fmt.Fscanln(safetyPolicyInput, &answer)
+	switch strings.ToLower(strings.TrimSpace(answer)) {
+	case "o", "overwrite":
+		return "overwrite", nil
+	case "a", "append":
+		return "append", nil
+	}
+	return "", nil
+}
+
+// appendSafetyPolicyPreset adds the preset after the existing rules, which
+// keep precedence because the first matching rule wins. Preset rules whose
+// pattern already exists are skipped. An existing catch-all rule would shadow
+// the whole preset, so it is reported.
+func appendSafetyPolicyPreset(existing, preset []safety.Rule) []safety.Rule {
+	merged := append([]safety.Rule{}, existing...)
+	patterns := map[string]bool{}
+	for _, rule := range existing {
+		patterns[strings.ToLower(rule.Pattern)] = true
+		if rule.Pattern == "*:*" {
+			fmt.Fprintf(safetyPolicyOutput, tr("Warning: the existing rule %s=%s matches every operation before the preset; remove it for the preset to take effect.\n"), rule.Pattern, rule.Action)
+		}
+	}
+	for _, rule := range preset {
+		if !patterns[strings.ToLower(rule.Pattern)] {
+			merged = append(merged, rule)
+		}
+	}
+	return merged
 }
 
 func newSafetyPolicyRemoveCommand() *cobra.Command {
@@ -232,6 +472,15 @@ func enforceSafetyPolicy(product, action string, skipConfirm, interactive bool, 
 	if err != nil {
 		return err
 	}
+	return enforceGivenSafetyPolicy(policy, product, action, skipConfirm, interactive, retryInstruction,
+		tr("operation blocked by safety policy: %s %s (rule: %s)"))
+}
+
+// enforceGivenSafetyPolicy is enforceSafetyPolicy with an already resolved
+// policy. denied formats a deny with the product, action and matched rule
+// pattern; messages for a model use explicit argument indexes to leave the
+// pattern out.
+func enforceGivenSafetyPolicy(policy *safety.Policy, product, action string, skipConfirm, interactive bool, retryInstruction, denied string) error {
 	return safety.CheckAndConfirmWithMessages(
 		safetyPolicyInput,
 		safetyPolicyOutput,
@@ -241,7 +490,7 @@ func enforceSafetyPolicy(product, action string, skipConfirm, interactive bool, 
 		skipConfirm || safety.SkipConfirmFromEnvironment(),
 		retryInstruction,
 		safety.Messages{
-			Denied: tr("operation blocked by safety policy: %s %s (rule: %s)"),
+			Denied: denied,
 			// Keep this literal for the static i18n catalog scanner. A regression
 			// test checks it against safety.ConfirmationNeededMessage.
 			ConfirmationNeeded:  tr("safety policy requires confirmation for: %s %s\ncurrent environment is non-interactive.\nSTOP: Briefly explain the target and impact, ask to continue, then end this turn and wait for a NEW user reply.\nOnly after approval, internally %s ONCE with unchanged arguments; do not ask the user to handle this flag.\nDiscard approval after that attempt, even on failure. Start every new operation without --yes/yes=true; explain and ask only if blocked. Never reuse earlier approvals or weaken policy."),
@@ -297,6 +546,14 @@ func safetySDKService(service string) string {
 		}
 	}
 	return ""
+}
+
+// safetyDeniedForModel formats a safety policy deny returned to a model by
+// call_api and run_script. It leaves out the matched rule: a catch-all
+// pattern such as *:* reads as if every API were blocked, and the model
+// cannot act on it. CLI users, who own the policy, still see the rule.
+func safetyDeniedForModel() string {
+	return tr("operation blocked by safety policy: %[1]s %[2]s. Do not retry it or try another way to perform it; tell the user it was blocked.")
 }
 
 func enforceCLISafetyPolicy(callContext *Context, product, action string) error {

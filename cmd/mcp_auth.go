@@ -120,20 +120,27 @@ type mcpProtectedResourceMetadata struct {
 }
 
 type mcpOAuthConfig struct {
-	Issuer   string
-	Audience string
-	Resource string
-	Client   *http.Client
+	Issuer string
+	// AuthorizationServer is the identifier clients discover the
+	// authorization server metadata from, when it is not served under the
+	// issuer. Protected Resource Metadata then lists it, the issuer defaults
+	// to the metadata issuer, and the audience is optional: servers with
+	// dynamic client registration issue tokens per registered client.
+	AuthorizationServer string
+	Audience            string
+	Resource            string
+	Client              *http.Client
 }
 
 func newMCPJWTVerifier(config mcpOAuthConfig) (*mcpJWTVerifier, mcpAuthorizationServerMetadata, error) {
 	config.Issuer = strings.TrimSpace(config.Issuer)
+	config.AuthorizationServer = strings.TrimSpace(config.AuthorizationServer)
 	config.Audience = strings.TrimSpace(config.Audience)
 	config.Resource = strings.TrimRight(strings.TrimSpace(config.Resource), "/")
-	if config.Issuer == "" {
-		return nil, mcpAuthorizationServerMetadata{}, fmt.Errorf("--oauth-issuer is required when OAuth is enabled")
+	if config.Issuer == "" && config.AuthorizationServer == "" {
+		return nil, mcpAuthorizationServerMetadata{}, fmt.Errorf("--oauth-issuer or --oauth-authorization-server is required when OAuth is enabled")
 	}
-	if config.Audience == "" {
+	if config.Audience == "" && config.AuthorizationServer == "" {
 		return nil, mcpAuthorizationServerMetadata{}, fmt.Errorf("--oauth-audience is required when OAuth is enabled")
 	}
 	if config.Resource == "" {
@@ -143,9 +150,19 @@ func newMCPJWTVerifier(config mcpOAuthConfig) (*mcpJWTVerifier, mcpAuthorization
 		config.Client = &http.Client{Timeout: 10 * time.Second}
 	}
 
-	metadata, err := discoverMCPAuthorizationServer(config.Client, config.Issuer)
+	discovery := config.Issuer
+	if config.AuthorizationServer != "" {
+		discovery = config.AuthorizationServer
+	}
+	metadata, err := discoverMCPAuthorizationServer(config.Client, discovery)
 	if err != nil {
 		return nil, mcpAuthorizationServerMetadata{}, err
+	}
+	if config.Issuer == "" {
+		if err := validateMCPSecureURL(metadata.Issuer, "authorization server issuer"); err != nil {
+			return nil, mcpAuthorizationServerMetadata{}, err
+		}
+		config.Issuer = metadata.Issuer
 	}
 	if metadata.Issuer != config.Issuer {
 		return nil, mcpAuthorizationServerMetadata{}, fmt.Errorf("authorization server issuer mismatch")
@@ -256,13 +273,16 @@ type mcpJWTVerifier struct {
 
 func (v *mcpJWTVerifier) Verify(rawToken string) (*mcpTokenClaims, error) {
 	claims := &mcpJWTClaims{}
-	parser := jwt.NewParser(
+	options := []jwt.ParserOption{
 		jwt.WithValidMethods([]string{"RS256", "RS384", "RS512", "ES256", "ES384", "ES512"}),
 		jwt.WithIssuer(v.issuer),
-		jwt.WithAudience(v.audience),
 		jwt.WithExpirationRequired(),
-		jwt.WithLeeway(30*time.Second),
-	)
+		jwt.WithLeeway(30 * time.Second),
+	}
+	if v.audience != "" {
+		options = append(options, jwt.WithAudience(v.audience))
+	}
+	parser := jwt.NewParser(options...)
 	keyFunction := func(token *jwt.Token) (interface{}, error) {
 		kid, _ := token.Header["kid"].(string)
 		key, ok := v.lookupKey(kid)

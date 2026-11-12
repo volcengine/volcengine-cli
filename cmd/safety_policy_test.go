@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -398,4 +399,329 @@ func TestSafetyConfirmationTemplateMatchesDefault(t *testing.T) {
 	if _, ok := combinedTranslationCatalog(t)[safety.ConfirmationNeededMessage]; !ok {
 		t.Fatal("shared confirmation template has no Chinese translation")
 	}
+}
+
+// Every explicit (non-wildcard service) rule of the official presets must
+// name a bundled API, so metadata updates cannot silently orphan a rule.
+func TestSafetyPolicyPresetsNameBundledAPIs(t *testing.T) {
+	var rules []safety.Rule
+	for _, name := range safety.PresetNames() {
+		preset, _ := safety.PresetRules(name)
+		rules = append(rules, preset...)
+	}
+	for _, rule := range rules {
+		service, action, _ := strings.Cut(rule.Pattern, ":")
+		if service == "*" {
+			continue
+		}
+		matched := false
+		for _, candidate := range rootSupport.GetAllAction(service) {
+			if strings.HasSuffix(action, "*") && strings.HasPrefix(candidate, strings.TrimSuffix(action, "*")) || candidate == action {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			t.Errorf("preset rule %s names no bundled API", rule.Pattern)
+		}
+	}
+}
+
+func TestConfigureSafetyPolicyPreset(t *testing.T) {
+	dir, cleanup := withTestConfigDir(t)
+	defer cleanup()
+	previousOutput, previousInput := safetyPolicyOutput, safetyPolicyInput
+	output := &bytes.Buffer{}
+	safetyPolicyOutput, safetyPolicyInput = output, strings.NewReader("")
+	defer func() { safetyPolicyOutput, safetyPolicyInput = previousOutput, previousInput }()
+	preset, _ := safety.PresetRules(safety.PresetConfirmWrites)
+
+	if _, err := runSafetyPolicyCommandForTest(t, "preset", "unknown"); err == nil || !strings.Contains(err.Error(), "confirm-writes") {
+		t.Fatalf("unknown preset error = %v", err)
+	}
+	// No policy yet: the preset is written and enabled.
+	if _, err := runSafetyPolicyCommandForTest(t, "preset", "confirm-writes"); err != nil {
+		t.Fatal(err)
+	}
+	policy, err := safety.LoadPolicy(dir)
+	if err != nil || !policy.Enabled || len(policy.Rules) != len(preset) {
+		t.Fatalf("policy = %+v, %v", policy, err)
+	}
+
+	// Existing rules without a choice: a non-interactive run must not guess.
+	if _, err := runSafetyPolicyCommandForTest(t, "add", "--pattern", "ecs:DescribeInstances", "--action", "deny"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runSafetyPolicyCommandForTest(t, "preset", "confirm-writes"); err == nil || !strings.Contains(err.Error(), "--overwrite") {
+		t.Fatalf("preset over existing rules without a choice: %v", err)
+	}
+	if _, err := runSafetyPolicyCommandForTest(t, "preset", "confirm-writes", "--overwrite", "--append"); err == nil {
+		t.Fatal("--overwrite with --append accepted")
+	}
+
+	// Append keeps existing rules first and skips duplicate patterns.
+	if err := safety.SavePolicy(dir, &safety.Policy{Rules: []safety.Rule{{Pattern: "ecs:DescribeInstances", Action: safety.ActionDeny}, {Pattern: "*:*", Action: safety.ActionAllow}}}); err != nil {
+		t.Fatal(err)
+	}
+	output.Reset()
+	if _, err := runSafetyPolicyCommandForTest(t, "preset", "confirm-writes", "--append"); err != nil {
+		t.Fatal(err)
+	}
+	policy, _ = safety.LoadPolicy(dir)
+	if !policy.Enabled || len(policy.Rules) != len(preset)+1 || policy.Rules[0].Pattern != "ecs:DescribeInstances" || policy.Rules[1].Pattern != "*:*" || policy.Rules[1].Action != safety.ActionAllow {
+		t.Fatalf("appended policy = %d rules, first %+v %+v", len(policy.Rules), policy.Rules[0], policy.Rules[1])
+	}
+	if !strings.Contains(output.String(), "matches every operation") {
+		t.Fatalf("append did not warn about the catch-all rule: %q", output.String())
+	}
+
+	// Overwrite replaces the rules.
+	if _, err := runSafetyPolicyCommandForTest(t, "preset", "confirm-writes", "--overwrite"); err != nil {
+		t.Fatal(err)
+	}
+	policy, _ = safety.LoadPolicy(dir)
+	if len(policy.Rules) != len(preset) || policy.Rules[0] != preset[0] {
+		t.Fatalf("overwritten policy = %d rules", len(policy.Rules))
+	}
+}
+
+// add puts new rules first, so they apply even after a preset's catch-all.
+func TestConfigureSafetyPolicyAddAfterPreset(t *testing.T) {
+	dir, cleanup := withTestConfigDir(t)
+	defer cleanup()
+	previousOutput, previousInput := safetyPolicyOutput, safetyPolicyInput
+	safetyPolicyOutput, safetyPolicyInput = &bytes.Buffer{}, strings.NewReader("")
+	defer func() { safetyPolicyOutput, safetyPolicyInput = previousOutput, previousInput }()
+	if _, err := runSafetyPolicyCommandForTest(t, "preset", "confirm-writes"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runSafetyPolicyCommandForTest(t, "add", "--pattern", "ecs:Delete*", "--action", "deny"); err != nil {
+		t.Fatal(err)
+	}
+	policy, err := safety.LoadPolicy(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if policy.Rules[0].Pattern != "ecs:Delete*" || policy.Rules[0].Action != safety.ActionDeny {
+		t.Fatalf("first rule = %+v", policy.Rules[0])
+	}
+	if got := policy.Check(safety.CommandInfo{Product: "ecs", Action: "DeleteInstance"}).Action; got != safety.ActionDeny {
+		t.Fatalf("ecs:DeleteInstance = %s, want deny", got)
+	}
+}
+
+// add keeps the policy in the order deny rules, then allow and confirm
+// rules, then a *:* catch-all, so a new confirm rule never overrides a deny
+// and is never hidden by an allow rule; where no place satisfies both, it
+// refuses and leaves the policy unchanged.
+func TestSafetyPolicyAddKeepsDenyConfirmCatchAllOrder(t *testing.T) {
+	type env struct {
+		dir   string
+		check func(string) safety.Action
+		rules func() []safety.Rule
+		run   func(...string) (string, error)
+	}
+	setup := func(t *testing.T) env {
+		dir, cleanup := withTestConfigDir(t)
+		t.Cleanup(cleanup)
+		load := func() *safety.Policy {
+			t.Helper()
+			policy, err := safety.LoadPolicy(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return policy
+		}
+		return env{
+			dir: dir,
+			check: func(api string) safety.Action {
+				t.Helper()
+				service, action, _ := strings.Cut(api, ":")
+				return load().Check(safety.CommandInfo{Product: service, ProductAliases: safetyServiceAliases(service), Action: action}).Action
+			},
+			rules: func() []safety.Rule { return load().Rules },
+			run: func(args ...string) (string, error) {
+				t.Helper()
+				return runSafetyPolicyCommandForTest(t, args...)
+			},
+		}
+	}
+	mustRun := func(t *testing.T, e env, args ...string) string {
+		t.Helper()
+		output, err := e.run(args...)
+		if err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		return output
+	}
+	want := func(t *testing.T, e env, api string, action safety.Action) {
+		t.Helper()
+		if got := e.check(api); got != action {
+			t.Fatalf("%s = %s, want %s", api, got, action)
+		}
+	}
+
+	t.Run("deny first, confirm after the deny rules", func(t *testing.T) {
+		e := setup(t)
+		mustRun(t, e, "add", "--pattern", "ecs:DeleteInstance", "--action", "deny")
+		mustRun(t, e, "enable")
+		mustRun(t, e, "add", "--pattern", "ecs:*", "--action", "confirm")
+		want(t, e, "ecs:DeleteInstance", safety.ActionDeny)
+		want(t, e, "ecs:RunInstances", safety.ActionConfirm)
+	})
+	t.Run("preset rule updated to deny, then confirm", func(t *testing.T) {
+		e := setup(t)
+		mustRun(t, e, "preset", "confirm-deletes", "--overwrite")
+		mustRun(t, e, "add", "--pattern", "*:BatchReset*", "--action", "deny")
+		mustRun(t, e, "add", "--pattern", "ecs:DescribeInstances", "--action", "confirm")
+		want(t, e, "ecs:DescribeInstances", safety.ActionConfirm)
+		want(t, e, "ecs:BatchResetInstances", safety.ActionDeny)
+	})
+	t.Run("deny updated behind a broader confirm", func(t *testing.T) {
+		e := setup(t)
+		mustRun(t, e, "add", "--pattern", "ecs:StopInstance", "--action", "deny")
+		mustRun(t, e, "enable")
+		mustRun(t, e, "add", "--pattern", "ecs:DeleteInstance", "--action", "confirm")
+		mustRun(t, e, "add", "--pattern", "ecs:*", "--action", "confirm")
+		mustRun(t, e, "add", "--pattern", "ecs:DeleteInstance", "--action", "deny")
+		want(t, e, "ecs:DeleteInstance", safety.ActionDeny)
+	})
+	t.Run("deny kept for any spelling or character", func(t *testing.T) {
+		e := setup(t)
+		mustRun(t, e, "add", "--pattern", "cloud_*:DeleteTrail", "--action", "deny")
+		mustRun(t, e, "add", "--pattern", "ecs:De\u017fcribeInstances", "--action", "deny")
+		mustRun(t, e, "enable")
+		mustRun(t, e, "add", "--pattern", "cloudtrail*:*", "--action", "confirm")
+		mustRun(t, e, "add", "--pattern", "ecs:Describe*", "--action", "confirm")
+		want(t, e, "cloudtrail:DeleteTrail", safety.ActionDeny)
+		want(t, e, "ecs:DescribeInstances", safety.ActionDeny)
+	})
+	t.Run("duplicate patterns merge", func(t *testing.T) {
+		e := setup(t)
+		if err := safety.SavePolicy(e.dir, &safety.Policy{Enabled: true, Rules: []safety.Rule{
+			{Pattern: "ecs:DescribeInstances", Action: safety.ActionConfirm},
+			{Pattern: "ECS:DESCRIBEINSTANCES", Action: safety.ActionConfirm},
+		}}); err != nil {
+			t.Fatal(err)
+		}
+		output := mustRun(t, e, "add", "--pattern", "ecs:describeinstances", "--action", "deny")
+		want(t, e, "ecs:DescribeInstances", safety.ActionDeny)
+		if rules := e.rules(); len(rules) != 1 || rules[0].Pattern != "ecs:DescribeInstances" || !strings.Contains(output, "2") {
+			t.Fatalf("rules = %+v, output = %q", rules, output)
+		}
+	})
+	t.Run("catch-all stays last", func(t *testing.T) {
+		e := setup(t)
+		mustRun(t, e, "preset", "confirm-writes", "--overwrite")
+		mustRun(t, e, "add", "--pattern", "*:*", "--action", "deny")
+		want(t, e, "ecs:DescribeInstances", safety.ActionAllow)
+		want(t, e, "ecs:RunInstances", safety.ActionDeny)
+		if rules := e.rules(); rules[len(rules)-1].Pattern != "*:*" {
+			t.Fatalf("*:* moved: last rule %+v", rules[len(rules)-1])
+		}
+		output := mustRun(t, e, "add", "--pattern", "*:*", "--action", "confirm")
+		want(t, e, "ecs:DescribeInstances", safety.ActionAllow)
+		want(t, e, "ecs:RunInstances", safety.ActionConfirm)
+		if !strings.Contains(output, "Warning") && !strings.Contains(output, "警告") {
+			t.Fatalf("deny to confirm printed %q, want a warning", output)
+		}
+	})
+	t.Run("confirm refused under a default deny", func(t *testing.T) {
+		e := setup(t)
+		mustRun(t, e, "preset", "deny-writes", "--overwrite")
+		before := e.rules()
+		if _, err := e.run("add", "--pattern", "kms:*", "--action", "confirm"); err == nil || !strings.Contains(err.Error(), "*:*") {
+			t.Fatalf("add kms:*=confirm error = %v", err)
+		}
+		if !reflect.DeepEqual(e.rules(), before) {
+			t.Fatal("a refused add changed the policy")
+		}
+		want(t, e, "kms:CreateKey", safety.ActionDeny)
+	})
+	t.Run("confirm refused when a deny follows allow rules", func(t *testing.T) {
+		e := setup(t)
+		mustRun(t, e, "preset", "confirm-deletes", "--overwrite")
+		mustRun(t, e, "preset", "deny-writes", "--append")
+		before := e.rules()
+		if _, err := e.run("add", "--pattern", "ecs:DescribeInstances", "--action", "confirm"); err == nil || !strings.Contains(err.Error(), "deny") {
+			t.Fatalf("add error = %v", err)
+		}
+		if !reflect.DeepEqual(e.rules(), before) {
+			t.Fatal("a refused add changed the policy")
+		}
+		// A deny still goes first in that policy.
+		mustRun(t, e, "add", "--pattern", "ecs:DescribeInstances", "--action", "deny")
+		want(t, e, "ecs:DescribeInstances", safety.ActionDeny)
+	})
+	t.Run("notices describe what changed", func(t *testing.T) {
+		e := setup(t)
+		mustRun(t, e, "add", "--pattern", "ecs:DescribeInstances", "--action", "deny")
+		mustRun(t, e, "add", "--pattern", "ecs:*", "--action", "deny")
+		mustRun(t, e, "enable")
+		output := mustRun(t, e, "add", "--pattern", "ecs:DescribeInstances", "--action", "confirm")
+		if !strings.Contains(output, "except those an earlier deny rule matches first") || !strings.Contains(output, "1 deny") {
+			t.Fatalf("deny to confirm printed %q", output)
+		}
+		want(t, e, "ecs:DescribeInstances", safety.ActionDeny)
+	})
+	t.Run("catch-all spellings", func(t *testing.T) {
+		e := setup(t)
+		mustRun(t, e, "add", "--pattern", "*:**", "--action", "confirm")
+		mustRun(t, e, "add", "--pattern", "ecs:RunInstances", "--action", "deny")
+		mustRun(t, e, "add", "--pattern", "**:*", "--action", "deny")
+		mustRun(t, e, "enable")
+		rules := e.rules()
+		if len(rules) != 2 || rules[len(rules)-1].Pattern != "*:*" || rules[len(rules)-1].Action != safety.ActionDeny {
+			t.Fatalf("rules = %+v, want one *:* deny last", rules)
+		}
+		want(t, e, "vpc:CreateVpc", safety.ActionDeny)
+	})
+	t.Run("legacy catch-all spelling saved as *:*", func(t *testing.T) {
+		e := setup(t)
+		if err := safety.SavePolicy(e.dir, &safety.Policy{Enabled: true, Rules: []safety.Rule{{Pattern: "*:**", Action: safety.ActionConfirm}}}); err != nil {
+			t.Fatal(err)
+		}
+		mustRun(t, e, "add", "--pattern", "*:*", "--action", "deny")
+		if rules := e.rules(); len(rules) != 1 || rules[0].Pattern != "*:*" || rules[0].Action != safety.ActionDeny {
+			t.Fatalf("rules = %+v", rules)
+		}
+	})
+	t.Run("effective state notices", func(t *testing.T) {
+		e := setup(t)
+		output := mustRun(t, e, "add", "--pattern", "ecs:*", "--action", "deny")
+		if !strings.Contains(output, "safety-policy enable") {
+			t.Fatalf("add on a disabled policy printed %q", output)
+		}
+		// Enabled by the environment: no disabled notice.
+		t.Setenv(safety.EnvPolicyEnabled, "true")
+		if output := mustRun(t, e, "add", "--pattern", "vpc:*", "--action", "deny"); strings.Contains(output, "safety-policy enable") {
+			t.Fatalf("add with %s=true printed %q", safety.EnvPolicyEnabled, output)
+		}
+		t.Setenv(safety.EnvPolicyEnabled, "false")
+		if output := mustRun(t, e, "add", "--pattern", "rds:*", "--action", "deny"); !strings.Contains(output, safety.EnvPolicyEnabled+" disables") {
+			t.Fatalf("add with %s=false printed %q", safety.EnvPolicyEnabled, output)
+		}
+		t.Setenv(safety.EnvPolicyEnabled, "true")
+		t.Setenv(safety.EnvPolicyRules, "*:*=deny")
+		if output := mustRun(t, e, "add", "--pattern", "kms:*", "--action", "deny"); !strings.Contains(output, safety.EnvPolicyRules) {
+			t.Fatalf("add with %s set printed %q", safety.EnvPolicyRules, output)
+		}
+	})
+	t.Run("misplaced catch-all", func(t *testing.T) {
+		e := setup(t)
+		mustRun(t, e, "preset", "deny-writes", "--overwrite")
+		mustRun(t, e, "preset", "confirm-deletes", "--append")
+		if _, err := e.run("add", "--pattern", "*:*", "--action", "confirm"); err == nil || !strings.Contains(err.Error(), "*:*") {
+			t.Fatalf("add *:* error = %v", err)
+		}
+	})
+	t.Run("misplaced catch-all deny refuses a confirm", func(t *testing.T) {
+		e := setup(t)
+		mustRun(t, e, "add", "--pattern", "*:*", "--action", "deny")
+		mustRun(t, e, "preset", "confirm-deletes", "--append")
+		_, err := e.run("add", "--pattern", "ecs:RunInstances", "--action", "confirm")
+		if err == nil || !strings.Contains(err.Error(), "rule 1 *:* -> deny is not the last rule") {
+			t.Fatalf("add error = %v", err)
+		}
+	})
 }
