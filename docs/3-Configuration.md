@@ -207,7 +207,7 @@ Patterns must contain exactly one colon, with a non-empty service and action and
 
 If the policy already has rules, pass `--overwrite` to replace them or `--append` to keep them and add the preset after them; existing rules keep precedence, and an existing `*:*` rule shadows the preset. An interactive terminal asks when neither flag is given; non-interactive runs fail instead of guessing, so startup scripts use `--overwrite`. A script run by `run_script` is approved as a whole: the first call that a `confirm` rule protects stops the run, and after the user approves the script it runs again unchanged with `yes: true`.
 
-For rule management, `add` and `remove` compare the complete pattern text case-insensitively. `add` updates the first matching pattern in place, preserving its position; otherwise, it appends a rule. `remove` deletes all matching patterns and still succeeds if none exist. Wildcards and service aliases are not expanded when locating stored patterns.
+For rule management, `add` and `remove` compare the complete pattern text case-insensitively. `add` replaces every rule with that pattern by one rule, keeping the stored spelling, and places it as described above (`deny` first, `confirm` right after the leading `deny` rules); `*:*` is updated in place when it is last and appended when absent. `remove` deletes all matching patterns and still succeeds if none exist. Wildcards and service aliases are not expanded when locating stored patterns.
 
 ```json
 {
